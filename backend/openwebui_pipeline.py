@@ -1,3 +1,13 @@
+"""
+TODO: 
+    - This needs to enable an openwebui openai compatible server or pipeline
+    - The pipeline will call another server or will be a server
+    - The algorithm will be standalone and not necessarily interfaced through openwebui
+    - There needs to be a single streamlit app that can also interface with the llm server
+    - The llm server will be like ollama but offer our models that have much more logic than just the llm call
+"""
+
+
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 

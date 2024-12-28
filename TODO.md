@@ -3,6 +3,7 @@
 ## General
 
 - [ ] Data sources
+
   - [ ] What local data do I download
     - [ ] General conference talks
     - [ ] Scriptures in chapters
@@ -12,6 +13,10 @@
     - [ ] Levels deep of the link graph
     - [ ] How many links to follow
   - [ ] How to manage citations
+
+- [x] Make repo public
+- If using openwebui, include instructions for it's deployment and special config
+  - Include pipelines
 
 ## Frontend
 
