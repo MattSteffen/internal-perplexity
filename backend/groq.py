@@ -23,7 +23,7 @@ class Pipeline:
         self.valves = self.Valves(
             **{
                 "GROQ_API_KEY": os.getenv(
-                    "GROQ_API_KEY", "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"
+                    "GROQ_API_KEY", ""
                 )
             }
         )
