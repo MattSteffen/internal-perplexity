@@ -1,6 +1,6 @@
 from pymilvus import connections, FieldSchema, CollectionSchema, DataType, Collection, utility
+import re
 
-# TODO: Ensure that no duplicates are inserted
 
 class VectorStorage:
     def __init__(self, host: str = 'localhost', port: str = '19530', 
@@ -137,45 +137,89 @@ class VectorStorage:
         self.collection.flush()
         print(f"Inserted {len(texts_to_insert)} new chunks.")
 
-    def search(self, query_embedding: list, limit: int = 5) -> list:
+    def search(self, query_embedding: list, limit: int = 5, filters: list[str] = []) -> list:
         """
         Search for similar chunks using a query embedding.
-        
+        Optionally filter by a list of authors or other valid filters.
+
         Args:
-            query_embedding (list): The query vector
-            limit (int): Maximum number of results to return
-            
+            query_embedding (list): The query vector. If empty or None, the search will
+                                    only filter based on the provided filters.
+            limit (int): Maximum number of results to return.
+            filters (list[str], optional): A list of filter clauses as strings.
+                                           Each filter should follow the pattern:
+                                           "field == value" or "field in [value1, value2, ...]".
+
         Returns:
-            list: List of dictionaries containing search results with metadata
+            list: List of dictionaries containing search results with metadata.
         """
-        search_params = {
-            "metric_type": "L2",
-            "params": {"nprobe": 10}
-        }
+        # Define a set of allowed fields for filtering.
+        allowed_fields = {"source", "chunk_index", "text", "title", "author", "author_role", "url"}
 
-        results = self.collection.search(
-            data=[query_embedding],
-            anns_field="embedding",
-            param=search_params,
-            limit=limit,
-            output_fields=["text", "source", "title", "author", "author_role", "url", "chunk_index"]
-        )
+        def is_valid_filter(filter_str: str) -> bool:
+            """
+            A simple validator for filter expressions.
+            The expected format is optionally enclosed in parentheses, then:
+              field (==|in) value
+            """
+            pattern = r'^\s*\(?\s*([a-zA-Z_]+)\s*(==|in|<|>)\s*(.+)\s*\)?\s*$'
+            match = re.match(pattern, filter_str)
+            if not match:
+                return False
+            field = match.group(1)
+            return field in allowed_fields
 
-        formatted_results = []
-        for hits in results:
-            for hit in hits:
-                formatted_results.append({
-                    "text": hit.entity.get("text"),
-                    "source": hit.entity.get("source"),
-                    "title": hit.entity.get("title"),
-                    "author": hit.entity.get("author"),
-                    "author_role": hit.entity.get("author_role"),
-                    "url": hit.entity.get("url"),
-                    "chunk_index": hit.entity.get("chunk_index"),
-                    "distance": hit.distance
-                })
+        # Validate the filters provided and keep only those that are valid.
+        valid_filter_list = []
+        for f in filters:
+            if is_valid_filter(f):
+                valid_filter_list.append(f)
+            else:
+                print(f"Warning: Invalid filter skipped: {f}")
 
-        return formatted_results
+
+        # Combine valid filters using 'and'
+        filter_expr = " and ".join(valid_filter_list) if valid_filter_list else ""
+
+        # If a query embedding is provided, perform a vector search.
+        if query_embedding:
+            search_params = {
+                "metric_type": "L2",
+                "params": {"nprobe": 10}
+            }
+            
+            results = self.collection.search(
+                data=[query_embedding],
+                anns_field="embedding",
+                param=search_params,
+                limit=limit,
+                expr=filter_expr,
+                output_fields=["text", "source", "title", "author", "author_role", "url", "chunk_index"]
+            )
+
+            formatted_results = []
+            for hits in results:
+                for hit in hits:
+                    formatted_results.append({
+                        "text": hit.entity.get("text"),
+                        "source": hit.entity.get("source"),
+                        "title": hit.entity.get("title"),
+                        "author": hit.entity.get("author"),
+                        "author_role": hit.entity.get("author_role"),
+                        "url": hit.entity.get("url"),
+                        "chunk_index": hit.entity.get("chunk_index"),
+                        "distance": hit.distance
+                    })
+
+            return formatted_results
+        else:
+            # No embedding provided: query using the filter expression (or all docs if no filter).
+            results = self.collection.query(
+                expr=filter_expr,
+                output_fields=["text", "source", "title", "author", "author_role", "url", "chunk_index"]
+            )
+            # Apply limit manually if needed.
+            return results[:limit]
 
     def close(self):
         """Disconnect from Milvus."""
