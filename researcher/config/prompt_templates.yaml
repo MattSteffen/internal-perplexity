@@ -1,0 +1,19 @@
+# config/prompt_templates.yaml
+
+# Prompt templates for interactions with the LLM.
+
+query_decomposition:
+  template: |
+    Given the query: "{user_query}", break it down into actionable sub-queries that can be individually researched.
+
+document_scoring:
+  template: |
+    Evaluate the relevance of the following document for the query "{sub_query}".
+    Document Content: "{document_content}"
+    Metadata: {metadata}
+    Provide a score from 1 to 10 based on relevance and quality.
+
+final_summary:
+  template: |
+    Based on the aggregated research findings, provide a concise summary with inline citations.
+    Ensure the summary includes key points and appropriate document references.

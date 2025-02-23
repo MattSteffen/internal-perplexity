@@ -1,0 +1,24 @@
+# config/metadata_rules.yaml
+
+# Metadata validation rules for documents retrieved by the Researcher Agent.
+
+required_fields:
+  - author # The author of the document
+  - publication_date # The publication date (format: YYYY-MM-DD)
+  - source # The source from which the document was obtained
+
+validation_rules:
+  author: "non_empty" # Author field must not be empty
+  publication_date: "valid_date" # Must be a valid date in YYYY-MM-DD format
+  source: "trusted_source" # Must match one of the trusted sources below
+
+trusted_sources:
+  - "Journal of AI Research"
+  - "ACM Digital Library"
+  - "IEEE Xplore"
+  - "Nature"
+
+scoring_weights:
+  author: 1.0
+  publication_date: 1.5
+  source: 2.0

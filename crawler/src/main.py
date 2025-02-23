@@ -1,17 +1,16 @@
 import json
 from discovery import find_dirs
 from processing.extractors import JSONHandler
-from processing.chunking import TextSplitter
 from processing.embeddings import LocalEmbedder
 from storage.vector_db import VectorStorage
 
-def process_file(dir_path: str, vector_db: VectorStorage, splitter: TextSplitter, embedder: LocalEmbedder):
+def process_file(dir_path: str, vector_db: VectorStorage, embedder: LocalEmbedder):
     handler = JSONHandler(dir_path)
     texts, metadatas = [], []
     
     for text, metadata in handler.extract():
         if isinstance(text, str) and text.strip():
-            chunks = splitter.split_text(text)
+            chunks = [text]
         else:  # text is a list of strings already
             chunks = text
         texts.extend(chunks)
@@ -25,12 +24,11 @@ def process_file(dir_path: str, vector_db: VectorStorage, splitter: TextSplitter
 
 def setup(input_dir: str):
     vector_db = VectorStorage()
-    splitter = TextSplitter()
     embedder = LocalEmbedder()
 
     for json_dir in find_dirs(input_dir):
         print(f"Processing {json_dir}")
-        process_file(json_dir, vector_db, splitter, embedder)
+        process_file(json_dir, vector_db, embedder)
 
     # --- Search Test Without Author Filter ---
     query = "admired great-grandmother"

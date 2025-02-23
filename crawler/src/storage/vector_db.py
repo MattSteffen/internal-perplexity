@@ -1,46 +1,38 @@
-from pymilvus import connections, FieldSchema, CollectionSchema, DataType, Collection, utility
 import re
+import yaml
+from pymilvus import connections, FieldSchema, CollectionSchema, DataType, Collection, utility
 
 
 class VectorStorage:
     def __init__(self, host: str = 'localhost', port: str = '19530', 
-                 collection_name: str = 'documents', dim: int = 384):
+                 collection_name: str = 'documents', dim: int = 384,
+                 schema_config_path: str = "milvus_schema.yaml"):
         self.host = host
         self.port = port
         self.collection_name = collection_name
         self.dim = dim
+        self.schema_config_path = schema_config_path
         self.collection = None
 
-        connections.connect(host=host, port=port)
+    def __enter__(self):
+        connections.connect(host=self.host, port=self.port)
         
-        if not utility.has_collection(collection_name):
+        if not utility.has_collection(self.collection_name):
             self._create_collection()
         else:
-            self.collection = Collection(collection_name)
+            self.collection = Collection(self.collection_name)
             self.collection.load()
+        return self
+    
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self.collection:
+            self.collection.release()
+        connections.disconnect("default")
 
     def _create_collection(self):
-        fields = [
-            FieldSchema(name='id', dtype=DataType.INT64, is_primary=True, auto_id=True),
-            FieldSchema(name='text', dtype=DataType.VARCHAR, max_length=65535),
-            FieldSchema(name='embedding', dtype=DataType.FLOAT_VECTOR, dim=self.dim),
-            FieldSchema(name='source', dtype=DataType.VARCHAR, max_length=1024),
-            FieldSchema(name='title', dtype=DataType.VARCHAR, max_length=255),
-            FieldSchema(name='author', dtype=DataType.VARCHAR, max_length=255),
-            FieldSchema(name='author_role', dtype=DataType.VARCHAR, max_length=255),
-            FieldSchema(name='url', dtype=DataType.VARCHAR, max_length=1024),
-            FieldSchema(name='chunk_index', dtype=DataType.INT64)
-        ]
-        schema = CollectionSchema(fields, description="Document chunks with embeddings")
-        self.collection = Collection(self.collection_name, schema)
-        
-        # Create index for vector search
-        index_params = {
-            "index_type": "IVF_FLAT",
-            "metric_type": "L2",
-            "params": {"nlist": 128}
-        }
-        self.collection.create_index("embedding", index_params)
+        # Load schema configuration from YAML
+        config = load_schema_config(self.schema_config_path)
+        self.collection = create_collection(config, self.collection_name, self.dim)
 
     def insert_data(self, texts: list, embeddings: list, metadatas: list):
         """
@@ -56,8 +48,7 @@ class VectorStorage:
         if not (len(texts) == len(embeddings) == len(metadatas)):
             raise ValueError("All input lists must have the same length")
         
-        # Build a list of unique keys from new records
-        # Each key is a tuple: (source, chunk_index)
+        # Build a list of unique keys from new records: (source, chunk_index)
         new_entries = []
         for i in range(len(texts)):
             meta = metadatas[i]
@@ -71,7 +62,6 @@ class VectorStorage:
         seen = set()
         indices_to_check = []
         for i, key in enumerate(new_entries):
-            # key is a tuple: (source, chunk_index)
             print(f"Checking key: {key}")
             if key not in seen:
                 seen.add(key)
@@ -87,11 +77,9 @@ class VectorStorage:
             return
         
         # Build a filter expression to query for existing records.
-        # Example filter: (source == "abc" and chunk_index == 1) or (source == "def" and chunk_index == 2)
         filter_clauses = []
         for key in seen:
             s, ci = key
-            # Use double quotes for string values in the filter expression
             filter_clauses.append(f'(source == "{s}" and chunk_index == {ci})')
         filter_expr = " or ".join(filter_clauses)
         
@@ -160,7 +148,7 @@ class VectorStorage:
             """
             A simple validator for filter expressions.
             The expected format is optionally enclosed in parentheses, then:
-              field (==|in) value
+              field (==|in|<|>) value
             """
             pattern = r'^\s*\(?\s*([a-zA-Z_]+)\s*(==|in|<|>)\s*(.+)\s*\)?\s*$'
             match = re.match(pattern, filter_str)
@@ -177,11 +165,9 @@ class VectorStorage:
             else:
                 print(f"Warning: Invalid filter skipped: {f}")
 
-
         # Combine valid filters using 'and'
         filter_expr = " and ".join(valid_filter_list) if valid_filter_list else ""
 
-        # If a query embedding is provided, perform a vector search.
         if query_embedding:
             search_params = {
                 "metric_type": "L2",
@@ -218,9 +204,68 @@ class VectorStorage:
                 expr=filter_expr,
                 output_fields=["text", "source", "title", "author", "author_role", "url", "chunk_index"]
             )
-            # Apply limit manually if needed.
             return results[:limit]
 
     def close(self):
         """Disconnect from Milvus."""
         connections.disconnect("default")
+
+
+
+
+def load_schema_config(config_file: str) -> dict:
+    """Loads the collection schema configuration from a YAML file."""
+    with open(config_file, "r") as f:
+        config = yaml.safe_load(f)
+    return config
+
+
+
+def build_collection_schema(config: dict, default_dim: int) -> CollectionSchema:
+    """
+    Builds a CollectionSchema based on the provided configuration.
+    """
+    fields_config = config.get("fields", [])
+    # Always add the auto-generated id field.
+    fields = [
+        FieldSchema(name='id', dtype=DataType.INT64, is_primary=True, auto_id=True)
+    ]
+    
+    for field in fields_config:
+        name = field["name"]
+        field_type = field["type"]
+        
+        if field_type == "string":
+            max_length = field.get("max_length", 1024)
+            fields.append(FieldSchema(name=name, dtype=DataType.VARCHAR, max_length=max_length))
+        elif field_type == "integer":
+            fields.append(FieldSchema(name=name, dtype=DataType.INT64))
+        elif field_type == "float_vector":
+            dim = field.get("dim", default_dim)
+            fields.append(FieldSchema(name=name, dtype=DataType.FLOAT_VECTOR, dim=dim))
+        elif field_type == "array":
+            max_length = field.get("max_length", 1024)
+            fields.append(FieldSchema(name=name, dtype=DataType.VARCHAR, max_length=max_length))
+        else:
+            raise ValueError(f"Unsupported field type: {field_type}")
+    
+    description = config.get("description", "Document chunks with embeddings")
+    return CollectionSchema(fields, description=description)
+
+def create_collection(config: dict, collection_name: str, default_dim: int) -> Collection:
+    """
+    Creates and returns a new Milvus collection based on the configuration.
+    """
+    schema = build_collection_schema(config, default_dim)
+    collection = Collection(collection_name, schema)
+    
+    # Create index for vector search.
+    index_field = config.get("index_field", "embedding")
+    index_params = config.get("index_params", {
+        "index_type": "IVF_FLAT",
+        "metric_type": "L2",
+        "params": {"nlist": 128}
+    })
+    collection.create_index(index_field, index_params)
+    
+    return collection
