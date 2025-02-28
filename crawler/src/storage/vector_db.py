@@ -101,6 +101,7 @@ class VectorStorage:
             return
 
         # Prepare data for insertion (using metadata values from the final indices)
+        # TODO: This is hardcoded. It should be created from config options.
         texts_to_insert = [texts[i] for i in final_indices]
         embeddings_to_insert = [embeddings[i] for i in final_indices]
         sources_to_insert = [metadatas[i].get('source', '') for i in final_indices]
