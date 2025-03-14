@@ -25,15 +25,28 @@ Dependencies:
     - markdown
     - beautifulsoup4
     - pyyaml
+
+
+Extraction process:
+1. Identify files in the directory with the specified extension.
+2. For each file, read the content using the appropriate reader.
+3. Extract metadata using the LLM. Import this metadata from a YAML file converted to JSON schema.
+4. Convert any images to descriptions using the vision LLM if available.
+  - There is llm.with_structured_output(schema) and vision_llm to get description of images.
+5. Convert tables and make sure they are in a consistent format.
+6. Return the extracted text and metadata.
 """
 
 import os
 import yaml
 import json
-from typing import Dict, Any, Tuple, Generator, List, Optional
+from typing import Dict, Any, Tuple, Generator, List, Optional, Union
+import base64
 from abc import ABC, abstractmethod
 from langchain_ollama import ChatOllama
 from langchain_groq import  ChatGroq
+from langchain.schema import HumanMessage
+
 from langchain.chat_models import init_chat_model
 # import docx
 import PyPDF2
@@ -41,123 +54,62 @@ import markdown
 import pptx
 from bs4 import BeautifulSoup
 import csv
+import fitz  # PyMuPDF
+import pytesseract
+from PIL import Image
+import io
 
+from typing import Union
+import base64
+import io
+from PIL import Image
+from langchain_core.messages import HumanMessage
 
-class ExtractorHandler(ABC):
-    def __init__(self, dir_path: str):
-        self.dir_path = dir_path
-    
-    @abstractmethod
-    def extract(self):
-        """Yields text and metadata from documents."""
-        pass
-    
-    def files(self, extension: str):
-        """Yields paths to files with given extension in the directory."""
-        for file_name in os.listdir(self.dir_path):
-            if file_name.endswith(extension):
-                yield os.path.join(self.dir_path, file_name)
+from document_handlers import *
 
-
-class DocumentReader:
-    """Handles reading different document types and extracting text."""
-    
-    @staticmethod
-    def read_txt(file_path: str) -> str:
-        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-            return f.read()
-    
-    @staticmethod
-    def read_pdf(file_path: str) -> str:
-        text = ""
-        with open(file_path, 'rb') as f:
-            pdf_reader = PyPDF2.PdfReader(f)
-            for page_num in range(len(pdf_reader.pages)):
-                text += pdf_reader.pages[page_num].extract_text() + "\n"
-        return text
-    
-    # @staticmethod
-    # def read_docx(file_path: str) -> str:
-    #     doc = docx.Document(file_path)
-    #     return "\n".join([paragraph.text for paragraph in doc.paragraphs])
-    
-    @staticmethod
-    def read_pptx(file_path: str) -> str:
-        prs = pptx.Presentation(file_path)
-        text = []
-        for slide in prs.slides:
-            for shape in slide.shapes:
-                if hasattr(shape, "text"):
-                    text.append(shape.text)
-        return "\n".join(text)
-    
-    @staticmethod
-    def read_md(file_path: str) -> str:
-        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-            md_content = f.read()
-            html = markdown.markdown(md_content)
-            soup = BeautifulSoup(html, 'html.parser')
-            return soup.get_text()
-    
-    @staticmethod
-    def read_html(file_path: str) -> str:
-        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-            soup = BeautifulSoup(f.read(), 'html.parser')
-            return soup.get_text()
-    
-    @staticmethod
-    def read_csv(file_path: str) -> str:
-        text = []
-        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-            csv_reader = csv.reader(f)
-            for row in csv_reader:
-                text.append(",".join(row))
-        return "\n".join(text)
-    
-    @staticmethod
-    def read_json(file_path: str) -> str:
-        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-            return json.dumps(json.load(f), indent=2)
-
-
-class LLMHandler(ExtractorHandler):
-    def __init__(self, dir_path: str, schema_path: str = "crawler/src/storage/document.json", 
-                 ollama_model: str = "llama3.2:1b", ollama_base_url: str = "http://localhost:11434"):
-        super().__init__(dir_path)
+class LLMHandler():
+    def __init__(self, schema_path: str = "crawler/src/storage/document.json", 
+                 model_name: str = "llama3.2:1b", base_url: str = "http://localhost:11434"):
         
         # Initialize Ollama LLM
-        self.llm = ChatOllama(model=ollama_model, base_url=ollama_base_url)
-        self.llm = ChatGroq(model=ollama_model, base_url=ollama_base_url)
-        self.llm = init_chat_model(ollama_model, model_provider="groq")
+        self.llm = init_chat_model(model_name, model_provider="groq", base_url=base_url)
         
         # Create structured output parser from YAML schema
         self.structured_llm = self._setup_output_llm(schema_path)
+
+        # vision LLM
+        self.vision_llm = None
         
         # Document readers mapping
         self.doc_readers = {
-            '.txt': DocumentReader.read_txt,
-            '.pdf': DocumentReader.read_pdf,
-            # '.docx': DocumentReader.read_docx,
-            # '.doc': DocumentReader.read_docx,
-            '.pptx': DocumentReader.read_pptx,
-            '.ppt': DocumentReader.read_pptx,
-            '.md': DocumentReader.read_md,
-            '.html': DocumentReader.read_html,
-            '.htm': DocumentReader.read_html,
-            '.csv': DocumentReader.read_csv,
-            '.json': DocumentReader.read_json
+            '.txt': TextReader,
+            '.pdf': PDFReader,
+            '.md': MarkdownReader,
+            '.html': HTMLReader,
+            '.csv': CSVReader,
+            '.json': JSONReader,
+            # '.docx': DocxReader,
+            # '.doc': DocxReader,
+            # '.pptx': PPTXReader
         }
 
-    def _setup_output_llm(self, json_schema_path):
+    def _setup_output_llm(self, filepath: str):
         """Create a structured output parser from the YAML schema at the given file path."""
-        # Load the schema from the YAML file (already loaded in __init__, but keeping this for clarity)
-        with open(json_schema_path, 'r') as file:
-            schema = json.load(file)
+        schema = dict()
+        if filepath.endswith('yaml'):
+            with open(filepath, 'r') as f:
+                schema = yaml.safe_load(f)
+        elif filepath.endswith('json'):
+            with open(filepath, 'r') as f:
+                schema = json.load(f)
+        else:
+            raise ValueError(f"Unsupported file type: {filepath}")
         
         structured_llm = self.llm.with_structured_output(schema)
         return structured_llm
     
     def _extract_metadata_prompt(self, text: str) -> str:
+        format_instructions = "Extract the metadata fields from the text following the schema provided."
         """Create a prompt for the LLM to extract metadata from the text."""
         return f"""Extract metadata from the following text according to these guidelines:
 
@@ -174,7 +126,7 @@ Return your analysis in the required JSON format."""
         try:
             llm_response = self.structured_llm.invoke(prompt)
             print(f"LLM response: {llm_response}")
-            return llm_response # TODO: Should be a dict
+            return llm_response # dict matching metadata schema
         except Exception as e:
             print(f"Error parsing LLM response: {e}")
             # Return a basic metadata object if parsing fails
@@ -194,7 +146,7 @@ Return your analysis in the required JSON format."""
             if os.path.isfile(os.path.join(self.dir_path, f))
         ]
         
-        for i, file_path in enumerate(all_files):
+        for i, file_path in enumerate(all_files): # can this be the extractor yeild thing?
             ext = self.get_file_extension(file_path)
             
             # Skip unsupported file types
@@ -206,7 +158,8 @@ Return your analysis in the required JSON format."""
                 print(f"Processing file {i+1}/{len(all_files)}: {os.path.basename(file_path)}")
                 
                 # Extract text using the appropriate reader
-                text = self.doc_readers[ext](file_path)
+                doc = self.doc_readers[ext].read(file_path)
+                text = doc.get_text()
                 
                 # Extract metadata using LLM
                 metadata = self.extract_metadata_with_llm(text)
@@ -224,42 +177,49 @@ Return your analysis in the required JSON format."""
                 print(f"Error processing file {file_path}: {e}")
 
 
-def main():
-    dir = "../../../data/conference/"
-    schema = "../../src/storage/document.json"
-    model = "llama-3.3-70b-versatile"
-    output = "output.json"
+class VisionLLM():
+    def __init__(self, model_name: str = "llama3.2:1b", model_provider="ollama", base_url: str = "http://localhost:11434"):
+        # Initialize Ollama LLM
+        self.llm = init_chat_model(model_name, model_provider=model_provider, base_url=base_url)
 
+    def _encode_image(self, image_path_or_data: Union[str, bytes, Image.Image]) -> str:
+        """
+        Encode an image to base64 string.
+        Args:
+            image_path_or_data: Path to image file, bytes of image, or PIL Image
+        Returns:
+            Base64 encoded string of the image
+        """
+        if isinstance(image_path_or_data, str):
+            with open(image_path_or_data, "rb") as image_file:
+                return base64.b64encode(image_file.read()).decode('utf-8')
+        elif isinstance(image_path_or_data, bytes):
+            return base64.b64encode(image_path_or_data).decode('utf-8')
+        elif isinstance(image_path_or_data, Image.Image):
+            buffer = io.BytesIO()
+            image_path_or_data.save(buffer, format="PNG")
+            return base64.b64encode(buffer.getvalue()).decode('utf-8')
+        else:
+            raise ValueError("Unsupported image input type")
 
-    print(f"Processing documents in: {dir}")
-    print(f"Using schema from: {schema}")
-    print(f"Using Ollama model: {model}")
-    
-    # Initialize the handler
-    handler = LLMHandler(
-        dir_path=dir,
-        schema_path=schema,
-        ollama_model=model,
-    )
-    
-    # Extract and collect metadata
-    all_metadata = []
-    for text, metadata in handler.extract():
-        print(f"\nExtracted metadata from {metadata['source']}:")
-        print(json.dumps(metadata, indent=2))
-        all_metadata.append(metadata)
-    
-    # Save all metadata to a JSON file
-    with open(output, 'w') as f:
-        json.dump(all_metadata, f, indent=2)
-    
-    print(f"\nProcessed {len(all_metadata)} documents")
-    print(f"Saved all metadata to {output}")
+    def invoke(self, prompt: str, image_path_or_data: Union[str, bytes, Image.Image]) -> str:
+        """
+        Send a prompt with an image to the vision model
+        Args:
+            prompt: Text prompt to send with the image
+            image_path_or_data: Image to analyze (path, bytes or PIL Image)
+        Returns:
+            Model response as string
+        """
+        image_base64 = self._encode_image(image_path_or_data)
+        
+        message = HumanMessage(
+            content=[
+                {"type": "image_url", "image_url": f"data:image/jpeg;base64,{image_base64}"},
+                {"type": "text", "text": prompt}
+            ]
+        )
+        
+        response = self.llm.invoke([message])
+        return response.content
 
-
-format_instructions = """Extract the metadata fields from the text following the schema provided."""
-
-
-
-if __name__ == "__main__":
-    main()

@@ -1,0 +1,10 @@
+properties:
+  author:
+    type: string
+  date:
+    type: string
+  summary:
+    type: string
+  title:
+    type: string
+type: object

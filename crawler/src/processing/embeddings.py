@@ -3,6 +3,8 @@ from langchain_ollama import OllamaEmbeddings
 from typing import Optional, List
 import yaml
 
+# Try using langchain's milvus so you can upload full documents with metadata.
+
 class LocalEmbedder:
     def __init__(self, 
                  source: str = "ollama",
