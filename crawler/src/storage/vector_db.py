@@ -1,7 +1,20 @@
-import re
-import yaml
-from pymilvus import connections, FieldSchema, CollectionSchema, DataType, Collection, utility
+import logging
+from typing import List, Dict, Any, Optional
+import numpy as np
 
+try:
+    from pymilvus import (
+        connections,
+        utility,
+        FieldSchema,
+        CollectionSchema,
+        DataType,
+        Collection,
+    )
+    MILVUS_AVAILABLE = True
+except ImportError:
+    MILVUS_AVAILABLE = False
+    logging.warning("Pymilvus not installed. Using mock implementation for development.")
 
 class VectorStorage:
     def __init__(self, host: str = 'localhost', port: str = '19530', 

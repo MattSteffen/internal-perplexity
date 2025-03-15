@@ -1,39 +1,36 @@
 from langchain_openai import OpenAIEmbeddings
 from langchain_ollama import OllamaEmbeddings
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import yaml
 
 # Try using langchain's milvus so you can upload full documents with metadata.
 
 class LocalEmbedder:
-    def __init__(self, 
-                 source: str = "ollama",
-                 model_name: str = "all-minilm:v2",
-                 url: Optional[str] = None,
-                 api_key: Optional[str] = None):
-        """Initialize embeddings model based on source.
+    def __init__(self, config: Dict[str, Any]):
+        """Initialize embeddings model based on provider.
         
         Args:
-            source: Either "ollama" or "openai"
-            model_name: Name of model to use
-            url: Base URL for API calls
-            api_key: API key (required for OpenAI)
+          config: Configuration dictionary
+            - embeddings
+              - provider: Ollama or OpenAI
+              - model: Ollama model name or OpenAI model name
+              - url: Ollama URL or OpenAI URL
+              - api_key: OpenAI API key
         """
-        config = load_config("../schema.yaml")
+        embeddings_config = config.get("embeddings", {})
 
-        self.source: str = source
-        self.dimension: int = 0
-        self.model_name = config.get("embedding_model", "all-minilm:v2")
-        self.url = config.get("embedding_url", "http://localhost:11434")
-        self.api_key = config.get("embedding_api_key", None)
+        self.provider: str = embeddings_config.get("provider", "ollama") # TODO: This is actually embeddings.provider
+        self.model_name = embeddings_config.get("model", "all-MiniLM-L6-v2")
+        self.url = embeddings_config.get("url", "http://localhost:11434")
+        self.api_key = embeddings_config.get("api_key", None)
         
-        if source == "ollama":
+        if self.provider == "ollama":
             self.embedder = OllamaEmbeddings(
                 model=self.model_name,
                 base_url=self.url
             )
-        elif source == "openai":
-            if not api_key:
+        elif self.provider == "openai":
+            if not self.api_key:
                 raise ValueError("API key required for OpenAI embeddings")
             self.embedder = OpenAIEmbeddings(
                 model=self.model_name,
@@ -41,7 +38,7 @@ class LocalEmbedder:
                 openai_api_base=self.url
             )
         else:
-            raise ValueError(f"Unsupported embedding source: {source}")
+            raise ValueError(f"Unsupported embedding provider: {self.provider}")
         
         self.dimension = len(self.embedder.embed_query("test"))
 
@@ -49,21 +46,12 @@ class LocalEmbedder:
         """Generate embedding for a single query string."""
         return self.embedder.embed_query(query)
         
-    def generate(self, texts: List[str]) -> List[List[float]]:
+    def embed_queries(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for multiple texts."""
         return self.embedder.embed_documents(texts)
-
-
-
-def load_config(config_file: str) -> dict:
-    """Loads the collection schema configuration from a YAML file."""
-    with open(config_file, "r") as f:
-        config = yaml.safe_load(f)
-    return config
-
-# test / demo
-if __name__ == "__main__":
-    embedder = LocalEmbedder(source="ollama")
-    text = "This is a sample text to be embedded."
-    embedding = embedder.embed_query(text)
-    print(embedding)
+    
+def test():
+    config = {"embeddings": {"provider": "ollama", "model": "all-minilm:v2", "url": "http://localhost:11434"}}
+    embedder = LocalEmbedder(config)
+    print(embedder.embed_query("test"))
+    print(embedder.embed_queries(["test", "test2"]))

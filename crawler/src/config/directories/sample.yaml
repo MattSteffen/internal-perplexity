@@ -1,0 +1,30 @@
+# Directory-specific configuration for conference data
+path: "../../data/samples"
+
+# Collection to use for this directory
+collection: "sample"
+
+vector_db:
+  enabled: false
+
+# Override specific collection parameters
+collection_overrides:
+  name: "sample"
+  description: "A variety of sample data in multiple formats"
+
+  # You can override specific schema fields if needed
+  metadata:
+    fields:
+      - name: "conference_name"
+        type: "string"
+        max_length: 255
+        description: "Name of the conference."
+
+      - name: "conference_year"
+        type: "integer"
+        description: "Year the conference was held."
+
+      - name: "paper_type"
+        type: "string"
+        max_length: 100
+        description: "Type of paper (e.g., research, poster, workshop)."

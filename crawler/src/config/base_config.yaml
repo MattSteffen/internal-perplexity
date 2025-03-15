@@ -1,0 +1,64 @@
+# Base Configuration for Crawler
+# This file contains global settings that apply to the entire application
+
+vector_db:
+  enabled: true
+
+# Milvus Connection Settings
+milvus:
+  host: "localhost"
+  port: 19530
+  user: ""
+  password: ""
+  secure: false
+  index_field: "embedding"
+  index_params:
+    index_type: "IVF_FLAT"
+    metric_type: "L2"
+    params:
+      nlist: 128
+
+# LLM Settings
+llm:
+  model: "gemma3" # Default LLM model - must support structured outputs
+  provider: "ollama" # required for api configuration
+  base_url: "http://localhost:11434"
+
+# Vision LLM Settings
+vision_llm:
+  model: "gemma3"
+  provider: "ollama"
+  base_url: "http://localhost:11434"
+
+# Embedding Settings
+embeddings:
+  model: "all-MiniLM-L6-v2" # Default embedding model
+  provider: "ollama"
+  base_url: "http://localhost:11434"
+  dimension: 384
+
+# Logging Settings
+logging:
+  level: "INFO" # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  file: "crawler.log"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Processing Configuration
+processing:
+  extractors:
+    - type: "json"
+      enabled: true
+    - type: "pdf"
+      enabled: false
+    - type: "text"
+      enabled: false
+    - type: "markdown"
+      enabled: false
+    - type: "html"
+      enabled: false
+    - type: "csv"
+      enabled: false
+    - type: "docx"
+      enabled: false
+    - type: "pptx"
+      enabled: false

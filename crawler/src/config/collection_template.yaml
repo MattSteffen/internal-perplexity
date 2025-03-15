@@ -1,0 +1,49 @@
+# Collection Configuration Template
+# This template defines the structure for a collection in the vector database
+
+name: "default_collection" # Collection name
+description: "Document chunks with embeddings"
+
+# Schema Definition
+metadata:
+  fields:
+    - name: "text"
+      type: "string"
+      max_length: 1024
+      description: "Text content of the document chunk."
+
+    - name: "embedding"
+      type: "float_vector"
+      dim: 384 # Should match the embedding dimension in base_config.yaml
+      description: "Embedding vector of the document chunk."
+
+    - name: "source"
+      type: "string"
+      max_length: 1024
+      description: "Source identifier of the document chunk."
+
+    - name: "title"
+      type: "string"
+      max_length: 255
+      description: "Title of the document."
+
+    - name: "author"
+      type: "array"
+      items:
+        type: "string"
+        description: "An author of the document."
+      description: "List of authors of the document."
+
+    - name: "author_role"
+      type: "string"
+      max_length: 255
+      description: "Role of the author in the document (e.g., writer, editor)."
+
+    - name: "url"
+      type: "string"
+      max_length: 1024
+      description: "URL associated with the document."
+
+    - name: "chunk_index"
+      type: "integer"
+      description: "Index of the document chunk."
