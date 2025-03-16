@@ -3,7 +3,6 @@ import os
 import argparse
 from typing import Dict, Any
 # from discovery import find_dirs
-from crawler.src.processing.extractor import JSONHandler
 from processing.embeddings import LocalEmbedder
 from processing.processor import DocumentProcessor
 from storage.vector_db import VectorStorage
@@ -48,21 +47,15 @@ def setup_embedder(config: Dict[str, Any]) -> LocalEmbedder:
     embedding_config = config.get('embeddings', {})
     
     # Initialize embedder with configuration
-    embedder = LocalEmbedder(
-        model=embedding_config.get('model', 'all-MiniLM-L6-v2'),
-        dimension=embedding_config.get('dimension', 384),
-    )
+    embedder = LocalEmbedder(config)
     
     return embedder
 
 def setup_llm(config: Dict[str, Any]) -> Any:
     """Set up the LLM using configuration."""
     llm_config = config.get('llm', {})
-
     # Initialize LLM with configuration
-    llm = init_chat_model("llama-3.3-70b-versatile", model_provider="groq") # Must support structured output
-
-
+    llm = init_chat_model(model=llm_config.get("model"), model_provider=llm_config.get("provider"), base_url=llm_config.get("base_url")) # Must support structured output
     return llm
 
 def setup_vision_model(config: Dict[str, Any]) -> Any:
@@ -104,26 +97,17 @@ def run_crawler(directory_name: str = None):
         directory_name: Name of the directory configuration to use.
     """
     # Load configuration
-    config_manager = ConfigManager()
+    config_manager = ConfigManager(
+        base_config_path='config/base_config.yaml',
+        collection_template_path='config/collection_template.yaml',
+        collections_config_dir='config/directories'
+    )
     
-    if directory_name is None:
-        # If no directory specified, process all configured directories
-        directory_names = config_manager.get_all_directory_names()
-    else:
-        directory_names = [directory_name]
+    directory_names = [directory_name]
     
     for dir_name in directory_names:
-        config = config_manager.get_config_for_directory(dir_name)
-        
-        # Set up components with configuration
-        if config.get('vector_db', {}):
-            use_vector_db = True
-            vector_db = setup_vector_db(config)
-        else:
-            use_vector_db = False
+        config = config_manager.get_config(dir_name)
 
-        embedder = setup_embedder(config)
-        
         # Get directory path from config
         dir_path = config.get('path')
         if not dir_path:
@@ -134,15 +118,13 @@ def run_crawler(directory_name: str = None):
         
         # Process the directory
         processor = DocumentProcessor(
-            dir_path,
-            vector_db,
-            embedder,
-            config
+            config,
+            setup_llm(config),
+            setup_vision_model(config),
+            setup_embedder(config)
         )
-        processor.process_directory(dir_path)
-        
-        if use_vector_db:
-            vector_db.close()
+
+        yield from processor.process_directory(dir_path)
 
 def main():
     """Main entry point with command line argument parsing."""

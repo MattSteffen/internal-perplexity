@@ -5,25 +5,24 @@ path: "../../data/conference"
 collection: "conference_docs"
 
 # Override specific collection parameters
-collection_overrides:
-  description: "Conference documents and papers with embeddings"
+description: "Conference documents and papers with embeddings"
 
-  # You can override specific schema fields if needed
-  schema:
-    fields:
-      - name: "conference_name"
-        type: "string"
-        max_length: 255
-        description: "Name of the conference."
+# # You can override specific schema fields if needed
+# metadata:
+#   fields:
+#     - name: "conference_name"
+#       type: "string"
+#       max_length: 255
+#       description: "Name of the conference."
 
-      - name: "conference_year"
-        type: "integer"
-        description: "Year the conference was held."
+#     - name: "conference_year"
+#       type: "integer"
+#       description: "Year the conference was held."
 
-      - name: "paper_type"
-        type: "string"
-        max_length: 100
-        description: "Type of paper (e.g., research, poster, workshop)."
+#     - name: "paper_type"
+#       type: "string"
+#       max_length: 100
+#       description: "Type of paper (e.g., research, poster, workshop)."
 
 # Processing overrides for this directory
 processing:
@@ -35,7 +34,3 @@ processing:
         title: "paper_title"
         authors: "author"
         year: "conference_year"
-
-# Search configuration overrides
-search:
-  top_k: 10 # Return more results for conference data

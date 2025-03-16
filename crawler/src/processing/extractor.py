@@ -87,6 +87,7 @@ class Extractor():
         self.vision_llm = vision_llm
         
         # Document readers mapping
+        # TODO: Enable only those that are enabled in the config
         self.doc_readers = {
             '.txt': TextReader(self.llm, self.vision_llm),
             '.pdf': PDFReader(self.llm, self.vision_llm),

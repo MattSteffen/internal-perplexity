@@ -9,19 +9,17 @@ import os
 from typing import Dict, Any, List, Tuple, Generator, Optional, Union
 
 from config.config_manager import ConfigManager
-from .extractor import Extractor
+from .extractor import Extractor, VisionLLM
 from .embeddings import LocalEmbedder
 
-# TODO: Should accept in init, embedder and LLM
 class DocumentProcessor:
     """Main interface for document processing."""
     
     def __init__(self, 
-                config_path: Optional[str] = None,
-                schema_path: Optional[str] = "crawler/src/storage/document.json",
-                embedding_model: Optional[str] = None,
-                llm_model: Optional[str] = None,
-                base_url: Optional[str] = None):
+                config: ConfigManager,
+                llm,
+                vision_llm: VisionLLM,
+                embedder: LocalEmbedder):
         """Initialize the document processor.
         
         Args:
@@ -31,28 +29,14 @@ class DocumentProcessor:
             llm_model: Optional LLM model name (overrides config)
             base_url: Optional base URL for API calls (overrides config)
         """
-        # Load configuration
-        self.config = ConfigManager(config_path)
-        
-        # Set up LLM handler
-        self.llm_model = llm_model or self.config.get("llm_model", "llama3.2:1b")
-        self.base_url = base_url or self.config.get("base_url", "http://localhost:11434")
-        self.schema_path = schema_path or self.config.get("schema_path")
-        
-        self.extractor = Extractor(
-            schema_path=self.schema_path,
-            model_name=self.llm_model,
-            base_url=self.base_url
-        )
+        # Set up extractor args
+        self.llm = llm 
+        self.vision_llm = vision_llm
+        self.schema = config.get("metadata", {}).get("schema", {})
+        self.extractor = Extractor(self.llm, self.vision_llm, self.schema)
         
         # Set up embedder
-        self.embedding_model = embedding_model or self.config.get("embedding_model", "all-minilm:v2")
-        self.embedder = LocalEmbedder(
-            source=self.config.get("embedding_source", "ollama"),
-            model_name=self.embedding_model,
-            url=self.base_url,
-            api_key=self.config.get("api_key")
-        )
+        self.embedder = embedder
     
     def process_documents(self, 
                          file_paths: List[str]) -> Generator[Tuple[str, Dict[str, Any], List[float]], None, None]:

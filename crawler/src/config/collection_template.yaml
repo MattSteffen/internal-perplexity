@@ -6,44 +6,43 @@ description: "Document chunks with embeddings"
 
 # Schema Definition
 metadata:
-  fields:
-    - name: "text"
-      type: "string"
-      max_length: 1024
-      description: "Text content of the document chunk."
-
-    - name: "embedding"
-      type: "float_vector"
-      dim: 384 # Should match the embedding dimension in base_config.yaml
-      description: "Embedding vector of the document chunk."
-
-    - name: "source"
-      type: "string"
-      max_length: 1024
-      description: "Source identifier of the document chunk."
-
-    - name: "title"
-      type: "string"
-      max_length: 255
-      description: "Title of the document."
-
-    - name: "author"
-      type: "array"
-      items:
+  extra_embeddings: [] # What extra embeddings to include from the schema keys
+  schema:
+    $schema: "http://json-schema.org/draft-07/schema#"
+    title: "Document"
+    type: "object"
+    properties:
+      text:
         type: "string"
-        description: "An author of the document."
-      description: "List of authors of the document."
-
-    - name: "author_role"
-      type: "string"
-      max_length: 255
-      description: "Role of the author in the document (e.g., writer, editor)."
-
-    - name: "url"
-      type: "string"
-      max_length: 1024
-      description: "URL associated with the document."
-
-    - name: "chunk_index"
-      type: "integer"
-      description: "Index of the document chunk."
+        maxLength: 1024
+        description: "Text content of the document chunk."
+      embedding:
+        type: "float_vector"
+        dim: 384 # Should match the embedding dimension in base_config.yaml
+        description: "Embedding vector of the document chunk."
+      source:
+        type: "string"
+        maxLength: 1024
+        description: "Source identifier of the document chunk."
+      title:
+        type: "string"
+        maxLength: 255
+        description: "Title of the document."
+      author:
+        type: "array"
+        maxItems: 255
+        items:
+          type: "string"
+          description: "An author of the document."
+        description: "List of authors of the document."
+      author_role:
+        type: "string"
+        maxLength: 255
+        description: "Role of the author in the document (e.g., writer, editor)."
+      url:
+        type: "string"
+        maxLength: 1024
+        description: "URL associated with the document."
+      chunk_index:
+        type: "integer"
+        description: "Index of the document chunk."

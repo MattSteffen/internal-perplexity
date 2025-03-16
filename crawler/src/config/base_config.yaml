@@ -20,9 +20,12 @@ milvus:
 
 # LLM Settings
 llm:
-  model: "gemma3" # Default LLM model - must support structured outputs
-  provider: "ollama" # required for api configuration
-  base_url: "http://localhost:11434"
+  model: "llama-3.3-70b-versatile" # Default LLM model - must support structured outputs
+  provider: "groq" # required for api configuration
+  base_url: "https://api.groq.com/openai/v1`"
+  # model: "gemma3" # Default LLM model - must support structured outputs
+  # provider: "ollama" # required for api configuration
+  # base_url: "http://localhost:11434"
 
 # Vision LLM Settings
 vision_llm:
@@ -32,7 +35,7 @@ vision_llm:
 
 # Embedding Settings
 embeddings:
-  model: "all-MiniLM-L6-v2" # Default embedding model
+  model: "all-minilm:v2" # Default embedding model
   provider: "ollama"
   base_url: "http://localhost:11434"
   dimension: 384
@@ -49,7 +52,7 @@ processing:
     - type: "json"
       enabled: true
     - type: "pdf"
-      enabled: false
+      enabled: true
     - type: "text"
       enabled: false
     - type: "markdown"
