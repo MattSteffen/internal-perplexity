@@ -1,3 +1,11 @@
+"""
+title: Internal Perplexity
+author: matt-steffen
+funding_url: https://github.com/open-webui
+version: 0.0.1
+license: None
+"""
+
 from typing import List, Union, Generator, Iterator
 import requests
 
@@ -9,7 +17,8 @@ TODO:
 - This will be used until I get around to making the proper front end as openwebui will not suffice.
 """
 
-class Pipeline:
+
+class Pipe:
     def __init__(self):
         # Optionally, you can set the id and name of the pipeline.
         # Best practice is to not specify the id so that it can be automatically inferred from the filename, so that users can install multiple versions of the same pipeline.
@@ -29,9 +38,7 @@ class Pipeline:
         print(f"on_shutdown:{__name__}")
         pass
 
-    def pipe(
-        self, user_message: str, model_id: str, messages: List[dict], body: dict
-    ) -> Union[str, Generator, Iterator]:
+    def pipe(self, body: dict) -> Union[str, Generator, Iterator]:
         # This is where you can add your custom pipelines like RAG.
         print(f"pipe:{__name__}")
 
@@ -64,5 +71,3 @@ class Pipeline:
                 return r.json()
         except Exception as e:
             return f"Error: {e}"
-
-

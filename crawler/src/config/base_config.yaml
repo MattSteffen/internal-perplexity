@@ -22,7 +22,7 @@ milvus:
 llm:
   model: "llama-3.3-70b-versatile" # Default LLM model - must support structured outputs
   provider: "groq" # required for api configuration
-  base_url: "https://api.groq.com/openai/v1`"
+  base_url: "https://api.groq.com"
   # model: "gemma3" # Default LLM model - must support structured outputs
   # provider: "ollama" # required for api configuration
   # base_url: "http://localhost:11434"
