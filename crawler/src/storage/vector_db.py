@@ -19,6 +19,8 @@ except ImportError:
     logging.warning("Pymilvus not installed. Using mock implementation for development.")
 
 class VectorStorage:
+    # TODO: use config path instead of all the arguments
+    # TODO: have a config option that says read only or read/write
     def __init__(self, host: str = 'localhost', port: str = '19530', 
                  collection_name: str = 'documents', dim: int = 384,
                  schema_config_path: str = "milvus_schema.yaml"):
@@ -30,6 +32,7 @@ class VectorStorage:
         self.collection = None
 
     def __enter__(self):
+        # TODO: Configure with security credentials
         connections.connect(host=self.host, port=self.port)
         
         if not utility.has_collection(self.collection_name):
@@ -42,14 +45,21 @@ class VectorStorage:
     def __exit__(self, exc_type, exc_value, traceback):
         if self.collection:
             self.collection.release()
-        connections.disconnect("default")
+        connections.disconnect("default") # TODO: collection name which is from config file
+    def close(self):
+        self.__exit__(None, None, None)
+    # def close(self):
+    #     """Disconnect from Milvus."""
+    #     connections.disconnect("default")
 
     def _create_collection(self):
         # Load schema configuration from YAML
+        # TODO: use self.config instead.
         config = load_schema_config(self.schema_config_path)
         self.collection = create_collection(config, self.collection_name, self.dim)
 
     def insert_data(self, texts: list, embeddings: list, metadatas: list):
+        # TODO: if config.read_only: don't do anything
         """
         Inserts data into Milvus collection, ensuring no duplicate records
         (based on a unique combination of "source" and "chunk_index") are inserted.
@@ -142,6 +152,7 @@ class VectorStorage:
         print(f"Inserted {len(texts_to_insert)} new chunks.")
 
     def search(self, query_embedding: list, limit: int = 5, filters: list[str] = []) -> list:
+        # TODO: if config.read_only:
         """
         Search for similar chunks using a query embedding.
         Optionally filter by a list of authors or other valid filters.
@@ -222,9 +233,6 @@ class VectorStorage:
             )
             return results[:limit]
 
-    def close(self):
-        """Disconnect from Milvus."""
-        connections.disconnect("default")
 
 
 

@@ -54,6 +54,7 @@ class Crawler:
             self.processor = None
     
     def _setup_vector_db(self) -> VectorStorage:
+        # TODO: Security creds
         """Set up the vector database using configuration."""
         milvus_config = self.config.get('milvus', {})
         collection_config = self.config.get('collection', {})

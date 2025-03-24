@@ -1,5 +1,9 @@
 # Search through directories or the internet for Insights
 
+## TODO:
+
+- [ ] Make file that uses crawler to get data and then inserts into vector database
+
 ## Directory
 
 Configure the crawler by running it and pointing it to the directory. Provide an output directory for the insights, knowledge graph, and vector storage.
