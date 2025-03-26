@@ -19,21 +19,32 @@ except ImportError:
     logging.warning("Pymilvus not installed. Using mock implementation for development.")
 
 class VectorStorage:
-    # TODO: use config path instead of all the arguments
-    # TODO: have a config option that says read only or read/write
-    def __init__(self, host: str = 'localhost', port: str = '19530', 
-                 collection_name: str = 'documents', dim: int = 384,
-                 schema_config_path: str = "milvus_schema.yaml"):
-        self.host = host
-        self.port = port
-        self.collection_name = collection_name
-        self.dim = dim
-        self.schema_config_path = schema_config_path
+    def __init__(self, config: dict = {}):
+        # Now use nested config sections for various parameters.
+        self.config = config
+        milvus_config = config.get("milvus", {})
+        embeddings_config = config.get("embeddings", {})
+
+        self.host = milvus_config.get("host", "localhost")
+        self.port = milvus_config.get("port", 19530)
+        # Use top-level "collection" key for the collection name.
+        self.collection_name = config.get("collection", "documents")
+        self.dim = embeddings_config.get("dimension", 384)
+        # If you want read_only to be controlled separately, you can either leave it top-level
+        # or add another key (for example under "vector_db"). Here we assume top-level.
+        self.read_only = config.get("read_only", False)
         self.collection = None
 
     def __enter__(self):
-        # TODO: Configure with security credentials
-        connections.connect(host=self.host, port=self.port)
+        milvus_config = self.config.get("milvus", {})
+        # Configure with security credentials from the "milvus" section.
+        user = milvus_config.get("user")
+        password = milvus_config.get("password")
+        secure = milvus_config.get("secure", False)
+        if user and password:
+            connections.connect(host=self.host, port=self.port, user=user, password=password, secure=secure)
+        else:
+            connections.connect(host=self.host, port=self.port)
         
         if not utility.has_collection(self.collection_name):
             self._create_collection()
@@ -41,115 +52,105 @@ class VectorStorage:
             self.collection = Collection(self.collection_name)
             self.collection.load()
         return self
-    
+
     def __exit__(self, exc_type, exc_value, traceback):
         if self.collection:
             self.collection.release()
-        connections.disconnect("default") # TODO: collection name which is from config file
+        # Disconnect using the collection name.
+        connections.disconnect(self.collection_name)
+
     def close(self):
         self.__exit__(None, None, None)
-    # def close(self):
-    #     """Disconnect from Milvus."""
-    #     connections.disconnect("default")
 
     def _create_collection(self):
-        # Load schema configuration from YAML
-        # TODO: use self.config instead.
-        config = load_schema_config(self.schema_config_path)
-        self.collection = create_collection(config, self.collection_name, self.dim)
+        # Get the schema config from the "metadata" section.
+        schema_config = self.config.get("metadata", {}).get("schema")
+        if not schema_config:
+            schema_config = load_schema_config(self.schema_config_path)
+        # Also pass milvus-specific config to the collection creation helper.
+        milvus_config = self.config.get("milvus", {})
+        self.collection = create_collection(schema_config, self.collection_name, self.dim, milvus_config)
 
     def insert_data(self, texts: list, embeddings: list, metadatas: list):
-        # TODO: if config.read_only: don't do anything
+        # TODO: Confirm that the schema is generated correctly.
+        # TODO: Confirm that the metadata matches the schema
         """
         Inserts data into Milvus collection, ensuring no duplicate records
         (based on a unique combination of "source" and "chunk_index") are inserted.
-        
-        Args:
-            texts (list): List of text chunks.
-            embeddings (list): List of embeddings for each chunk.
-            metadatas (list): List of metadata dictionaries. Each metadata **must**
-                              include the keys "source" and "chunk_index".
         """
+        if self.read_only:
+            print("Storage is in read-only mode. Insert operation skipped.")
+            return
+
         if not (len(texts) == len(embeddings) == len(metadatas)):
             raise ValueError("All input lists must have the same length")
         
-        # Build a list of unique keys from new records: (source, chunk_index)
-        new_entries = []
-        for i in range(len(texts)):
-            meta = metadatas[i]
-            source = meta.get('source', '')
-            chunk_index = meta.get('chunk_index')
-            if chunk_index is None:
-                raise ValueError("Each metadata dict must include a 'chunk_index' field")
-            new_entries.append((source, chunk_index))
+        # new_entries = []
+        # for i in range(len(texts)):
+        #     meta = metadatas[i]
+        #     source = meta.get('source', '')
+        #     chunk_index = meta.get('chunk_index')
+        #     if chunk_index is None:
+        #         raise ValueError("Each metadata dict must include a 'chunk_index' field")
+        #     new_entries.append((source, chunk_index))
         
-        # Remove duplicates within the new batch
-        seen = set()
-        indices_to_check = []
-        for i, key in enumerate(new_entries):
-            print(f"Checking key: {key}")
-            if key not in seen:
-                seen.add(key)
-                indices_to_check.append(i)
-            else:
-                print(f"Skipping duplicate within batch for key {key}")
+        # seen = set()
+        # indices_to_check = []
+        # for i, key in enumerate(new_entries):
+        #     print(f"Checking key: {key}")
+        #     if key not in seen:
+        #         seen.add(key)
+        #         indices_to_check.append(i)
+        #     else:
+        #         print(f"Skipping duplicate within batch for key {key}")
         
-        print("lens: ", len(seen), len(indices_to_check), len(texts))
+        # print("lens: ", len(seen), len(indices_to_check), len(texts))
 
-        # If all entries are duplicates, return early
-        if len(indices_to_check) == 0:
-            print("No new entries to insert (all are duplicates in batch).")
-            return
+        # if len(indices_to_check) == 0:
+        #     print("No new entries to insert (all are duplicates in batch).")
+        #     return
         
-        # Build a filter expression to query for existing records.
-        filter_clauses = []
-        for key in seen:
-            s, ci = key
-            filter_clauses.append(f'(source == "{s}" and chunk_index == {ci})')
-        filter_expr = " or ".join(filter_clauses)
+        # filter_clauses = []
+        # for key in seen:
+        #     s, ci = key
+        #     filter_clauses.append(f'(source == "{s}" and chunk_index == {ci})')
+        # filter_expr = " or ".join(filter_clauses)
         
-        # Query the collection for existing entries that match any of these keys.
-        existing_records = self.collection.query(expr=filter_expr, output_fields=["source", "chunk_index"])
-        existing_keys = {(rec["source"], rec["chunk_index"]) for rec in existing_records}
+        # existing_records = self.collection.query(expr=filter_expr, output_fields=["source", "chunk_index"])
+        # existing_keys = {(rec["source"], rec["chunk_index"]) for rec in existing_records}
         
-        # Determine final indices to insert (exclude any already existing records)
-        final_indices = []
-        for i in indices_to_check:
-            key = new_entries[i]
-            if key in existing_keys:
-                print(f"Skipping duplicate existing entry for key {key}")
-            else:
-                final_indices.append(i)
+        # final_indices = []
+        # for i in indices_to_check:
+        #     key = new_entries[i]
+        #     if key in existing_keys:
+        #         print(f"Skipping duplicate existing entry for key {key}")
+        #     else:
+        #         final_indices.append(i)
         
-        if not final_indices:
-            print("No new entries to insert after duplicate check.")
-            return
+        # if not final_indices:
+        #     print("No new entries to insert after duplicate check.")
+        #     return
 
-        # Prepare data for insertion (using metadata values from the final indices)
-        # TODO: This is hardcoded. It should be created from config options.
-        texts_to_insert = [texts[i] for i in final_indices]
-        embeddings_to_insert = [embeddings[i] for i in final_indices]
-        sources_to_insert = [metadatas[i].get('source', '') for i in final_indices]
-        titles_to_insert = [metadatas[i].get('title', '') for i in final_indices]
-        authors_to_insert = [metadatas[i].get('author', '') for i in final_indices]
-        author_roles_to_insert = [metadatas[i].get('author_role', '') for i in final_indices]
-        urls_to_insert = [metadatas[i].get('url', '') for i in final_indices]
-        chunk_indices_to_insert = [metadatas[i].get('chunk_index') for i in final_indices]
+        # texts_to_insert = [texts[i] for i in final_indices]
+        # embeddings_to_insert = [embeddings[i] for i in final_indices]
 
-        data = [
-            texts_to_insert,
-            embeddings_to_insert,
-            sources_to_insert,
-            titles_to_insert,
-            authors_to_insert,
-            author_roles_to_insert,
-            urls_to_insert,
-            chunk_indices_to_insert
-        ]
+        # Get metadata fields from the "metadata" schema.
+        metadata_schema = self.config.get("metadata", {}).get("schema", {})
+        metadata_fields = list(metadata_schema.get("properties", {}).keys())
+        
+        metadata_values = []
+        for field in metadata_fields:
+            # field_values = [metadatas[i].get(field, "") for i in final_indices ]
+            field_values = [metadatas[i].get(field, "") for i in range(len(texts))]
+            metadata_values.append(field_values)
+        
+        # data = zip(texts_to_insert, embeddings_to_insert, metadata_values)
+        data = list(zip(texts, embeddings, metadata_values))
 
-        self.collection.insert(data)
+        # Optionally, if a partition is defined at the top level, retrieve it.
+        self.collection.insert(data, partition_name=self.config.get('partition', None))
         self.collection.flush()
-        print(f"Inserted {len(texts_to_insert)} new chunks.")
+        print(f"Inserted {len(texts)} new chunks.")
 
     def search(self, query_embedding: list, limit: int = 5, filters: list[str] = []) -> list:
         # TODO: if config.read_only:
@@ -245,47 +246,48 @@ def load_schema_config(config_file: str) -> dict:
 
 
 
-def build_collection_schema(config: dict, default_dim: int) -> CollectionSchema:
+def build_collection_schema(schema_config: dict, default_dim: int) -> CollectionSchema:
     """
-    Builds a CollectionSchema based on the provided configuration.
+    Builds a CollectionSchema based on the provided schema configuration.
+    The passed schema_config is now the actual JSON schema (not nested under "schema").
     """
-    fields_config = config.get("fields", [])
+    # Now access properties directly from the schema_config.
+    fields_config = schema_config.get("properties", {})
     # Always add the auto-generated id field.
     fields = [
         FieldSchema(name='id', dtype=DataType.INT64, is_primary=True, auto_id=True)
     ]
     
-    for field in fields_config:
-        name = field["name"]
-        field_type = field["type"]
-        
+    for field_name, field_def in fields_config.items():
+        field_type = field_def["type"]
         if field_type == "string":
-            max_length = field.get("max_length", 1024)
-            fields.append(FieldSchema(name=name, dtype=DataType.VARCHAR, max_length=max_length))
+            max_length = field_def.get("maxLength", 1024)
+            fields.append(FieldSchema(name=field_name, dtype=DataType.VARCHAR, max_length=max_length))
         elif field_type == "integer":
-            fields.append(FieldSchema(name=name, dtype=DataType.INT64))
+            fields.append(FieldSchema(name=field_name, dtype=DataType.INT64))
         elif field_type == "float_vector":
-            dim = field.get("dim", default_dim)
-            fields.append(FieldSchema(name=name, dtype=DataType.FLOAT_VECTOR, dim=dim))
+            dim = field_def.get("dim", default_dim)
+            fields.append(FieldSchema(name=field_name, dtype=DataType.FLOAT_VECTOR, dim=dim))
         elif field_type == "array":
-            max_length = field.get("max_length", 1024)
-            fields.append(FieldSchema(name=name, dtype=DataType.VARCHAR, max_length=max_length))
+            max_length = field_def.get("maxLength", 1024)
+            fields.append(FieldSchema(name=field_name, dtype=DataType.VARCHAR, max_length=max_length))
         else:
             raise ValueError(f"Unsupported field type: {field_type}")
     
-    description = config.get("description", "Document chunks with embeddings")
+    description = schema_config.get("description", "Document chunks with embeddings")
     return CollectionSchema(fields, description=description)
 
-def create_collection(config: dict, collection_name: str, default_dim: int) -> Collection:
+def create_collection(schema_config: dict, collection_name: str, default_dim: int, milvus_config: dict) -> Collection:
     """
-    Creates and returns a new Milvus collection based on the configuration.
+    Creates and returns a new Milvus collection based on the schema configuration.
+    The milvus_config is used to obtain index parameters.
     """
-    schema = build_collection_schema(config, default_dim)
+    schema = build_collection_schema(schema_config, default_dim)
     collection = Collection(collection_name, schema)
     
-    # Create index for vector search.
-    index_field = config.get("index_field", "embedding")
-    index_params = config.get("index_params", {
+    # Get index details from the milvus config.
+    index_field = milvus_config.get("index_field", "embedding")
+    index_params = milvus_config.get("index_params", {
         "index_type": "IVF_FLAT",
         "metric_type": "L2",
         "params": {"nlist": 128}
@@ -293,3 +295,8 @@ def create_collection(config: dict, collection_name: str, default_dim: int) -> C
     collection.create_index(index_field, index_params)
     
     return collection
+
+
+
+# sample config:
+# {'vector_db': {'enabled': True}, 'milvus': {'host': 'localhost', 'port': 19530, 'user': 'minioadmin', 'password': 'minioadmin', 'secure': False, 'index_field': 'embedding', 'index_params': {'index_type': 'IVF_FLAT', 'metric_type': 'L2', 'params': {'nlist': 128}}}, 'llm': {'model': 'llama-3.3-70b-versatile', 'provider': 'groq', 'base_url': 'https://api.groq.com'}, 'vision_llm': {'model': 'gemma3', 'provider': 'ollama', 'base_url': 'http://localhost:11434'}, 'embeddings': {'model': 'all-minilm:v2', 'provider': 'ollama', 'base_url': 'http://localhost:11434', 'dimension': 384}, 'logging': {'level': 'INFO', 'file': 'crawler.log', 'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s'}, 'processing': {'extractors': [{'type': 'json', 'enabled': True, 'metadata_mapping': {'title': 'paper_title', 'authors': 'author', 'year': 'conference_year'}}], 'chunk_size': 800}, 'name': 'default_collection', 'description': 'Conference documents and papers with embeddings', 'metadata': {'extra_embeddings': [], 'schema': {'$schema': 'http://json-schema.org/draft-07/schema#', 'title': 'Document', 'type': 'object', 'properties': {'text': {'type': 'string', 'maxLength': 1024, 'description': 'Text content of the document chunk.'}, 'embedding': {'type': 'float_vector', 'dim': 384, 'description': 'Embedding vector of the document chunk.'}, 'source': {'type': 'string', 'maxLength': 1024, 'description': 'Source identifier of the document chunk.'}, 'title': {'type': 'string', 'maxLength': 255, 'description': 'Title of the document.'}, 'author': {'type': 'array', 'maxItems': 255, 'items': {'type': 'string', 'description': 'An author of the document.'}, 'description': 'List of authors of the document.'}, 'author_role': {'type': 'string', 'maxLength': 255, 'description': 'Role of the author in the document (e.g., writer, editor).'}, 'url': {'type': 'string', 'maxLength': 1024, 'description': 'URL associated with the document.'}, 'chunk_index': {'type': 'integer', 'description': 'Index of the document chunk.'}}}}, 'path': '../../data/conference', 'collection': 'conference_docs'}

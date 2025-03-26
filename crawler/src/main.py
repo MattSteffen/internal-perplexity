@@ -54,22 +54,9 @@ class Crawler:
             self.processor = None
     
     def _setup_vector_db(self) -> VectorStorage:
-        # TODO: Security creds
         """Set up the vector database using configuration."""
-        milvus_config = self.config.get('milvus', {})
-        collection_config = self.config.get('collection', {})
-        
         # Initialize vector storage with Milvus connection parameters
-        vector_db = VectorStorage(
-            host=milvus_config.get('host', 'localhost'),
-            port=milvus_config.get('port', 19530),
-            user=milvus_config.get('user', ''),
-            password=milvus_config.get('password', ''),
-            secure=milvus_config.get('secure', False),
-            collection_name=collection_config.get('name', 'default_collection')
-        )
-        
-        return vector_db
+        return VectorStorage(self.config)
 
     def _setup_embedder(self) -> LocalEmbedder:
         """Set up the embedder using configuration."""
@@ -141,7 +128,7 @@ class Crawler:
         # Process the directory and yield results
         for filepath in filepaths:
             print(f"Processing file: {filepath}")
-            yield from self.processor.process_document(filepath)
+            yield self.processor.process_document(filepath)
     
     def set_directory(self, directory_name: str):
         """
@@ -178,11 +165,15 @@ def main():
     
     # Process all documents
     # for text, metadata, embedding in crawler.run():
-    for x in crawler.run():
-        # Here you could do something with each document
-        # For example, store in vector DB or output to console
-        print(f"Processed document: {x}")
-        pass
+    a,b,c = [], [], []
+    for x,y,z in crawler.run():
+        a.append(x)
+        b.append(z)
+        c.append(y)
+
+    with crawler._setup_vector_db() as db:
+        db.insert_data(a,b,c)
+    print("complete")
 
 if __name__ == "__main__":
     main()

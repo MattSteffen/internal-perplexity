@@ -8,8 +8,8 @@ vector_db:
 milvus:
   host: "localhost"
   port: 19530
-  user: ""
-  password: ""
+  user: "minioadmin"
+  password: "minioadmin"
   secure: false
   index_field: "embedding"
   index_params:
