@@ -3,6 +3,9 @@ from typing import List, Dict, Any, Optional
 import numpy as np
 import re 
 import yaml 
+from uuid import uuid4
+
+MAX_DOC_LENGTH = 10240
 
 try:
     from pymilvus import (
@@ -35,6 +38,9 @@ class VectorStorage:
         self.read_only = config.get("read_only", False)
         self.collection = None
 
+        # Milvus
+        self.client = None
+
     def __enter__(self):
         milvus_config = self.config.get("milvus", {})
         # Configure with security credentials from the "milvus" section.
@@ -49,7 +55,9 @@ class VectorStorage:
         if not utility.has_collection(self.collection_name):
             self._create_collection()
         else:
-            self.collection = Collection(self.collection_name)
+            # self.collection = Collection(self.collection_name) # TODO: This is a bug, don't delete every time.
+            utility.drop_collection(self.collection_name)
+            self._create_collection()
             self.collection.load()
         return self
 
@@ -133,19 +141,19 @@ class VectorStorage:
 
         # texts_to_insert = [texts[i] for i in final_indices]
         # embeddings_to_insert = [embeddings[i] for i in final_indices]
+        final_indexes = list(range(len(texts)))
 
         # Get metadata fields from the "metadata" schema.
         metadata_schema = self.config.get("metadata", {}).get("schema", {})
         metadata_fields = list(metadata_schema.get("properties", {}).keys())
         
-        metadata_values = []
-        for field in metadata_fields:
-            # field_values = [metadatas[i].get(field, "") for i in final_indices ]
-            field_values = [metadatas[i].get(field, "") for i in range(len(texts))]
-            metadata_values.append(field_values)
+        data: list[dict] = []
+        for i in final_indexes:
+            field_values = {field: metadatas[i].get(field, "") for field in metadata_fields} # only use the fields defined in the schema
+            field_values["embedding"] = embeddings[i]
+            field_values["text"] = texts[i][:MAX_DOC_LENGTH]
+            data.append(field_values)
         
-        # data = zip(texts_to_insert, embeddings_to_insert, metadata_values)
-        data = list(zip(texts, embeddings, metadata_values))
 
         # Optionally, if a partition is defined at the top level, retrieve it.
         self.collection.insert(data, partition_name=self.config.get('partition', None))
@@ -246,7 +254,7 @@ def load_schema_config(config_file: str) -> dict:
 
 
 
-def build_collection_schema(schema_config: dict, default_dim: int) -> CollectionSchema:
+def build_collection_schema(schema_config: dict, default_dim: int = 384) -> CollectionSchema:
     """
     Builds a CollectionSchema based on the provided schema configuration.
     The passed schema_config is now the actual JSON schema (not nested under "schema").
@@ -255,19 +263,23 @@ def build_collection_schema(schema_config: dict, default_dim: int) -> Collection
     fields_config = schema_config.get("properties", {})
     # Always add the auto-generated id field.
     fields = [
-        FieldSchema(name='id', dtype=DataType.INT64, is_primary=True, auto_id=True)
+        FieldSchema(name='id', dtype=DataType.INT64, is_primary=True, auto_id=True),
+        FieldSchema(name='embedding', dtype=DataType.FLOAT_VECTOR, dim=default_dim),
+        FieldSchema(name='text', dtype=DataType.VARCHAR, max_length=MAX_DOC_LENGTH),
     ]
     
     for field_name, field_def in fields_config.items():
         field_type = field_def["type"]
         if field_type == "string":
-            max_length = field_def.get("maxLength", 1024)
-            fields.append(FieldSchema(name=field_name, dtype=DataType.VARCHAR, max_length=max_length))
+            if field_name != "text": # Not allowed to duplicate text
+                max_length = field_def.get("maxLength", 1024)
+                fields.append(FieldSchema(name=field_name, dtype=DataType.VARCHAR, max_length=max_length))
         elif field_type == "integer":
             fields.append(FieldSchema(name=field_name, dtype=DataType.INT64))
         elif field_type == "float_vector":
-            dim = field_def.get("dim", default_dim)
-            fields.append(FieldSchema(name=field_name, dtype=DataType.FLOAT_VECTOR, dim=dim))
+            if field_name != "embedding": # Not allowed to duplicate embedding
+                dim = field_def.get("dim", default_dim)
+                fields.append(FieldSchema(name=field_name, dtype=DataType.FLOAT_VECTOR, dim=dim))
         elif field_type == "array":
             max_length = field_def.get("maxLength", 1024)
             fields.append(FieldSchema(name=field_name, dtype=DataType.VARCHAR, max_length=max_length))
@@ -275,6 +287,7 @@ def build_collection_schema(schema_config: dict, default_dim: int) -> Collection
             raise ValueError(f"Unsupported field type: {field_type}")
     
     description = schema_config.get("description", "Document chunks with embeddings")
+
     return CollectionSchema(fields, description=description)
 
 def create_collection(schema_config: dict, collection_name: str, default_dim: int, milvus_config: dict) -> Collection:

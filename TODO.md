@@ -1,3 +1,10 @@
+- Implement security features for milvus
+  - Add them to config files
+  - Set up 2 repositories with different types of data
+  - Test them based on user details in python script (not necessarily in ui)
+  - upload different directory too
+- Using basic_ollama as function in OI.
+
 # MVP
 
 ## General
