@@ -1,8 +1,15 @@
 # Collection Configuration Template
 # This template defines the structure for a collection in the vector database
 
-name: "default_collection" # Collection name
+collection_name: "default_collection" # Collection name
+partition_name: "" # Partition name
 description: "Document chunks with embeddings"
+
+milvus_security:
+  secure: false # Whether Milvus connection is secure
+  username: "" # Milvus username
+  password: "" # Milvus password
+  allowed_roles: [] # List of allowed users, yourself is always allowed
 
 # Schema Definition
 metadata:
@@ -12,14 +19,14 @@ metadata:
     title: "Document"
     type: "object"
     properties:
-      text:
-        type: "string"
-        maxLength: 1024
-        description: "Text content of the document chunk."
-      embedding:
-        type: "float_vector"
-        dim: 384 # Should match the embedding dimension in base_config.yaml
-        description: "Embedding vector of the document chunk."
+      # text:
+      #   type: "string"
+      #   maxLength: 10240
+      #   description: "Text content of the document chunk."
+      # embedding:
+      #   type: "float_vector"
+      #   dim: 384 # Should match the embedding dimension in base_config.yaml
+      #   description: "Embedding vector of the document chunk."
       source:
         type: "string"
         maxLength: 1024

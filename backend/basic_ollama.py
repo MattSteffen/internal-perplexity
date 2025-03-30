@@ -3,7 +3,7 @@ import requests
 import json
 from typing import List, Union, Generator, Iterator
 from pydantic import BaseModel, Field
-from open_webui.utils.misc import pop_system_message
+from open_webui.utils.misc import pop_system_message  # type: ignore
 import pymilvus
 
 

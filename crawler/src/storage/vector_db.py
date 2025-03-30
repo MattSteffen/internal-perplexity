@@ -93,6 +93,8 @@ class VectorStorage:
         if not (len(texts) == len(embeddings) == len(metadatas)):
             raise ValueError("All input lists must have the same length")
         
+        # TODO: Make sure not to insert duplicates
+        
         # new_entries = []
         # for i in range(len(texts)):
         #     meta = metadatas[i]
@@ -255,6 +257,7 @@ def load_schema_config(config_file: str) -> dict:
 
 
 def build_collection_schema(schema_config: dict, default_dim: int = 384) -> CollectionSchema:
+    # TODO: I should include the description of the fields in the schema. These should be found in the schema file.
     """
     Builds a CollectionSchema based on the provided schema configuration.
     The passed schema_config is now the actual JSON schema (not nested under "schema").
@@ -310,6 +313,3 @@ def create_collection(schema_config: dict, collection_name: str, default_dim: in
     return collection
 
 
-
-# sample config:
-# {'vector_db': {'enabled': True}, 'milvus': {'host': 'localhost', 'port': 19530, 'user': 'minioadmin', 'password': 'minioadmin', 'secure': False, 'index_field': 'embedding', 'index_params': {'index_type': 'IVF_FLAT', 'metric_type': 'L2', 'params': {'nlist': 128}}}, 'llm': {'model': 'llama-3.3-70b-versatile', 'provider': 'groq', 'base_url': 'https://api.groq.com'}, 'vision_llm': {'model': 'gemma3', 'provider': 'ollama', 'base_url': 'http://localhost:11434'}, 'embeddings': {'model': 'all-minilm:v2', 'provider': 'ollama', 'base_url': 'http://localhost:11434', 'dimension': 384}, 'logging': {'level': 'INFO', 'file': 'crawler.log', 'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s'}, 'processing': {'extractors': [{'type': 'json', 'enabled': True, 'metadata_mapping': {'title': 'paper_title', 'authors': 'author', 'year': 'conference_year'}}], 'chunk_size': 800}, 'name': 'default_collection', 'description': 'Conference documents and papers with embeddings', 'metadata': {'extra_embeddings': [], 'schema': {'$schema': 'http://json-schema.org/draft-07/schema#', 'title': 'Document', 'type': 'object', 'properties': {'text': {'type': 'string', 'maxLength': 1024, 'description': 'Text content of the document chunk.'}, 'embedding': {'type': 'float_vector', 'dim': 384, 'description': 'Embedding vector of the document chunk.'}, 'source': {'type': 'string', 'maxLength': 1024, 'description': 'Source identifier of the document chunk.'}, 'title': {'type': 'string', 'maxLength': 255, 'description': 'Title of the document.'}, 'author': {'type': 'array', 'maxItems': 255, 'items': {'type': 'string', 'description': 'An author of the document.'}, 'description': 'List of authors of the document.'}, 'author_role': {'type': 'string', 'maxLength': 255, 'description': 'Role of the author in the document (e.g., writer, editor).'}, 'url': {'type': 'string', 'maxLength': 1024, 'description': 'URL associated with the document.'}, 'chunk_index': {'type': 'integer', 'description': 'Index of the document chunk.'}}}}, 'path': '../../data/conference', 'collection': 'conference_docs'}
