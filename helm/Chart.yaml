@@ -1,0 +1,19 @@
+apiVersion: v2
+name: generic-ai-stack
+description: A Helm chart for deploying Milvus, OpenWebUI with pipelines, and Ollama
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+dependencies:
+  - name: milvus
+    version: "4.2.43" # Example updated version, check the Milvus Helm chart repository
+    repository: "https://milvus-io.github.io/milvus-helm"
+    condition: milvus.enabled
+  - name: open-webui
+    version: "5.25.0" # Example updated version, check the Open WebUI Helm chart repository
+    repository: "https://open-webui.github.io/helm-charts"
+    condition: openwebui.enabled
+  - name: ollama
+    version: "1.12.0"
+    repository: "https://otwld.github.io/ollama-helm/"
+    condition: ollama.enabled
