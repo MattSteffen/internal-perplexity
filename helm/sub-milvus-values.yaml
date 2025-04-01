@@ -1,0 +1,50 @@
+mode: standalone
+storageClass: "microk8s-hostpath"
+persistence:
+  enabled: true
+resources:
+  requests:
+    cpu: "2"
+    memory: "8Gi"
+  limits:
+    cpu: "4"
+    memory: "16Gi"
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    # Add proxy annotations to route to the Milvus UI port (19000)
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+  hosts:
+    - host: 129.146.124.154.nip.io
+      paths:
+        - path: /milvus
+          pathType: Prefix
+          # Specify which service and port to route to
+          backend:
+            service:
+              name: milvus-milvus-standalone
+              port:
+                number: 19000
+cluster:
+  enabled: false # Disable distributed mode
+standalone:
+  enabled: true # Enable standalone mode
+  persistence:
+    enabled: true
+    mountPath: "/var/lib/milvus"
+    size: 10Gi # Adjust storage size as needed
+etcd:
+  replicaCount: 1
+  persistence:
+    enabled: true
+    size: 5Gi
+minio:
+  mode: standalone
+  persistence:
+    enabled: true
+    size: 10Gi
+pulsar:
+  enabled: false # Disable Pulsar (standalone uses RocksMQ by default)

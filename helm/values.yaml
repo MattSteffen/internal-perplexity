@@ -1,7 +1,7 @@
 # Global settings
 global:
   storageClass: "microk8s-hostpath"
-  domain: "YOUR_IP_ADDRESS"
+  domain: 129.146.124.154
 
 # Milvus configuration
 milvus:
@@ -10,7 +10,6 @@ milvus:
   storageClass: "microk8s-hostpath"
   persistence:
     enabled: true
-    size: 5Gi
   resources:
     requests:
       cpu: "2"
@@ -29,26 +28,81 @@ milvus:
           - path: /
             pathType: Prefix
   cluster:
-    enabled: false  # Disable distributed mode
+    enabled: false # Disable distributed mode
   standalone:
-    enabled: true   # Enable standalone mode
+    enabled: true # Enable standalone mode
     persistence:
       enabled: true
       mountPath: "/var/lib/milvus"
-      size: 50Gi    # Adjust storage size as needed
+      size: 10Gi # Adjust storage size as needed
   etcd:
     replicaCount: 1
     persistence:
       enabled: true
-      size: 10Gi
+      size: 5Gi
   minio:
     mode: standalone
     persistence:
       enabled: true
-      size: 20Gi
+      size: 10Gi
   pulsar:
-    enabled: false  # Disable Pulsar (standalone uses RocksMQ by default)
+    enabled: false # Disable Pulsar (standalone uses RocksMQ by default)
 
+# ubuntu@steffen-cluster:~/tests$ helm upgrade --install milvus-test milvus/milvus --values milvus-values.yaml
+# # Enable standalone mode
+# cluster:
+#   enabled: false
+
+# # Configure the message queue type for standalone mode
+# messageQueue:
+#   type: rocksmq  # Options: rocksmq, pulsar, kafka
+
+# # Service configuration
+# service:
+#   type: ClusterIP
+#   port: 19530
+
+# # Disable unnecessary components for a lightweight deployment
+# etcd:
+#   replicaCount: 1
+#   persistence:
+#     enabled: false
+
+# minio:
+#   enabled: true
+#   mode: standalone
+
+# pulsar:
+#   enabled: false
+# pulsarv3:
+#   enabled: false
+
+# kafka:
+#   enabled: false
+
+# # Resource requests and limits for Milvus standalone
+# resources:
+#   requests:
+#     cpu: "500m"
+#     memory: "1Gi"
+#   limits:
+#     cpu: "1"
+#     memory: "2Gi"
+
+# # Persistence settings
+# persistence:
+#   enabled: false  # Set to true to enable data persistence
+#   mountPath: "/var/lib/milvus"
+#   size: 10Gi
+#   storageClass: "-"  # Use default storage class; set to "-" to disable dynamic provisioning
+
+# # Node selector, tolerations, and affinity for scheduling
+# nodeSelector: {}
+# tolerations: []
+# affinity: {}
+
+# # Additional environment variables
+# extraEnv: []
 
 # OpenWebUI configuration
 openwebui:
@@ -76,15 +130,16 @@ openwebui:
             pathType: Prefix
   ollama:
     enabled: false
-  ollamaurls: [ollama.{{ .Values.global.domain }}.nip.io]
+  ollamaurls:
+    - ollama.{{ .Values.global.domain }}.nip.io
 
 # Ollama configuration - we'll create this as a custom deployment
 ollama:
   enabled: true
-  image:
-    repository: ollama/ollama
-    tag: latest
-    pullPolicy: IfNotPresent
+  # image:
+  #   repository: ollama/ollama
+  #   tag: latest
+  #   pullPolicy: IfNotPresent
   service:
     type: ClusterIP
     port: 11434
@@ -103,7 +158,7 @@ ollama:
     enabled: false
   models:
     pull:
-      - gemma3  
+      - gemma3
   ingress:
     enabled: true
     className: "nginx"
@@ -114,3 +169,48 @@ ollama:
         paths:
           - path: /
             pathType: Prefix
+# ubuntu@steffen-cluster:~/tests$ helm upgrade --install ollama-test ollama-helm/ollama --values ollama-values.yaml
+# ollama:
+#   gpu:
+#     enabled: false
+#   models:
+#     pull:
+#       - llama3.2:1b
+
+# service:
+#   type: ClusterIP  # Ingress will route traffic internally
+#   port: 11434
+
+# ingress:
+#   enabled: true
+#   className: "nginx"
+#   annotations:
+#     kubernetes.io/ingress.class: nginx
+#     nginx.ingress.kubernetes.io/ssl-redirect: "false"  # No SSL
+#     nginx.ingress.kubernetes.io/rewrite-target: /$2
+#     nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+#   hosts:
+#     - host: "129.146.124.154.nip.io"
+#       paths:
+#         - path: /ollama(/|$)(.*)
+#           pathType: Prefix
+
+# ollama:
+#   enabled: false
+# pipelines:
+#   enabled: true
+#   extraEnvVars: []
+# ollamaUrls:
+#   - ollama-test.test.svc.cluster.local:11434
+# ingress:
+#   enabled: true
+#   class: "nginx"
+#   annotations:
+#     kubernetes.io/ingress.class: nginx
+#     nginx.ingress.kubernetes.io/ssl-redirect: "false" # No SSL
+#     nginx.ingress.kubernetes.io/rewrite-target: /$2
+#     nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+#   host: "129.146.124.154.nip.io"
+#   paths:
+#     - path: /oi(/|$)(.*)
+#       pathType: Prefix
