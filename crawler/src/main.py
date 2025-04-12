@@ -1,10 +1,10 @@
 import json
 import os
 import argparse
-from typing import Dict, Any, Iterator, Tuple
+from typing import Dict, Any, Iterator, Tuple, Generator
 # from discovery import find_dirs
 from processing.embeddings import LocalEmbedder
-from processing.processor import DocumentProcessor
+from processing.extractor import Extractor, VisionLLM
 from storage.vector_db import VectorStorage
 from config.config_manager import ConfigManager
 from langchain.chat_models import init_chat_model
@@ -13,45 +13,27 @@ from langchain.chat_models import init_chat_model
 class Crawler:
     """Main class for crawling and processing directories of documents."""
     
-    def __init__(self, directory_name: str = None, config_manager: ConfigManager = None):
+    def __init__(self, config_source: str|Dict[str, any]):
         """
         Initialize the crawler with configuration.
         
         Args:
-            directory_name: Name of the directory configuration to use.
+            config_source: source for configuration, either a path to a YAML file or a dictionary.
             config_manager: Optional ConfigManager instance. If not provided, a new one will be created.
         """
         # Set up config manager if not provided
-        if config_manager is None:
-            self.config_manager = ConfigManager(
-                base_config_path='config/base_config.yaml',
-                collection_template_path='config/collection_template.yaml',
-                collections_config_dir='config/directories'
-            )
-        else:
-            self.config_manager = config_manager
-            
-        self.directory_name = directory_name
+        self.config_manager = ConfigManager(config_source=config_source)
+        self.config = self.config_manager.config
+        self.directory_name = self.config["path"]
         
-        if directory_name:
-            # Load configuration for the specified directory
-            self.config = self.config_manager.get_config(directory_name)
-            
-            # Set up components based on configuration
-            self.llm = self._setup_llm()
-            self.vision_model = self._setup_vision_model()
-            self.embedder = self._setup_embedder()
-            
-            # Create document processor
-            self.processor = DocumentProcessor(
-                self.config,
-                self.llm,
-                self.vision_model,
-                self.embedder
-            )
-        else:
-            self.config = None
-            self.processor = None
+        # Set up components based on configuration
+        self.llm = self._setup_llm()
+        self.vision_model = self._setup_vision_model()
+        self.embedder = self._setup_embedder()
+        
+        # Create document processor
+        self.extractor = Extractor(self.llm, self.vision_model, self.config)
+
     
     def _setup_vector_db(self) -> VectorStorage:
         """Set up the vector database using configuration."""
@@ -61,7 +43,7 @@ class Crawler:
     def _setup_embedder(self) -> LocalEmbedder:
         """Set up the embedder using configuration."""
         # Initialize embedder with configuration
-        return LocalEmbedder(self.config)
+        return LocalEmbedder(self.config.get("embeddings", {}))
 
     def _setup_llm(self) -> Any:
         """Set up the LLM using configuration."""
@@ -74,27 +56,14 @@ class Crawler:
         )
         return llm
 
-    def _setup_vision_model(self) -> Any:
+    def _setup_vision_model(self) -> Any: # TODO: Do I use VisionLLM or this?
         """Initialize a vision model for image analysis."""
         vision_llm_config = self.config.get('vision_llm', {})
-        source = vision_llm_config.get('source', 'ollama')
-        model_name = vision_llm_config.get('model_name', 'gemma3')
-        base_url = vision_llm_config.get('base_url', 'http://localhost:11434/')
-        
-        try:
-            if source == "ollama":
-                return init_chat_model(
-                    model_name,
-                    model_provider="ollama",
-                    base_url=base_url,
-                    vision=True
-                )
-            else:
-                print(f"Vision model source {source} not supported")
-                return None
-        except Exception as e:
-            print(f"Failed to initialize vision model: {e}")
-            return None
+        return VisionLLM(
+            model_name=vision_llm_config.get('vision_model', 'gemma3'),
+            model_provider=vision_llm_config.get('vision_model_provider', 'ollama'),
+            base_url=vision_llm_config.get('vision_model_base_url', 'http://localhost:11434/')
+        )
     
     def _setup_filepaths(self, directory_path) -> list[str]:
         # Get list of files
@@ -105,7 +74,7 @@ class Crawler:
                 file_paths.append(file_path)
         return file_paths
 
-    def run(self) -> Iterator[Tuple[str, Dict[str, Any], Any]]:
+    def run(self) -> Generator[Tuple[str, Dict[str, Any], list[float]]]:
         """
         Run the crawler on the configured directory.
         
@@ -128,43 +97,37 @@ class Crawler:
         # Process the directory and yield results
         for filepath in filepaths:
             print(f"Processing file: {filepath}")
-            yield self.processor.process_document(filepath)
+            for text, metadata in self.extractor.extract(filepath):
+                embedding = self.embedder.embed_query(text)
+                yield text, metadata, embedding
     
-    def set_directory(self, directory_name: str):
-        """
-        Change the directory configuration to use.
-        
-        Args:
-            directory_name: Name of the directory configuration to use.
-        """
-        self.directory_name = directory_name
-        self.config = self.config_manager.get_config(directory_name)
-        
-        # Re-initialize components with new configuration
-        self.llm = self._setup_llm()
-        self.vision_model = self._setup_vision_model()
-        self.embedder = self._setup_embedder()
-        
-        # Create new document processor
-        self.processor = DocumentProcessor(
-            self.config,
-            self.llm,
-            self.vision_model,
-            self.embedder
-        )
-
 
 def main():
     """Main entry point with command line argument parsing."""
     parser = argparse.ArgumentParser(description='Run the document crawler and processor')
-    parser.add_argument('--directory', '-d', type=str, help='Directory configuration to use')
+    parser.add_argument('--config', '-c', type=str, help='Path to your configuration file')
+    parser.add_argument('--directory', '-d', type=str, help='Directory of files to import')
     args = parser.parse_args()
     
+    # Load config file if provided
+    config_dict = {}
+    if args.config:
+        import yaml
+        with open(args.config, 'r') as f:
+            config_dict = yaml.safe_load(f) or {}
+    
+    # Override path with directory arg if provided
+    if args.directory:
+        config_dict["path"] = args.directory
+    
+    # Validate we have a path
+    if "path" not in config_dict:
+        parser.error("Must specify directory path either via --directory arg or in config file")
+    
     # Create and run crawler
-    crawler = Crawler(args.directory)
+    crawler = Crawler(config_dict)
     
     # Process all documents
-    # for text, metadata, embedding in crawler.run():
     a,b,c = [], [], []
     for x,y,z in crawler.run():
         a.append(x)

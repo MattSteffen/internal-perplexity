@@ -1,16 +1,14 @@
 # Base Configuration for Crawler
 # This file contains global settings that apply to the entire application
 
-vector_db:
-  enabled: true
-
 # Milvus Connection Settings
 milvus:
+  enabled: true
+  secure: false
   host: "localhost"
   port: 19530
-  user: "minioadmin"
+  username: "minioadmin"
   password: "minioadmin"
-  secure: false
   index_field: "embedding"
   index_params:
     index_type: "IVF_FLAT"
@@ -47,8 +45,17 @@ logging:
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
 # Processing Configuration
-processing:
-  extractors:
+extractor:
+  chunking:
+    length:
+      enabled: true
+      length: 5000 # number of characters per chunk
+      overlap: 100 # number of characters to overlap between chunks
+
+    metadata:
+      enabled: true
+
+  document_readers:
     - type: "json"
       enabled: true
     - type: "pdf"

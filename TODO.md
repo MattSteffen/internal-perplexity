@@ -1,3 +1,21 @@
+## Now
+
+- Crawler
+
+  - [x] Delete file storage/document.json
+  - [x] Delete snippet storage/vector_db.py/search
+  - implement
+    - [x] vectorstorage "don't insert duplicates" (provide override), add to collection or create new collection
+    - [x] chunking
+    - [x] semantic extra embeddings
+    - Insert into partition if provided
+      - [ ] Create new if doesn't exist
+      - [ ] Add to existing
+  - [x] Config
+    - [x] Make config standardized for whole crawler
+  - logging
+  - Demo with 2 sources of documents
+
 - Implement security features for milvus
   - Add them to config files
   - Set up 2 repositories with different types of data
@@ -5,6 +23,11 @@
   - upload different directory too
 - Using basic_ollama as function in OI.
 - Standardize configuration
+
+- use cloudflared tunnel --url http://localhost:<desired-port> to expose the service to the internet
+- maybe can do ingresses exposing http://ollama.localhost:5000 and similarly for the other services.
+
+https://github.com/PatrickJS/awesome-cursorrules/blob/main/rules/htmx-go-basic-cursorrules-prompt-file/.cursorrules
 
 # Crawler System Improvement TODOs
 

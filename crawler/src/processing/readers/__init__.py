@@ -25,3 +25,14 @@ __all__ = [
     'DocxReader',
     'PptxReader',
 ] 
+
+implemented_doc_readers = {
+    'text': TextReader,
+    'pdf': PDFReader,
+    'markdown': MarkdownReader,
+    'html': HTMLReader,
+    'json': JSONReader,
+    'csv': CSVReader,
+    'docx': DocxReader,
+    'pptx': PptxReader,
+}

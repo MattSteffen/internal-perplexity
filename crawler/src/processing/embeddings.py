@@ -6,7 +6,7 @@ import yaml
 # Try using langchain's milvus so you can upload full documents with metadata.
 
 class LocalEmbedder:
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, embeddings_config: Dict[str, Any] = {}):
         """Initialize embeddings model based on provider.
         
         Args:
@@ -17,12 +17,10 @@ class LocalEmbedder:
               - url: Ollama URL or OpenAI URL
               - api_key: OpenAI API key
         """
-        embeddings_config = config.get("embeddings", {})
-
-        self.provider: str = embeddings_config.get("provider", "ollama") # TODO: This is actually embeddings.provider
-        self.model_name = embeddings_config.get("model", "all-MiniLM-L6-v2")
-        self.url = embeddings_config.get("url", "http://localhost:11434")
-        self.api_key = embeddings_config.get("api_key", None)
+        self.provider: str = embeddings_config.get("provider")
+        self.model_name = embeddings_config.get("model")
+        self.url = embeddings_config.get("url")
+        self.api_key = embeddings_config.get("api_key", "")
         
         if self.provider == "ollama":
             self.embedder = OllamaEmbeddings(

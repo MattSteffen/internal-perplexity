@@ -18,6 +18,7 @@ Extraction process:
 """
 
 import os
+import json
 from typing import Dict, Any, Tuple, Generator, List, Optional, Union
 import base64
 
@@ -28,13 +29,13 @@ from typing import Union
 import io
 from langchain_core.messages import HumanMessage
 
-from processing.readers import *
+from processing.readers import implemented_doc_readers
 vision_prompt = "Describe the image in detail, including any text or objects present."
 
 
 class VisionLLM():
-    def __init__(self, model_name: str = "gemma3", model_provider="ollama", base_url: str = "http://localhost:11434"):
-        # Initialize Ollama LLM
+    def __init__(self, model_name: str, model_provider: str, base_url: str):
+        # Initialize vision LLM via langchain
         self.llm = init_chat_model(model_name, model_provider=model_provider, base_url=base_url)
 
     def _encode_image(self, image_path_or_data: Union[str, bytes, Image.Image]) -> str:
@@ -45,17 +46,18 @@ class VisionLLM():
         Returns:
             Base64 encoded string of the image
         """
-        if isinstance(image_path_or_data, str):
-            with open(image_path_or_data, "rb") as image_file:
-                return base64.b64encode(image_file.read()).decode('utf-8')
-        elif isinstance(image_path_or_data, bytes):
-            return base64.b64encode(image_path_or_data).decode('utf-8')
-        elif isinstance(image_path_or_data, Image.Image):
-            buffer = io.BytesIO()
-            image_path_or_data.save(buffer, format="PNG")
-            return base64.b64encode(buffer.getvalue()).decode('utf-8')
-        else:
-            raise ValueError("Unsupported image input type")
+        match image_path_or_data:
+            case str():
+                with open(image_path_or_data, "rb") as image_file:
+                    return base64.b64encode(image_file.read()).decode('utf-8')
+            case bytes():
+                return base64.b64encode(image_path_or_data).decode('utf-8')
+            case Image.Image():
+                buffer = io.BytesIO()
+                image_path_or_data.save(buffer, format="PNG")
+                return base64.b64encode(buffer.getvalue()).decode('utf-8')
+            case _:
+                raise ValueError("Unsupported image input type")
 
     def invoke(self, image_path_or_data: Union[str, bytes, Image.Image],  prompt: str = vision_prompt) -> str:
         """
@@ -81,25 +83,21 @@ class VisionLLM():
 
 
 class Extractor():
-    def __init__(self, llm, vision_llm: VisionLLM, schema: str):
+    def __init__(self, llm, vision_llm: VisionLLM, config: dict[str, Any] = {}):
         self.llm = llm
-        self.structured_llm = self.llm.with_structured_output(schema)
+        self.structured_llm = self.llm.with_structured_output(config.get("metadata").get("schema", {}))
         self.vision_llm = vision_llm
-        
+        self.doc_readers = {}
+        self.extractor_config = config.get("extractor", {})
+        self.metadata_config = config.get("metadata", {})
+
         # Document readers mapping
-        # TODO: Enable only those that are enabled in the config
-        self.doc_readers = {
-            '.txt': TextReader(self.llm, self.vision_llm),
-            '.pdf': PDFReader(self.llm, self.vision_llm),
-            '.md': MarkdownReader(self.llm, self.vision_llm),
-            '.html': HTMLReader(self.llm, self.vision_llm),
-            '.csv': CSVReader(self.llm, self.vision_llm),
-            '.json': JSONReader(self.llm, self.vision_llm),
-            '.docx': DocxReader(self.llm, self.vision_llm),
-            '.doc': DocxReader(self.llm, self.vision_llm),
-            '.pptx': PptxReader(self.llm, self.vision_llm),
-        }
-    
+        for ext in self.extractor_config.get("document_readers", {}):
+            if ext.get("enabled", True) and ext.get("type", "") != "" and ext.get("type", "") in implemented_doc_readers:
+                print(f"Loading {ext['type']} reader")
+                self.doc_readers[ext["type"]] = implemented_doc_readers[ext["type"]](self.llm, self.vision_llm)
+        
+
     def _extract_metadata_prompt(self, text: str) -> str:
         """Create a prompt for the LLM to extract metadata from the text."""
         format_instructions = "Extract the metadata fields from the text following the schema provided."
@@ -108,38 +106,92 @@ class Extractor():
 {format_instructions}
 
 Text excerpt (analyze the full text even if truncated here):
-{text[:1500]}... [text continues]
+{text[:10000]}... [text continues]
 
 Return your analysis in the required JSON format."""
+
+    def _extract_document_metadata(self, metadata: Dict[str, Any]) -> List[str]:
+        """Extract metadata from the entire document based on configured fields."""
+        if not self.extractor_config.get("chunking", {}).get("metadata", {}).get("enabled", False):
+            return []
+            
+        metadata_fields = self.metadata_config.get("metadata", {}).get("extra_embeddings", [])
+        if not metadata_fields:
+            return []
+            
+        # Get the text to be embedded
+        fields = []
+        for field in metadata_fields:
+            if metadata.get(field, ""):
+                fields.append(metadata[field])
+        return fields
+
+    def _chunk_by_length(self, text: str, metadata: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]:
+        """Chunk text by length with overlap and return list of text chunks with metadata."""
+        length_config = self.extractor_config.get("chunking", {}).get("length", {})
+        
+        if not length_config.get("enabled", False):
+            return [(text, metadata)]
+            
+        chunk_size = length_config.get("chunk_size", 5000)
+        overlap = length_config.get("overlap", 100)
+        
+        # Split text into chunks with overlap
+        chunks = []
+        start = 0
+        chunk_index = 0
+        while start < len(text):
+            end = min(start + chunk_size, len(text))
+            chunk = text[start:end]
+            print("Segmenting: ", start, end, len(text))
+            
+            # Create chunk metadata
+            chunk_metadata = metadata.copy()
+            chunk_metadata["chunk_index"] = chunk_index
+            
+            chunks.append((chunk, chunk_metadata))
+            
+            # Update for next iteration
+            start = end - overlap
+            chunk_index += 1
+            if end == len(text):
+                break
+            
+        return chunks
 
     def extract_metadata_with_llm(self, text: str) -> Dict[str, Any]:
         """Use the LLM to extract metadata from the text."""
         prompt = self._extract_metadata_prompt(text)
+        llm_response = None
         try:
             llm_response = self.structured_llm.invoke(prompt)
-            print(f"LLM response: {llm_response}")
-            return llm_response # dict matching metadata schema
+            if isinstance(llm_response, dict):
+                return llm_response
+            else:
+                return json.loads(llm_response.content.replace("```json", "").replace("```", ""))
         except Exception as e:
-            print(f"Error parsing LLM response: {e}")
-            # Return a basic metadata object if parsing fails
+            print(f"Error parsing LLM response: {e}, response: {llm_response}")
             return {}
 
     def get_file_extension(self, file_path: str) -> str:
         """Get the file extension from a path."""
         _, ext = os.path.splitext(file_path)
-        return ext.lower()
+        return ext.lower()[1:]
 
-    def extract(self, all_files: list[str]) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
-        """Yields text and metadata from all supported document types."""
+    def extract(self, all_files: list[str]) -> list[tuple[str, Dict[str, Any]]]:
+        """Returns list of (text, metadata) tuples from all supported document types."""
         if isinstance(all_files, str):
             all_files = [all_files]
+
+        print("Extracting: ", all_files)
         
-        for i, file_path in enumerate(all_files): # can this be the extractor yeild thing?
+        results = []
+        for i, file_path in enumerate(all_files):
             ext = self.get_file_extension(file_path)
             
             # Skip unsupported file types
             if ext not in self.doc_readers:
-                print(f"Skipping unsupported file type: {file_path}")
+                print(f"Skipping unsupported file type - {ext}: {file_path}")
                 continue
                 
             try:
@@ -148,81 +200,27 @@ Return your analysis in the required JSON format."""
                 # Extract text using the appropriate reader
                 doc = self.doc_readers[ext].read(file_path)
                 text = doc.get_text()
+                print("got text, length", len(text))
                 
-                # Extract metadata using LLM
-                metadata = self.extract_metadata_with_llm(text)
-                
-                # Add file-specific metadata
-                metadata.update({
+                # Initialize base metadata
+                metadata = {
                     'source': file_path,
-                    'format': ext[1:],  # Remove the leading dot
-                    'chunk_index': i,
-                })
+                    'format': ext,  # Remove the leading dot
+                }
                 
-                yield text, metadata
+                metadata.update(self.extract_metadata_with_llm(text))
+                print("got metadata", metadata)
+                
+                # Chunk by length if enabled and also embed metadata
+                results.extend(self._chunk_by_length(text, metadata))
+                chunk = len(results)
+                for i,new_text in enumerate(self._extract_document_metadata(metadata)):
+                    new_metadata = metadata.copy()
+                    new_metadata["chunk_index"] = chunk + i
+                    results.append((new_text, new_metadata))
+                print("got results", len(results))
                 
             except Exception as e:
                 print(f"Error processing file {file_path}: {e}")
-
-
-
-sample_schema = {
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Document",
-  "type": "object",
-  "properties": {
-    "text": {
-      "type": "string",
-      "maxLength": 1024,
-      "description": "Text content of the document chunk."
-    },
-    "source": {
-      "type": "string",
-      "maxLength": 1024,
-      "description": "Source identifier of the document chunk."
-    },
-    "title": {
-      "type": "string",
-      "maxLength": 255,
-      "description": "Title of the document."
-    },
-    "author": {
-      "type": "array",
-      "maxItems": 255,
-      "items": {
-        "type": "string",
-        "description": "An author of the document."
-      },
-      "description": "List of authors of the document."
-    },
-    "author_role": {
-      "type": "string",
-      "maxLength": 255,
-      "description": "Role of the author in the document (e.g., writer, editor)."
-    },
-    "url": {
-      "type": "string",
-      "maxLength": 1024,
-      "description": "URL associated with the document."
-    },
-    "chunk_index": {
-      "type": "integer",
-      "description": "Index of the document chunk."
-    }
-  }
-}
-
-
-def test():
-    llm = init_chat_model("llama-3.3-70b-versatile", model_provider="groq") # Must support structured output
-    vision_llm = VisionLLM()
-    extractor = Extractor(llm, vision_llm, sample_schema)
-    all_files = [
-        "/Users/mattsteffen/projects/llm/internal-perplexity/data/sample/c4611_sample_explain.pdf",
-        "/Users/mattsteffen/projects/llm/internal-perplexity/data/conference/Simple_Is_the_Doctrine_of_Jesus_Christ.json"
-    ]
-
-    print(list(extractor.extract(all_files)))
-
-# if __name__ == "__main__":
-#     test()
+        
+        return results

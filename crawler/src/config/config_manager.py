@@ -1,21 +1,23 @@
-import os
 import yaml
 from typing import Dict, Any, Optional, List
 
 # TODO: Add a validator for the config files
-# TODO: Add ability to load a config file and place it in the directories section, this way the user can pass in an override config file (add_config(path, save=False))
-# and when save = true it'll save it to the collections_config_dir
+# Validation includes: If milvus is enabled, it should have the username and password
+# If milvus is enabled, it should test the connection, then check the schema with the collection name and schema, embedding shape should match too
+# Warning if in schema there are properties text and embedding saying they will not be used.
+# If embeddings are enabled, it should have the model name etc 
+# extra embeddings should be fields in the schema
 class ConfigManager:
     """
-    Configuration manager for file indexer application that handles multi-level YAML configurations.
-    Handles base config, collection template config, and directory-specific collection configs.
+    Configuration manager that handles loading and accessing configuration settings.
+    Can be initialized with either a config file path or a config dictionary.
     """
 
     def __init__(
         self,
-        base_config_path: str,
-        collection_template_path: str,
-        collections_config_dir: str
+        config_source: str|Dict[str, any] = "",
+        base_config_path: str = "",
+        collection_template_path: str = "",
     ):
         """
         Initialize the configuration manager.
@@ -23,16 +25,31 @@ class ConfigManager:
         Args:
             base_config_path: Path to the base configuration file
             collection_template_path: Path to the collection template configuration file
-            collections_config_dir: Directory containing collection-specific configuration files
+            config_source: Either a path to a YAML config file or a config dictionary
         """
+        import os
+
+        # Get the absolute path to the directory where the current file is located
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+
+        # Define your config paths relative to this directory
+        base_config_path = os.path.join(base_dir, 'base_config.yaml') if base_config_path == "" else base_config_path
+        collection_template_path = os.path.join(base_dir, 'collection_template.yaml') if collection_template_path == "" else collection_template_path
+
         self.base_config = self._load_yaml(base_config_path)
         self.collection_template = self._load_yaml(collection_template_path)
-        self.collections_config_dir = collections_config_dir
-        self.collection_configs = {}
         
-        # Load all collection configuration files
-        self._load_collection_configs()
-
+        if isinstance(config_source, str):
+            self.config = self._load_yaml(config_source)
+        else:
+            self.config = config_source
+        
+        # Merge the base config, collection template, and config
+        self.config = self.deep_merge_dicts(
+            self.deep_merge_dicts(self.base_config, self.collection_template),
+            self.config,
+        )
+        
     def _load_yaml(self, file_path: str) -> Dict[str, Any]:
         """
         Load a YAML file and return the parsed content.
@@ -49,24 +66,6 @@ class ConfigManager:
         except Exception as e:
             print(f"Error loading YAML file {file_path}: {e}")
             return {}
-
-    def _load_collection_configs(self) -> None:
-        """
-        Load all collection configuration files from the specified directory.
-        Organizes them by directory path for quick lookup.
-        """
-        try:
-            for filename in os.listdir(self.collections_config_dir):
-                if filename.endswith('.yaml') or filename.endswith('.yml'):
-                    file_path = os.path.join(self.collections_config_dir, filename)
-                    config = self._load_yaml(file_path)
-                    
-                    # Only add configs that have a valid path
-                    if config and 'path' in config:
-                        dir_path = config['path']
-                        self.collection_configs[dir_path] = config
-        except Exception as e:
-            print(f"Error loading collection configs: {e}")
 
     def deep_merge_dicts(self, dict1: Dict[str, Any], dict2: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -91,58 +90,20 @@ class ConfigManager:
                 
         return result
 
-    def get_config(self, dir_path: str) -> Dict[str, Any]:
-        """
-        Get the merged configuration for a specific directory path.
-        
-        Args:
-            dir_path: The directory path to get configuration for
 
-        Returns:
-            A merged configuration dictionary
-        """
-        # Start with the base configuration
-        result = self.base_config.copy()
-        
-        # Merge with collection template
-        result = self.deep_merge_dicts(result, self.collection_template)
-        
-        # If we have a specific configuration for this directory, merge it in
-        if dir_path in self.collection_configs:
-            result = self.deep_merge_dicts(result, self.collection_configs[dir_path])
-        
-        return result
-
-    def get_all_collection_paths(self) -> List[str]:
-        """
-        Get a list of all configured collection paths.
-        
-        Returns:
-            List of directory paths
-        """
-        return list(self.collection_configs.keys())
+# # Example usage
+# if __name__ == "__main__":
+#     # Example paths
+#     base_config_path = "base_config.yaml"
+#     collection_template_path = "collection_template.yaml"
+#     collections_config_dir = "directories/sample.yaml"
     
-    def reload_configs(self) -> None:
-        """
-        Reload all configuration files.
-        Useful when configurations have been updated.
-        """
-        self.collection_configs = {}
-        self._load_collection_configs()
+#     # Initialize the configuration manager
+#     config_manager = ConfigManager(
+#         base_config_path,
+#         collection_template_path,
+#         collections_config_dir
+#     )
 
-
-# Example usage
-if __name__ == "__main__":
-    # Example paths
-    base_config_path = "base_config.yaml"
-    collection_template_path = "collection_template.yaml"
-    collections_config_dir = "directories"
-    
-    # Initialize the configuration manager
-    config_manager = ConfigManager(
-        base_config_path,
-        collection_template_path,
-        collections_config_dir
-    )
-
-    print(config_manager.get_config("../../data/conference"))
+#     import json
+#     print(json.dumps(config_manager.config))
