@@ -9,8 +9,8 @@
     - [x] chunking
     - [x] semantic extra embeddings
     - Insert into partition if provided
-      - [ ] Create new if doesn't exist
-      - [ ] Add to existing
+      - [x] Create new if doesn't exist
+      - [x] Add to existing
   - [x] Config
     - [x] Make config standardized for whole crawler
   - logging

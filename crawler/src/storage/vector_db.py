@@ -80,6 +80,8 @@ class VectorStorage:
         self.collection: Optional[Collection] = None
         self.metadata_fields: List[str] = [] # Populated after schema load
 
+        self.partition_name: str = self.config.get("partition", None)
+
         logging.info(f"VectorStorage initialized for collection '{self.collection_name}' at {self.host}:{self.port}")
 
     def _load_or_create_schema(self) -> Dict[str, Any]:
@@ -136,29 +138,31 @@ class VectorStorage:
                  self.metadata_fields.append("source")
             if "chunk_index" not in self.metadata_fields:
                  self.metadata_fields.append("chunk_index")
-            partition = self.config.get("partition")
-            if partition:
-                partitions = [partition]
-            else:
-                partitions = []
-
 
             if utility.has_collection(self.collection_name, using=alias):
                 logging.info(f"Collection '{self.collection_name}' already exists. Loading collection.")
                 self.collection = Collection(self.collection_name, using=alias)
-                # Optional: Add schema validation against existing collection here if needed
-                # self._validate_existing_schema()
 
                 logging.info(f"Loading collection '{self.collection_name}' into memory...")
-                self.collection.load(partitions)
+                if self.partition_name:
+                    if not self.collection.has_partition(self.partition_name):
+                        logging.info(f"Partition '{self.partition_name}' does not exist. Creating...")
+                        self.collection.create_partition(self.partition_name, self.config.get("description", f"Partition for {self.collection_name}"))
+                    self.collection.load([self.partition_name])
+                else:
+                    self.collection.load()
+
                 logging.info(f"Collection '{self.collection_name}' loaded.")
             else:
                 logging.info(f"Collection '{self.collection_name}' does not exist. Creating...")
                 self._create_collection(alias)
                 logging.info(f"Collection '{self.collection_name}' created.")
-                # Load explicitly after creation and indexing
-                logging.info(f"Loading newly created collection '{self.collection_name}' into memory...")
-                self.collection.load()
+                if self.partition_name:
+                    self.collection.create_partition(self.partition_name, self.config.get("description", f"Partition for {self.collection_name}"))
+                    self.collection.load([self.partition_name])  
+                else:
+                    # Load explicitly after creation and indexing
+                    self.collection.load()
                 logging.info(f"Collection '{self.collection_name}' loaded.")
 
 
@@ -254,7 +258,7 @@ class VectorStorage:
             logging.info(f"Waiting for index '{embedding_index_name}' creation to complete...")
             utility.wait_for_index_building_complete(
                 self.collection_name,
-                index_name=embedding_index_name, # <--- Specify the index name here
+                index_name=embedding_index_name,
                 using=alias
             )
             # Optional: Add a timeout to the wait function
@@ -498,7 +502,7 @@ class VectorStorage:
                           field_values[field_name] = metadata[field_name]
                      else:
                           # Handle missing optional fields (e.g., set to None or default)
-                          field_values[field_name] = None # Or get default from schema?
+                          field_values[field_name] = None # Or get default from schema? # TODO: Add default handling
 
 
             # Add any other fields from the metadata that are *also* in the schema's properties
@@ -519,16 +523,7 @@ class VectorStorage:
         # 3. Insert the filtered and validated data
         try:
             logging.info(f"Attempting to insert {len(data_to_insert)} new entries into collection '{self.collection_name}'...")
-            # Optionally specify partition if configured
-            partition_name = self.config.get('partition', None)
-            
-            # Create partition if it doesn't exist and is specified
-            if partition_name:
-                if not utility.has_partition(self.collection_name, partition_name):
-                    logging.info(f"Creating partition '{partition_name}' in collection '{self.collection_name}'")
-                    self.collection.create_partition(partition_name)
-                
-            insert_result = self.collection.insert(data_to_insert, partition_name=partition_name)
+            insert_result = self.collection.insert(data_to_insert, partition_name=self.partition_name)
             # Flush is important to make data searchable/persistent immediately
             logging.info("Flushing collection to make inserts visible...")
             self.collection.flush()
@@ -609,17 +604,17 @@ def build_collection_schema(schema_config: Dict[str, Any], default_dim: int) -> 
                  fields.append(FieldSchema(name=field_name, dtype=DataType.INT64, description=field_description))
             elif field_type == "string":
                 max_length = field_def.get("maxLength", DEFAULT_VARCHAR_MAX_LENGTH)
-                fields.append(FieldSchema(name=field_name, dtype=DataType.VARCHAR, max_length=max_length, description=field_description))
+                fields.append(FieldSchema(name=field_name, dtype=DataType.VARCHAR, max_length=max_length, description=field_description, default_value=""))
             elif field_type == "integer":
-                 fields.append(FieldSchema(name=field_name, dtype=DataType.INT64, description=field_description))
+                 fields.append(FieldSchema(name=field_name, dtype=DataType.INT64, description=field_description, default_value=0))
             elif field_type == "float":
-                 fields.append(FieldSchema(name=field_name, dtype=DataType.DOUBLE, description=field_description))
+                 fields.append(FieldSchema(name=field_name, dtype=DataType.DOUBLE, description=field_description, default_value=0))
             elif field_type == "boolean":
-                 fields.append(FieldSchema(name=field_name, dtype=DataType.BOOL, description=field_description))
+                 fields.append(FieldSchema(name=field_name, dtype=DataType.BOOL, description=field_description, default_value=False))
             elif field_type == "array": # Simple array handling (store as string)
                  max_length = field_def.get("maxLength", 2048)
                  logging.warning(f"Mapping array field '{field_name}' to VARCHAR({max_length}). Ensure data is serialized.")
-                 fields.append(FieldSchema(name=field_name, dtype=DataType.VARCHAR, max_length=max_length, description=f"{field_description} (serialized)"))
+                 fields.append(FieldSchema(name=field_name, dtype=DataType.VARCHAR, max_length=max_length, description=f"{field_description} (serialized)", default_value=""))
             elif field_type == "float_vector":
                  logging.warning(f"Schema config requests additional float_vector field '{field_name}'. Skipping.")
                  continue

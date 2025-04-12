@@ -1,36 +1,16 @@
 # Directory-specific configuration for conference data
 path: "../../data/conference"
 
-# Collection to use for this directory
-collection: "conference_docs"
-
 # Override specific collection parameters
+collection: "sample"
+partition: "conference"
 description: "Conference documents and papers with embeddings"
 
-# # You can override specific schema fields if needed
-# metadata:
-#   fields:
-#     - name: "conference_name"
-#       type: "string"
-#       max_length: 255
-#       description: "Name of the conference."
+milvus:
+  username: "minioadmin"
+  password: "minioadmin"
 
-#     - name: "conference_year"
-#       type: "integer"
-#       description: "Year the conference was held."
-
-#     - name: "paper_type"
-#       type: "string"
-#       max_length: 100
-#       description: "Type of paper (e.g., research, poster, workshop)."
-
-# Processing overrides for this directory
-processing:
-  chunk_size: 800 # Override the global chunk size
-  extractors:
-    - type: "json"
-      enabled: true
-      metadata_mapping:
-        title: "paper_title"
-        authors: "author"
-        year: "conference_year"
+# You can override specific schema fields if needed
+metadata:
+  extra_embeddings:
+    - description
