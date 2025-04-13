@@ -2,19 +2,20 @@
 
 - Crawler
 
-  - [x] Delete file storage/document.json
-  - [x] Delete snippet storage/vector_db.py/search
-  - implement
-    - [x] vectorstorage "don't insert duplicates" (provide override), add to collection or create new collection
-    - [x] chunking
-    - [x] semantic extra embeddings
-    - Insert into partition if provided
-      - [x] Create new if doesn't exist
-      - [x] Add to existing
-  - [x] Config
-    - [x] Make config standardized for whole crawler
   - logging
   - Demo with 2 sources of documents
+
+- Radchat
+
+  - [x] Implement RAG with function call to get filters and queries
+    - [x] Check what metadata should be returned
+    - Find a way to get the metadata schema from the collection so it can properly filter on metadata
+  - [ ] Clean up function
+    - [ ] Remove Groq
+    - [ ] Use langchain? and .with_structured_output
+  - [ ] Use with bigger document collection
+  - [ ] Implement citations
+  - [ ] Implement event_emitter
 
 - Implement security features for milvus
   - Add them to config files
