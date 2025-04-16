@@ -1,0 +1,26 @@
+# Directory-specific configuration for arxiv data
+path: "../../data/arxiv"
+
+# Override specific collection parameters
+collection: "arxiv"
+description: "Documents about graph methods and other related topics"
+
+milvus:
+  username: "minioadmin"
+  password: "minioadmin"
+
+# You can override specific schema fields if needed
+metadata:
+  extra_embeddings:
+    - description
+# LLM Settings
+# llm:
+#   model: gemini-2.0-flash
+#   provider: "google-genai"
+#   base_url: "https://generativelanguage.googleapis.com/v1beta/"
+
+# Vision LLM Settings
+# vision_llm:
+#   model: gemini-2.0-flash
+#   provider: "google-genai"
+#   base_url: "https://generativelanguage.googleapis.com/v1beta/"

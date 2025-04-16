@@ -13,6 +13,7 @@
   - [ ] Clean up function
     - [ ] Remove Groq
     - [ ] Use langchain? and .with_structured_output
+    - Revoke groq API key, it is exposed.
   - [ ] Use with bigger document collection
   - [ ] Implement citations
   - [ ] Implement event_emitter

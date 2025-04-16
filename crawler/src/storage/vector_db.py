@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional, Set, Tuple
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Constants
-MAX_DOC_LENGTH = 10240  # Max length for the 'text' field in Milvus
+MAX_DOC_LENGTH = 10240  # Max length for the 'text' field in Milvus should be 65000
 # Define reasonable max lengths for indexed VARCHAR fields
 MAX_SOURCE_LENGTH = 1024 # Adjust as needed for your source path/identifier lengths
 DEFAULT_VARCHAR_MAX_LENGTH = 1024 # Default for other string fields
@@ -27,19 +27,6 @@ try:
 except ImportError:
     MILVUS_AVAILABLE = False
     logging.error("Pymilvus not installed. VectorStorage operations cannot proceed.")
-    # Define dummy classes/functions if needed for basic structure compilation without Milvus
-    # class Collection: pass
-    # class MilvusException(Exception): pass
-    # class connections:
-    #     @staticmethod
-    #     def connect(*args, **kwargs): pass
-    #     @staticmethod
-    #     def disconnect(*args, **kwargs): pass
-    # class utility:
-    #     @staticmethod
-    #     def has_collection(name): return False
-    #     @staticmethod
-    #     def drop_collection(name): pass
 
 class VectorStorage:
     """
@@ -124,7 +111,7 @@ class VectorStorage:
             # We will ensure 'source' and 'chunk_index' are handled by build_collection_schema
             base_properties = {"embedding", "text"}
             schema_props = self.schema_config.get("properties", {})
-            self.metadata_fields = [
+            self.metadata_fields = [ # All other fields are optional thus not enforced
                 name for name in schema_props.keys()
                 if name not in base_properties
             ]
@@ -132,11 +119,6 @@ class VectorStorage:
             if "source" not in self.metadata_fields and "source" in schema_props:
                  self.metadata_fields.append("source")
             if "chunk_index" not in self.metadata_fields and "chunk_index" in schema_props:
-                 self.metadata_fields.append("chunk_index")
-            # Add fields that build_collection_schema might add by default if missing
-            if "source" not in self.metadata_fields:
-                 self.metadata_fields.append("source")
-            if "chunk_index" not in self.metadata_fields:
                  self.metadata_fields.append("chunk_index")
 
             if utility.has_collection(self.collection_name, using=alias):
@@ -233,7 +215,7 @@ class VectorStorage:
             index_params = milvus_config.get("index_params", {
                 "index_type": "AUTOINDEX",
                 "metric_type": milvus_config.get("metric_type", "L2"),
-                "params": {}
+                "params": {"nlist": 128}
             })
             logging.info(f"Creating vector index on field '{index_field}' with name '{embedding_index_name}' and params: {index_params}")
             self.collection.create_index(
@@ -540,9 +522,6 @@ class VectorStorage:
 
 
 # --- Helper Functions ---
-
-# load_schema_config remains the same
-
 def build_collection_schema(schema_config: Dict[str, Any], default_dim: int) -> CollectionSchema:
     """
     Builds a Milvus CollectionSchema based on the provided schema configuration dictionary.
@@ -612,6 +591,7 @@ def build_collection_schema(schema_config: Dict[str, Any], default_dim: int) -> 
             elif field_type == "boolean":
                  fields.append(FieldSchema(name=field_name, dtype=DataType.BOOL, description=field_description, default_value=False))
             elif field_type == "array": # Simple array handling (store as string)
+                 # TODO: Milvus can handle arrays - https://milvus.io/docs/array_data_type.md
                  max_length = field_def.get("maxLength", 2048)
                  logging.warning(f"Mapping array field '{field_name}' to VARCHAR({max_length}). Ensure data is serialized.")
                  fields.append(FieldSchema(name=field_name, dtype=DataType.VARCHAR, max_length=max_length, description=f"{field_description} (serialized)", default_value=""))
@@ -631,239 +611,3 @@ def build_collection_schema(schema_config: Dict[str, Any], default_dim: int) -> 
 
     logging.info(f"Built collection schema with {len(fields)} fields: {[f.name for f in fields]}")
     return CollectionSchema(fields=fields, description=schema_description, enable_dynamic_field=False) # Consider dynamic fields if needed
-
-
-# import logging
-# from typing import List, Dict, Any, Optional
-# import numpy as np
-# import re 
-# import yaml 
-# from uuid import uuid4
-
-# MAX_DOC_LENGTH = 10240
-
-# try:
-#     from pymilvus import (
-#         connections,
-#         utility,
-#         FieldSchema,
-#         CollectionSchema,
-#         DataType,
-#         Collection,
-#     )
-#     MILVUS_AVAILABLE = True
-# except ImportError:
-#     MILVUS_AVAILABLE = False
-#     logging.warning("Pymilvus not installed. Using mock implementation for development.")
-
-# class VectorStorage:
-#     def __init__(self, config: dict = {}):
-#         # Now use nested config sections for various parameters.
-#         self.config = config
-#         milvus_config = config.get("milvus", {})
-#         embeddings_config = config.get("embeddings", {})
-
-#         self.host = milvus_config.get("host", "localhost")
-#         self.port = milvus_config.get("port", 19530)
-#         # Use top-level "collection" key for the collection name.
-#         self.collection_name = config.get("collection", "documents")
-#         self.dim = embeddings_config.get("dimension", 384)
-#         # If you want read_only to be controlled separately, you can either leave it top-level
-#         # or add another key (for example under "vector_db"). Here we assume top-level.
-#         self.read_only = config.get("read_only", False)
-#         self.collection = None
-
-#         # Milvus
-#         self.client = None
-
-#     def __enter__(self):
-#         milvus_config = self.config.get("milvus", {})
-#         # Configure with security credentials from the "milvus" section.
-#         user = milvus_config.get("user")
-#         password = milvus_config.get("password")
-#         secure = milvus_config.get("secure", False)
-#         if user and password:
-#             connections.connect(host=self.host, port=self.port, user=user, password=password, secure=secure)
-#         else:
-#             connections.connect(host=self.host, port=self.port)
-        
-#         if not utility.has_collection(self.collection_name):
-#             self._create_collection()
-#         else:
-#             # self.collection = Collection(self.collection_name) # TODO: This is a bug, don't delete every time.
-#             utility.drop_collection(self.collection_name)
-#             self._create_collection()
-#             self.collection.load()
-#         return self
-
-#     def __exit__(self, exc_type, exc_value, traceback):
-#         if self.collection:
-#             self.collection.release()
-#         # Disconnect using the collection name.
-#         connections.disconnect(self.collection_name)
-
-#     def close(self):
-#         self.__exit__(None, None, None)
-
-#     def _create_collection(self):
-#         # Get the schema config from the "metadata" section.
-#         schema_config = self.config.get("metadata", {}).get("schema")
-#         if not schema_config:
-#             schema_config = load_schema_config(self.schema_config_path)
-#         # Also pass milvus-specific config to the collection creation helper.
-#         milvus_config = self.config.get("milvus", {})
-#         self.collection = create_collection(schema_config, self.collection_name, self.dim, milvus_config)
-
-#     def insert_data(self, texts: list, embeddings: list, metadatas: list):
-#         # TODO: Confirm that the schema is generated correctly.
-#         # TODO: Confirm that the metadata matches the schema
-#         """
-#         Inserts data into Milvus collection, ensuring no duplicate records
-#         (based on a unique combination of "source" and "chunk_index") are inserted.
-#         """
-#         if self.read_only:
-#             print("Storage is in read-only mode. Insert operation skipped.")
-#             return
-
-#         if not (len(texts) == len(embeddings) == len(metadatas)):
-#             raise ValueError("All input lists must have the same length")
-        
-#         # TODO: Make sure not to insert duplicates
-        
-#         # new_entries = []
-#         # for i in range(len(texts)):
-#         #     meta = metadatas[i]
-#         #     source = meta.get('source', '')
-#         #     chunk_index = meta.get('chunk_index')
-#         #     if chunk_index is None:
-#         #         raise ValueError("Each metadata dict must include a 'chunk_index' field")
-#         #     new_entries.append((source, chunk_index))
-        
-#         # seen = set()
-#         # indices_to_check = []
-#         # for i, key in enumerate(new_entries):
-#         #     print(f"Checking key: {key}")
-#         #     if key not in seen:
-#         #         seen.add(key)
-#         #         indices_to_check.append(i)
-#         #     else:
-#         #         print(f"Skipping duplicate within batch for key {key}")
-        
-#         # print("lens: ", len(seen), len(indices_to_check), len(texts))
-
-#         # if len(indices_to_check) == 0:
-#         #     print("No new entries to insert (all are duplicates in batch).")
-#         #     return
-        
-#         # filter_clauses = []
-#         # for key in seen:
-#         #     s, ci = key
-#         #     filter_clauses.append(f'(source == "{s}" and chunk_index == {ci})')
-#         # filter_expr = " or ".join(filter_clauses)
-        
-#         # existing_records = self.collection.query(expr=filter_expr, output_fields=["source", "chunk_index"])
-#         # existing_keys = {(rec["source"], rec["chunk_index"]) for rec in existing_records}
-        
-#         # final_indices = []
-#         # for i in indices_to_check:
-#         #     key = new_entries[i]
-#         #     if key in existing_keys:
-#         #         print(f"Skipping duplicate existing entry for key {key}")
-#         #     else:
-#         #         final_indices.append(i)
-        
-#         # if not final_indices:
-#         #     print("No new entries to insert after duplicate check.")
-#         #     return
-
-#         # texts_to_insert = [texts[i] for i in final_indices]
-#         # embeddings_to_insert = [embeddings[i] for i in final_indices]
-#         final_indexes = list(range(len(texts)))
-
-#         # Get metadata fields from the "metadata" schema.
-#         metadata_schema = self.config.get("metadata", {}).get("schema", {})
-#         metadata_fields = list(metadata_schema.get("properties", {}).keys())
-        
-#         data: list[dict] = []
-#         for i in final_indexes:
-#             field_values = {field: metadatas[i].get(field, "") for field in metadata_fields} # only use the fields defined in the schema
-#             field_values["embedding"] = embeddings[i]
-#             field_values["text"] = texts[i][:MAX_DOC_LENGTH]
-#             data.append(field_values)
-        
-
-#         # Optionally, if a partition is defined at the top level, retrieve it.
-#         self.collection.insert(data, partition_name=self.config.get('partition', None))
-#         self.collection.flush()
-#         print(f"Inserted {len(texts)} new chunks.")
-
-
-
-
-
-
-# def load_schema_config(config_file: str) -> dict:
-#     """Loads the collection schema configuration from a YAML file."""
-#     with open(config_file, "r") as f:
-#         config = yaml.safe_load(f)
-#     return config
-
-
-
-# def build_collection_schema(schema_config: dict, default_dim: int = 384) -> CollectionSchema:
-#     # TODO: I should include the description of the fields in the schema. These should be found in the schema file.
-#     """
-#     Builds a CollectionSchema based on the provided schema configuration.
-#     The passed schema_config is now the actual JSON schema (not nested under "schema").
-#     """
-#     # Now access properties directly from the schema_config.
-#     fields_config = schema_config.get("properties", {})
-#     # Always add the auto-generated id field.
-#     fields = [
-#         FieldSchema(name='id', dtype=DataType.INT64, is_primary=True, auto_id=True),
-#         FieldSchema(name='embedding', dtype=DataType.FLOAT_VECTOR, dim=default_dim),
-#         FieldSchema(name='text', dtype=DataType.VARCHAR, max_length=MAX_DOC_LENGTH),
-#     ]
-    
-#     for field_name, field_def in fields_config.items():
-#         field_type = field_def["type"]
-#         if field_type == "string":
-#             if field_name != "text": # Not allowed to duplicate text
-#                 max_length = field_def.get("maxLength", 1024)
-#                 fields.append(FieldSchema(name=field_name, dtype=DataType.VARCHAR, max_length=max_length))
-#         elif field_type == "integer":
-#             fields.append(FieldSchema(name=field_name, dtype=DataType.INT64))
-#         elif field_type == "float_vector":
-#             if field_name != "embedding": # Not allowed to duplicate embedding
-#                 dim = field_def.get("dim", default_dim)
-#                 fields.append(FieldSchema(name=field_name, dtype=DataType.FLOAT_VECTOR, dim=dim))
-#         elif field_type == "array":
-#             max_length = field_def.get("maxLength", 1024)
-#             fields.append(FieldSchema(name=field_name, dtype=DataType.VARCHAR, max_length=max_length))
-#         else:
-#             raise ValueError(f"Unsupported field type: {field_type}")
-    
-#     description = schema_config.get("description", "Document chunks with embeddings")
-
-#     return CollectionSchema(fields, description=description)
-
-# def create_collection(schema_config: dict, collection_name: str, default_dim: int, milvus_config: dict) -> Collection:
-#     """
-#     Creates and returns a new Milvus collection based on the schema configuration.
-#     The milvus_config is used to obtain index parameters.
-#     """
-#     schema = build_collection_schema(schema_config, default_dim)
-#     collection = Collection(collection_name, schema)
-    
-#     # Get index details from the milvus config.
-#     index_field = milvus_config.get("index_field", "embedding")
-#     index_params = milvus_config.get("index_params", {
-#         "index_type": "IVF_FLAT",
-#         "metric_type": "L2",
-#         "params": {"nlist": 128}
-#     })
-#     collection.create_index(index_field, index_params)
-    
-#     return collection
-
-

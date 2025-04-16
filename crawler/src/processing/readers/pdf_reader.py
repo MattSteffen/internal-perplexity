@@ -12,7 +12,7 @@ from typing import Any, Optional
 from .base import DocumentReader
 from ..document_content import DocumentContent
 
-
+MAX_IMAGES_PER_PAGE = 2
 class PDFReader(DocumentReader):
     """Reader for PDF files using PyMuPDF."""
     
@@ -30,40 +30,26 @@ class PDFReader(DocumentReader):
         try:
             # Open the PDF with PyMuPDF
             doc = fitz.open(file_path)
-            
-            # Extract document metadata
-            pdf_metadata = {
-                "source": file_path,
-                "format": "pdf",
-                "title": doc.metadata.get("title", ""),
-                "author": doc.metadata.get("author", ""),
-                "subject": doc.metadata.get("subject", ""),
-                "keywords": doc.metadata.get("keywords", ""),
-                "creator": doc.metadata.get("creator", ""),
-                "producer": doc.metadata.get("producer", ""),
-                "creationDate": doc.metadata.get("creationDate", ""),
-                "modDate": doc.metadata.get("modDate", ""),
-                "pageCount": len(doc),
-                "size_bytes": os.path.getsize(file_path)
-            }
-            
-            content.set_metadata(pdf_metadata)
-            
+
             # Process each page
             for page_num, page in enumerate(doc):
+                print("Page", page_num)
                 # Extract text
                 page_text = page.get_text("text")
                 content.add_text(page_text, page_num)
+                print("Text", page_text[:1000])
                 
                 # Extract images
-                image_list = page.get_images(full=True)
+                image_list = page.get_images(full=True)[:MAX_IMAGES_PER_PAGE]
+                print("Images", len(image_list))
                 for img_index, img_info in enumerate(image_list):
                     xref = img_info[0]  # get the XREF of the image
                     base_image = doc.extract_image(xref)
                     image_data = base_image["image"]
                     
                     # Process the image
-                    img_description = self.process_image(image_data)
+                    img_description = self.process_image(image_data, page_text)
+                    print("image desc:", img_description)
                     content.add_image(image_data, img_description, page_num, img_index)
                 
                 # Try to detect tables (simplified approach)

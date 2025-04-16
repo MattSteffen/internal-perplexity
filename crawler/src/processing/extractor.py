@@ -85,7 +85,7 @@ class VisionLLM():
 class Extractor():
     def __init__(self, llm, vision_llm: VisionLLM, config: dict[str, Any] = {}):
         self.llm = llm
-        self.structured_llm = self.llm.with_structured_output(config.get("metadata").get("schema", {}))
+        self.structured_llm = self.llm.with_structured_output(config.get("metadata").get("schema", {}).copy())
         self.vision_llm = vision_llm
         self.doc_readers = {}
         self.extractor_config = config.get("extractor", {})
@@ -170,7 +170,7 @@ Return your analysis in the required JSON format."""
             else:
                 return json.loads(llm_response.content.replace("```json", "").replace("```", ""))
         except Exception as e:
-            print(f"Error parsing LLM response: {e}, response: {llm_response}")
+            print(f"Error parsing LLM metadata response: {e}, response: {llm_response}")
             return {}
 
     def get_file_extension(self, file_path: str) -> str:

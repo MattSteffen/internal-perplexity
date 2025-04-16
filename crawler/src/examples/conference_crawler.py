@@ -106,6 +106,7 @@ class ConferenceTalkCrawler:
             
             if soup:
                 talk = self.extract_talk_content(soup)
+                talk['url'] = url
                 self.save_talk(talk, url)
                 print(f"Saved: {talk['title']}")
             
@@ -117,10 +118,41 @@ if __name__ == "__main__":
     # Example URLs
     urls = [
         "https://www.churchofjesuschrist.org/study/general-conference/2024/10/47eyring",
-        # Add more URLs here
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/13holland?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/14johnson?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/15rasband?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/16cook?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/17gimenez?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/18eyring?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/21andersen?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/22lund?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/23palmer?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/24roman?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/25renlund?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/26boom?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/27uchtdorf?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/31stevenson?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/32wright?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/33rasband?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/34vargas?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/35christofferson?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/41bednar?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/42shumway?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/43runia?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/44causse?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/45gong?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/46mccune?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/47oaks?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/51soares?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/52strong?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/53whiting?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/54kim?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/55kearon?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/56tai?lang=eng",
+        "https://www.churchofjesuschrist.org/study/general-conference/2025/04/57nelson?lang=eng",
     ]
     
-    crawler = ConferenceTalkCrawler(output_dir="conference")
+    crawler = ConferenceTalkCrawler(output_dir="/Users/mattsteffen/projects/llm/internal-perplexity/data/conference")
     crawler.crawl_talks(urls)
 
 

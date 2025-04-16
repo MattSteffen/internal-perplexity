@@ -9,6 +9,7 @@ milvus:
   port: 19530
   username: "minioadmin"
   password: "minioadmin"
+  consistency_level: "Bounded" # Options: Strong, Bounded, Session, Eventual, trade offs of when the data is available across nodes
   index_field: "embedding"
   index_params:
     index_type: "IVF_FLAT"
@@ -18,6 +19,9 @@ milvus:
 
 # LLM Settings
 llm:
+  # model: gemini-2.0-flash
+  # provider: "google-genai"
+  # base_url: "https://generativelanguage.googleapis.com/v1beta/"
   model: "llama-3.3-70b-versatile" # Default LLM model - must support structured outputs
   provider: "groq" # required for api configuration
   base_url: "https://api.groq.com"
@@ -27,6 +31,9 @@ llm:
 
 # Vision LLM Settings
 vision_llm:
+  # model: gemini-2.0-flash
+  # provider: "google-genai"
+  # base_url: "https://generativelanguage.googleapis.com/v1beta/"
   model: "gemma3"
   provider: "ollama"
   base_url: "http://localhost:11434"
@@ -57,7 +64,7 @@ extractor:
 
   document_readers:
     - type: "json"
-      enabled: true
+      enabled: false
     - type: "pdf"
       enabled: true
     - type: "text"

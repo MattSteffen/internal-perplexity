@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional, Union
 from pydantic import BaseModel, Field
 import pymilvus # Ensure pymilvus is installed: pip install pymilvus
 
-# System prompt for the Groq LLM to perform query expansion and filtering
+# System prompt for the LLM to perform query expansion and filtering
 SYSTEM_PROMPT_QUERY_EXPANSION = """You are an expert assistant specializing in analyzing user queries and chat history to optimize document retrieval from a Milvus vector database.
 Your goal is to generate relevant search queries and metadata filters to help find the most pertinent information using the available tool.
 

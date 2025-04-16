@@ -2,8 +2,7 @@
 path: "../../data/conference"
 
 # Override specific collection parameters
-collection: "sample"
-partition: "conference"
+collection: "conference"
 description: "Conference documents and papers with embeddings"
 
 milvus:

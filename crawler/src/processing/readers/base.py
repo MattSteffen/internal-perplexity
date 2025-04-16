@@ -47,13 +47,16 @@ class DocumentReader(ABC):
         """
         pass
     
-    def process_image(self, image_data: bytes) -> str:
+    def process_image(self, image_data: bytes, context: str = "") -> str:
         """Process image data and return description.
         
-        This method uses the vision LLM if available, otherwise falls back to OCR.
+        This method first analyzes surrounding text context with LLM to guide the vision LLM
+        in describing the image's relevance to the text. Optimized for technical content,
+        diagrams, and information-rich visualizations.
         
         Args:
             image_data: Binary image data
+            context: Text surrounding the image
             
         Returns:
             Text description of the image
@@ -68,8 +71,41 @@ class DocumentReader(ABC):
                 text = pytesseract.image_to_string(img)
                 return f"[Image content: {text or 'No text detected'}]"
             
-            # Use vision LLM to describe the image
-            description = self.vision_llm.invoke(image_data, "Describe this image in detail")
+            # First analyze context with text LLM
+            if context:
+                context_prompt = f"""Analyze this text and extract:
+1. The technical concepts being discussed
+2. Any specific metrics, measurements, or quantities mentioned
+3. The type of information that a supporting diagram or figure would likely illustrate
+4. Your answer should be 50 words or less.
+
+Text: {context}"""
+                context_analysis = self.llm.invoke(context_prompt)
+                
+                # Use context analysis to guide vision LLM
+                vision_prompt = f"""Analyze this image as a technical figure or diagram. Focus on:
+1. The type of visualization (e.g., flowchart, architecture diagram, graph, technical drawing)
+2. Key components, entities, or data points shown
+3. Relationships, flows, or patterns depicted
+4. Any text, labels, or legends present
+5. Quantitative information or measurements displayed
+
+Given this context from the surrounding text: {context_analysis}
+
+Describe how the image conveys technical information and how it relates to the context. If any aspects seem unclear or potentially incorrect, note that."""
+                
+                description = self.vision_llm.invoke(image_data, vision_prompt)
+            else:
+                # Fallback to general technical description if no context
+                description = self.vision_llm.invoke(image_data, """Analyze this image as a technical figure or diagram. Describe:
+1. The type of visualization (e.g., flowchart, architecture diagram, graph, technical drawing)
+2. Key components, entities, or data points shown
+3. Relationships, flows, or patterns depicted
+4. Any text, labels, or legends present
+5. Quantitative information or measurements displayed
+6. The main technical concept or information this image is trying to convey
+7. Your answer should be 50 words or less.""")
+                
             return f"[Image description: {description}]"
         except Exception as e:
             print(f"Error processing image: {e}")

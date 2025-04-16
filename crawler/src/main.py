@@ -29,10 +29,9 @@ class Crawler:
         # Set up components based on configuration
         self.llm = self._setup_llm()
         self.vision_model = self._setup_vision_model()
-        self.embedder = self._setup_embedder()
-        
-        # Create document processor
+        self.embedder = LocalEmbedder(self.config.get("embeddings", {}))
         self.extractor = Extractor(self.llm, self.vision_model, self.config)
+
 
     
     def _setup_vector_db(self) -> VectorStorage:
@@ -43,12 +42,13 @@ class Crawler:
     def _setup_embedder(self) -> LocalEmbedder:
         """Set up the embedder using configuration."""
         # Initialize embedder with configuration
-        return LocalEmbedder(self.config.get("embeddings", {}))
+        return 
 
     def _setup_llm(self) -> Any:
         """Set up the LLM using configuration."""
         llm_config = self.config.get('llm', {})
         # Initialize LLM with configuration
+        print("LLM Config", llm_config)
         llm = init_chat_model(
             model=llm_config.get("model"), 
             model_provider=llm_config.get("provider"), 
@@ -60,9 +60,9 @@ class Crawler:
         """Initialize a vision model for image analysis."""
         vision_llm_config = self.config.get('vision_llm', {})
         return VisionLLM(
-            model_name=vision_llm_config.get('vision_model', 'gemma3'),
-            model_provider=vision_llm_config.get('vision_model_provider', 'ollama'),
-            base_url=vision_llm_config.get('vision_model_base_url', 'http://localhost:11434/')
+            model_name=vision_llm_config.get('model'),
+            model_provider=vision_llm_config.get('provider'),
+            base_url=vision_llm_config.get('base_url')
         )
     
     def _setup_filepaths(self, directory_path) -> list[str]:
@@ -99,7 +99,7 @@ class Crawler:
             print(f"Processing file: {filepath}")
             for text, metadata in self.extractor.extract(filepath):
                 embedding = self.embedder.embed_query(text)
-                yield text, metadata, embedding
+                yield text, embedding, metadata
     
 
 def main():
@@ -128,14 +128,10 @@ def main():
     crawler = Crawler(config_dict)
     
     # Process all documents
-    a,b,c = [], [], []
-    for x,y,z in crawler.run():
-        a.append(x)
-        b.append(z)
-        c.append(y)
-
     with crawler._setup_vector_db() as db:
-        db.insert_data(a,b,c)
+        for x,y,z in crawler.run():
+            db.insert_data([x], [y], [z])
+
     print("complete")
 
 if __name__ == "__main__":
