@@ -4,6 +4,7 @@ path: "../../data/arxiv"
 # Override specific collection parameters
 collection: "arxiv"
 description: "Documents about graph methods and other related topics"
+recreate: true
 
 milvus:
   username: "minioadmin"

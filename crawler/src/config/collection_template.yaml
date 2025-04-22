@@ -4,6 +4,7 @@
 collection: "default_collection" # Collection name
 partition: "" # Partition name
 description: "Document chunks with embeddings"
+recreate: false # Whether to recreate the collection
 
 milvus:
   secure: false # Whether Milvus connection is secure
@@ -41,9 +42,12 @@ metadata:
         maxLength: 255
         description: "Title of the document."
       author:
-        type: "string"
-        maxLength: 255
-        description: "List of authors of the document separated by commas (e.g., John Doe, Jane Smith)."
+        type: "array"
+        items:
+          type: "string"
+          description: "Author of the document"
+          maxLength: 255
+        description: "List of authors of the document"
       date:
         type: "integer"
         description: "The publication date of the document."

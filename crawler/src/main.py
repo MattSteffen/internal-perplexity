@@ -4,7 +4,7 @@ import argparse
 from typing import Dict, Any, Iterator, Tuple, Generator
 # from discovery import find_dirs
 from processing.embeddings import LocalEmbedder
-from processing.extractor import Extractor, VisionLLM
+from processing.extractor import Extractor, VisionLLM, convert_document_to_markdown
 from storage.vector_db import VectorStorage
 from config.config_manager import ConfigManager
 from langchain.chat_models import init_chat_model
@@ -97,9 +97,13 @@ class Crawler:
         # Process the directory and yield results
         for filepath in filepaths:
             print(f"Processing file: {filepath}")
-            for text, metadata in self.extractor.extract(filepath):
+            # TODO: This eliminates the extra-embedding chunks, must reimplement
+            full_text = convert_document_to_markdown(filepath)
+            metadata = self.extractor.extract_metadata_with_llm(full_text[:30000])
+            for text, meta in self.extractor._chunk_by_length(full_text, metadata):
+            # for text, metadata in self.extractor.extract(filepath):
                 embedding = self.embedder.embed_query(text)
-                yield text, embedding, metadata
+                yield text, embedding, meta
     
 
 def main():
@@ -130,7 +134,7 @@ def main():
     # Process all documents
     with crawler._setup_vector_db() as db:
         for x,y,z in crawler.run():
-            db.insert_data([x], [y], [z])
+            db.insert_data([{"text": x, "embedding": y, **z}])
 
     print("complete")
 
