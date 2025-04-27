@@ -7,15 +7,9 @@ milvus:
   secure: false
   host: "localhost"
   port: 19530
-  username: "minioadmin"
-  password: "minioadmin"
+  username: "root"
+  password: "Milvus"
   consistency_level: "Bounded" # Options: Strong, Bounded, Session, Eventual, trade offs of when the data is available across nodes
-  index_field: "embedding"
-  index_params:
-    index_type: "IVF_FLAT"
-    metric_type: "L2"
-    params:
-      nlist: 128
 
 # LLM Settings
 llm:
@@ -34,7 +28,7 @@ vision_llm:
   # model: gemini-2.0-flash
   # provider: "google-genai"
   # base_url: "https://generativelanguage.googleapis.com/v1beta/"
-  model: "gemma3"
+  model: "granite3.2-vision:latest"
   provider: "ollama"
   base_url: "http://localhost:11434"
 
@@ -53,29 +47,12 @@ logging:
 
 # Processing Configuration
 extractor:
+  engine: "markitdown" # Options: docling, markitdown
+  metadata: # Using portions of the extracted metadata for extra embeddings
+    enabled: true
   chunking:
-    length:
-      enabled: true
-      length: 5000 # number of characters per chunk
-      overlap: 100 # number of characters to overlap between chunks
-
-    metadata:
-      enabled: true
-
-  document_readers:
-    - type: "json"
-      enabled: false
-    - type: "pdf"
-      enabled: true
-    - type: "text"
-      enabled: false
-    - type: "markdown"
-      enabled: false
-    - type: "html"
-      enabled: false
-    - type: "csv"
-      enabled: false
-    - type: "docx"
-      enabled: false
-    - type: "pptx"
-      enabled: false
+    enabled: true
+    engine: "smart" # Options: smart, length
+    chunk_size: 5000 # number of characters per chunk
+    overlap: 100 # number of characters to overlap between chunks, used with engine length
+  timeout: 300 # seconds

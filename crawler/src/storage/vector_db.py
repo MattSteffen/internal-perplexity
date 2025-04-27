@@ -1,6 +1,5 @@
 import logging
-import os
-import yaml
+import json 
 from typing import List, Dict, Any, Optional, Set, Tuple
 
 # Configure basic logging
@@ -138,16 +137,27 @@ class VectorStorage:
         try:
             schema = build_milvus_schema(
                 schema_config=self.schema_config,
-                embedding_dim=self.config.get("embeddings", {}).get("dimension", 384)
+                embedding_dim=self.config.get("embeddings", {}).get("dimension", 384) # TODO: Determine this by the embedding model
             )
 
             # Prepare index parameters
             index_params = self.client.prepare_index_params()
-            index_params.add_index( # TODO: Check the config
+            index_params.add_index(
                 field_name="embedding",
-                index_type=self.milvus_config.get("index_type", "AUTOINDEX"),
-                metric_type=self.milvus_config.get("metric_type", "L2"),
-                # params={"nlist": self.milvus_config.get("nlist", 128)}
+                index_name="embedding_index",
+                index_type="AUTOINDEX",
+                metric_type="COSINE",
+            )
+            index_params.add_index(
+                field_name="sparse",
+                index_name="sparse_index",
+                index_type="SPARSE_INVERTED_INDEX",
+                metric_type="BM25",
+                params={
+                    "inverted_index_algo": "DAAT_MAXSCORE",
+                    "bm25_k1": 1.2,
+                    "bm25_b": 0.75
+                }
             )
 
             # Create collection with schema and index
@@ -263,6 +273,13 @@ class VectorStorage:
         if not data_to_insert:
             logging.info("No valid data remaining after metadata validation and preparation.")
             return
+        
+        # 2. Create metatext for full-text search
+        meta_text_fields = self.config.get("metadata", {}).get("full_text_search", [])
+        for i in indices_to_insert:
+            data_to_insert[i]['metatext'] = json.dumps({
+                k: data[i][k] for k in meta_text_fields
+            })
 
         # 3. Insert the filtered and validated data
         try:
@@ -280,3 +297,50 @@ class VectorStorage:
         except Exception as e:
             logging.error(f"Unexpected error during insertion: {e}")
             raise
+
+
+"""
+To search via hybrid search:
+
+from pymilvus import WeightedRanker, RRFRanker, AnnSearchRequest
+
+# connect to Milvus
+client = MilvusClient(uri="http://localhost:19530", token="root:Milvus")
+client.load_collection(collection_name="my_collection")
+
+# Get the index details to perform the queries
+indexes = client.list_indexes(collection_name="my_collection")
+
+search_requests = []
+for index in indexes:
+    anns_field = index.get("field_name")
+    metric_type = index.get("metric_type")
+    search_requests.append(AnnSearchRequest(**{
+        "data": [query_dense_vector], if anns_field == "embedding" else [query_text],
+        "anns_field": anns_field,
+        "metric_type": metric_type,
+        "params": {"nprobe": 10} if metric_type == "IP" else {"drop_ratio_build": 0.2},
+    }))
+
+ranker = RRFRanker() # defaults 60
+
+res = client.hybrid_search(
+    collection_name="my_collection",
+    search_requests=search_requests,
+    ranker=ranker,
+    output_fields=["source", "chunk_index", "embedding", "metatext"],
+    limit=10,
+)
+
+# TODO: Construct the prompts for LLM to know how to query for the data
+It must contain the details of the collections and what columns are present.
+The column descriptions need to be good and detailed.
+It needs to describe the indexes and how to use them.
+
+2 tools:
+1. Get the collection details along with index.
+2. Get the data from the collection via hybrid search.
+
+# TODO: Determine how OI returns tool calls and whether the data is maintained as context.
+
+"""

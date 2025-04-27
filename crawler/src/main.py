@@ -4,7 +4,7 @@ import argparse
 from typing import Dict, Any, Iterator, Tuple, Generator
 # from discovery import find_dirs
 from processing.embeddings import LocalEmbedder
-from processing.extractor import Extractor, VisionLLM, convert_document_to_markdown
+from processing.extractor import Extractor
 from storage.vector_db import VectorStorage
 from config.config_manager import ConfigManager
 from langchain.chat_models import init_chat_model
@@ -28,21 +28,13 @@ class Crawler:
         
         # Set up components based on configuration
         self.llm = self._setup_llm()
-        self.vision_model = self._setup_vision_model()
         self.embedder = LocalEmbedder(self.config.get("embeddings", {}))
-        self.extractor = Extractor(self.llm, self.vision_model, self.config)
-
-
+        self.extractor = Extractor(self.llm, self.config)
     
     def _setup_vector_db(self) -> VectorStorage:
         """Set up the vector database using configuration."""
         # Initialize vector storage with Milvus connection parameters
         return VectorStorage(self.config)
-
-    def _setup_embedder(self) -> LocalEmbedder:
-        """Set up the embedder using configuration."""
-        # Initialize embedder with configuration
-        return 
 
     def _setup_llm(self) -> Any:
         """Set up the LLM using configuration."""
@@ -56,15 +48,6 @@ class Crawler:
         )
         return llm
 
-    def _setup_vision_model(self) -> Any: # TODO: Do I use VisionLLM or this?
-        """Initialize a vision model for image analysis."""
-        vision_llm_config = self.config.get('vision_llm', {})
-        return VisionLLM(
-            model_name=vision_llm_config.get('model'),
-            model_provider=vision_llm_config.get('provider'),
-            base_url=vision_llm_config.get('base_url')
-        )
-    
     def _setup_filepaths(self, directory_path) -> list[str]:
         # Get list of files
         file_paths = []
@@ -74,12 +57,13 @@ class Crawler:
                 file_paths.append(file_path)
         return file_paths
 
-    def run(self) -> Generator[Tuple[str, Dict[str, Any], list[float]]]:
+    def run(self) -> Generator[list[Dict[str, Any]]]:
         """
         Run the crawler on the configured directory.
         
         Yields:
-            Tuples of (text, metadata, embedding) from the document processor.
+            list of the data for a whole file split into chunks:
+                - Dict of (text, embedding, **metadata) from the document processor.
         """
         if not self.directory_name or not self.config:
             raise ValueError("No directory configuration specified. Initialize with a directory name first.")
@@ -95,15 +79,18 @@ class Crawler:
         print(f"Processing directory: {self.directory_name} at path {dir_path}")
         
         # Process the directory and yield results
+        # for filepath in ["/Users/mattsteffen/projects/llm/internal-perplexity/data/arxiv/2408.12236v1.pdf"]:
         for filepath in filepaths:
             print(f"Processing file: {filepath}")
-            # TODO: This eliminates the extra-embedding chunks, must reimplement
-            full_text = convert_document_to_markdown(filepath)
-            metadata = self.extractor.extract_metadata_with_llm(full_text[:30000])
-            for text, meta in self.extractor._chunk_by_length(full_text, metadata):
-            # for text, metadata in self.extractor.extract(filepath):
-                embedding = self.embedder.embed_query(text)
-                yield text, embedding, meta
+            try:
+                chunk_dicts = self.extractor.extract(filepath)
+                print("yielding:", chunk_dicts[0])
+                for chunk_dict in chunk_dicts:
+                    chunk_dict["embedding"] = self.embedder.embed_query(chunk_dict['text'])
+                yield chunk_dicts # yields all the chunks for a single file
+            except Exception as e:
+                print(f"Error processing file {filepath}: {e}")
+                continue
     
 
 def main():
@@ -133,8 +120,8 @@ def main():
     
     # Process all documents
     with crawler._setup_vector_db() as db:
-        for x,y,z in crawler.run():
-            db.insert_data([{"text": x, "embedding": y, **z}])
+        for data in crawler.run():
+            db.insert_data(data)
 
     print("complete")
 

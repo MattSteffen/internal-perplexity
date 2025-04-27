@@ -5,15 +5,10 @@ path: "../../data/arxiv"
 collection: "arxiv"
 description: "Documents about graph methods and other related topics"
 recreate: true
-
-milvus:
-  username: "minioadmin"
-  password: "minioadmin"
-
 # You can override specific schema fields if needed
-metadata:
-  extra_embeddings:
-    - description
+# metadata:
+#   extra_embeddings:
+#     - description
 # LLM Settings
 # llm:
 #   model: gemini-2.0-flash
@@ -24,4 +19,4 @@ metadata:
 # vision_llm:
 #   model: gemini-2.0-flash
 #   provider: "google-genai"
-#   base_url: "https://generativelanguage.googleapis.com/v1beta/"
+#   base_url: "https://generativelanguage.googleapis.com/v1beta"

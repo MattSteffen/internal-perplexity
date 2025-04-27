@@ -22,6 +22,9 @@ import json
 from typing import Dict, Any, Tuple, Generator, List, Optional, Union
 import base64
 
+from .process_docling import DoclingConverter
+from .process_markitdown import MarkItDownConverter
+
 from langchain.chat_models import init_chat_model
 from PIL import Image
 
@@ -29,135 +32,48 @@ from typing import Union
 import io
 from langchain_core.messages import HumanMessage
 
-from processing.readers import implemented_doc_readers
-vision_prompt = "Describe the image in detail, including any text or objects present."
+
+format_instructions = "Extract the metadata fields from the text following the schema provided."
 
 
-class VisionLLM():
-    def __init__(self, model_name: str, model_provider: str, base_url: str):
-        # Initialize vision LLM via langchain
-        self.llm = init_chat_model(model_name, model_provider=model_provider, base_url=base_url)
-
-    def _encode_image(self, image_path_or_data: Union[str, bytes, Image.Image]) -> str:
-        """
-        Encode an image to base64 string.
-        Args:
-            image_path_or_data: Path to image file, bytes of image, or PIL Image
-        Returns:
-            Base64 encoded string of the image
-        """
-        match image_path_or_data:
-            case str():
-                with open(image_path_or_data, "rb") as image_file:
-                    return base64.b64encode(image_file.read()).decode('utf-8')
-            case bytes():
-                return base64.b64encode(image_path_or_data).decode('utf-8')
-            case Image.Image():
-                buffer = io.BytesIO()
-                image_path_or_data.save(buffer, format="PNG")
-                return base64.b64encode(buffer.getvalue()).decode('utf-8')
-            case _:
-                raise ValueError("Unsupported image input type")
-
-    def invoke(self, image_path_or_data: Union[str, bytes, Image.Image],  prompt: str = vision_prompt) -> str:
-        """
-        Send a prompt with an image to the vision model
-        Args:
-            prompt: Text prompt to send with the image
-            image_path_or_data: Image to analyze (path, bytes or PIL Image)
-        Returns:
-            Model response as string
-        """
-        image_base64 = self._encode_image(image_path_or_data)
-        
-        message = HumanMessage(
-            content=[
-                {"type": "image_url", "image_url": f"data:image/jpeg;base64,{image_base64}"},
-                {"type": "text", "text": prompt}
-            ]
-        )
-        
-        response = self.llm.invoke([message])
-        return response.content
-
-
-# TODO: Docling.
 class Extractor():
-    def __init__(self, llm, vision_llm: VisionLLM, config: dict[str, Any] = {}):
+    def __init__(self, llm, config: dict[str, Any] = {}):
         self.llm = llm
         self.structured_llm = self.llm.with_structured_output(config.get("metadata").get("schema", {}).copy())
-        self.vision_llm = vision_llm
-        self.doc_readers = {}
+        self.config = config
         self.extractor_config = config.get("extractor", {})
         self.metadata_config = config.get("metadata", {})
+        self.converter = self._create_converter()
 
-        # Document readers mapping
-        for ext in self.extractor_config.get("document_readers", {}):
-            if ext.get("enabled", True) and ext.get("type", "") != "" and ext.get("type", "") in implemented_doc_readers:
-                print(f"Loading {ext['type']} reader")
-                self.doc_readers[ext["type"]] = implemented_doc_readers[ext["type"]](self.llm, self.vision_llm)
+    def _create_converter(self) -> Any:
+        """Create a converter based on the configuration."""
+        match self.extractor_config.get("engine", "docling"):
+            case "docling":
+                return DoclingConverter(self.config)
+            case "markitdown":
+                return MarkItDownConverter(self.config)
+            case _: # TODO: Implement markitdown converter
+                raise ValueError(f"Unknown engine: {self.extractor_config.get('engine')}")
         
-
     def _extract_metadata_prompt(self, text: str) -> str:
         """Create a prompt for the LLM to extract metadata from the text."""
-        format_instructions = "Extract the metadata fields from the text following the schema provided."
-        return f"""Extract metadata from the following text according to these guidelines:
+        return f"Extract metadata from the following text according to these guidelines:\n{format_instructions}\n\nText excerpt (analyze the full text even if truncated here):\n{text[:10000]}... [text continues]\n\nReturn your analysis in the required JSON format."
 
-{format_instructions}
-
-Text excerpt (analyze the full text even if truncated here):
-{text[:10000]}... [text continues]
-
-Return your analysis in the required JSON format."""
-
-    def _extract_document_metadata(self, metadata: Dict[str, Any]) -> List[str]:
+    def _extract_metadata_to_embed(self, metadata: Dict[str, Any]) -> List[str]:
         """Extract metadata from the entire document based on configured fields."""
-        if not self.extractor_config.get("chunking", {}).get("metadata", {}).get("enabled", False):
+        if not self.extractor_config.get("metadata", {}).get("enabled", False):
             return []
             
-        metadata_fields = self.metadata_config.get("metadata", {}).get("extra_embeddings", [])
+        metadata_fields = self.metadata_config.get("metadata", {}).get("semantic_search", [])
         if not metadata_fields:
             return []
             
         # Get the text to be embedded
-        fields = []
+        text_from_metadata_to_embed = []
         for field in metadata_fields:
             if metadata.get(field, ""):
-                fields.append(metadata[field])
-        return fields
-
-    def _chunk_by_length(self, text: str, metadata: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]:
-        """Chunk text by length with overlap and return list of text chunks with metadata."""
-        length_config = self.extractor_config.get("chunking", {}).get("length", {})
-        
-        if not length_config.get("enabled", False):
-            return [(text, metadata)]
-            
-        chunk_size = length_config.get("chunk_size", 5000)
-        overlap = length_config.get("overlap", 100)
-        
-        # Split text into chunks with overlap
-        chunks = []
-        start = 0
-        chunk_index = 0
-        while start < len(text):
-            end = min(start + chunk_size, len(text))
-            chunk = text[start:end]
-            print("Segmenting: ", start, end, len(text))
-            
-            # Create chunk metadata
-            chunk_metadata = metadata.copy()
-            chunk_metadata["chunk_index"] = chunk_index
-            
-            chunks.append((chunk, chunk_metadata))
-            
-            # Update for next iteration
-            start = end - overlap
-            chunk_index += 1
-            if end == len(text):
-                break
-            
-        return chunks
+                text_from_metadata_to_embed.append(metadata[field])
+        return text_from_metadata_to_embed
 
     def extract_metadata_with_llm(self, text: str) -> Dict[str, Any]:
         """Use the LLM to extract metadata from the text."""
@@ -173,166 +89,37 @@ Return your analysis in the required JSON format."""
             print(f"Error parsing LLM metadata response: {e}, response: {llm_response}")
             return {}
 
-    def get_file_extension(self, file_path: str) -> str:
-        """Get the file extension from a path."""
-        _, ext = os.path.splitext(file_path)
-        return ext.lower()[1:]
-
-    def extract(self, all_files: list[str]) -> list[tuple[str, Dict[str, Any]]]:
+    def extract(self, filepath: str) -> list[Dict[str, Any]]:
         """Returns list of (text, metadata) tuples from all supported document types."""
-        if isinstance(all_files, str):
-            all_files = [all_files]
+        print("Extracting: ", filepath)
 
-        print("Extracting: ", all_files)
-        
         results = []
-        for i, file_path in enumerate(all_files):
-            ext = self.get_file_extension(file_path)
+        try:
+            document_markdown = self.converter.convert(filepath)
+            # metadata
+            metadata = {'source': filepath}
+            metadata.update(self.extract_metadata_with_llm(document_markdown))
+
+            # chunking
+            chunks = []
+            if self.extractor_config.get("chunking", {}).get("enabled", False):
+                if self.extractor_config.get("chunking", {}).get("engine", "smart") == "smart":
+                    chunks = self.converter.chunk_smart(document_markdown, self.extractor_config.get("chunking", {}).get("chunk_size", 5000))
+                else:
+                    chunks = self.converter.chunk_length(document_markdown, self.extractor_config.get("chunking", {}).get("chunk_size", 5000))
+            else:
+                chunks = [document_markdown]
             
-            # Skip unsupported file types
-            if ext not in self.doc_readers:
-                print(f"Skipping unsupported file type - {ext}: {file_path}")
-                continue
-                
-            try:
-                print(f"Processing file {i+1}/{len(all_files)}: {os.path.basename(file_path)}")
-                
-                # Extract text using the appropriate reader
-                doc = self.doc_readers[ext].read(file_path)
-                text = doc.get_text()
-                print("got text, length", len(text))
-                
-                # Initialize base metadata
-                metadata = {
-                    'source': file_path,
-                    'format': ext,  # Remove the leading dot
-                }
-                
-                metadata.update(self.extract_metadata_with_llm(text))
-                print("got metadata", metadata)
-                
-                # Chunk by length if enabled and also embed metadata
-                results.extend(self._chunk_by_length(text, metadata))
-                chunk = len(results)
-                for i,new_text in enumerate(self._extract_document_metadata(metadata)):
-                    new_metadata = metadata.copy()
-                    new_metadata["chunk_index"] = chunk + i
-                    results.append((new_text, new_metadata))
-                print("got results", len(results))
-                
-            except Exception as e:
-                print(f"Error processing file {file_path}: {e}")
-        
-        return results
-    
+            chunks.extend(self._extract_metadata_to_embed(metadata))
+            
+            for i,chunk in enumerate(chunks):
+                meta = metadata.copy()
+                meta["text"] = chunk
+                meta["chunk_index"] = i
+                results.append(meta)
 
-import argparse
-import os
-import sys
-from typing import Optional
-
-# Import the core MarkItDown class and exceptions
-from markitdown import (
-    MarkItDown,
-    UnsupportedFormatException,
-    FileConversionException,
-    MissingDependencyException,
-)
-
-# Import the LLM client library
-from openai import OpenAI, AuthenticationError
-
-# --- Configuration ---
-# Default LLM model to use for image descriptions (must be a vision model)
-DEFAULT_LLM_MODEL = "gemma3" 
-
-# --- Core Conversion Function ---
-
-def convert_document_to_markdown(
-    file_path: str, 
-    llm_model: str = DEFAULT_LLM_MODEL,
-) -> str:
-    """
-    Converts a document file to Markdown using MarkItDown, utilizing an LLM 
-    for image descriptions.
-
-    Args:
-        file_path (str): The path to the input document file.
-        llm_model (str): The name of the OpenAI vision model to use 
-                         (e.g., "gpt-4o").
-        openai_api_key (Optional[str]): OpenAI API key. If None, it attempts
-                                         to use the OPENAI_API_KEY environment
-                                         variable.
-
-    Returns:
-        str: The Markdown content of the converted document.
-
-    Raises:
-        FileNotFoundError: If the input file_path does not exist.
-        AuthenticationError: If the OpenAI API key is missing or invalid.
-        MissingDependencyException: If a required dependency for a specific 
-                                    file type is missing.
-        UnsupportedFormatException: If the file format is not supported by 
-                                    MarkItDown or its plugins.
-        FileConversionException: If an error occurs during the conversion process.
-        Exception: For other unexpected errors.
-    """
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Error: Input file not found at {file_path}")
-
-    print(f"Attempting to convert '{os.path.basename(file_path)}'...")
-
-    # 1. Initialize the LLM Client (OpenAI in this case)
-    # The OpenAI client automatically uses the OPENAI_API_KEY environment 
-    # variable if the 'api_key' argument is not provided.
-    try:
-        client = OpenAI(base_url="http://localhost:11434/v1", api_key="ollama")
-        # Perform a simple check to validate the key early
-        client.models.list() 
-        print(f"Using LLM model '{llm_model}' for image descriptions.")
-    except Exception as e:
-        print(f"\nError initializing OpenAI client: {e}")
-        raise
-
-    # 2. Initialize MarkItDown with LLM integration
-    # Pass the initialized client and the desired model name.
-    # MarkItDown will use this client internally for converters that support
-    # LLM image captioning (like ImageConverter, PptxConverter).
-    # We disable plugins by default for this demo, but they could be enabled.
-    try:
-        md = MarkItDown(
-            llm_client=client, 
-            llm_model=llm_model,
-            enable_plugins=False, # Set to True if you have plugins installed
-        )
-    except Exception as e:
-        print(f"Error initializing MarkItDown: {e}")
-        raise
-
-    # 3. Perform the conversion
-    try:
-        # The .convert() method handles opening the file, detecting the type,
-        # running the appropriate converter(s), and integrating the LLM for images.
-        result = md.convert(file_path)
-        
-        print("Conversion successful.")
-        # The result object contains the markdown content
-        return result.markdown
-
-    except MissingDependencyException as e:
-        print(f"\nConversion Error: Missing dependency. {e}")
-        print("Hint: Ensure you installed requirements with 'pip install markitdown[all]'")
-        raise
-    except UnsupportedFormatException as e:
-        print(f"\nConversion Error: Unsupported file format for '{file_path}'. {e}")
-        raise
-    except FileConversionException as e:
-        print(f"\nConversion Error: Failed to convert '{file_path}'. {e}")
-        # You could potentially inspect e.attempts here for more details
-        raise
-    except Exception as e:
-        print(f"\nAn unexpected error occurred during conversion: {e}")
-        raise
-
-if __name__ == "__main__":
-    convert_document_to_markdown("/Users/mattsteffen/projects/llm/internal-perplexity/data/arxiv/2211.08972v1.pdf")
+            print("got results", len(results))
+            return results
+            
+        except Exception as e:
+            print(f"Error processing file {filepath}: {e}")

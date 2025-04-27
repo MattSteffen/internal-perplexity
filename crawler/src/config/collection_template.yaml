@@ -14,8 +14,14 @@ milvus:
 
 # Schema Definition
 metadata:
-  extra_embeddings:
+  semantic_search: # text already included
     - description
+  full_text_search:
+    - title
+    - author
+    - date
+    - keywords
+    - unique_words
   schema:
     $schema: "http://json-schema.org/draft-07/schema#"
     title: "Document"
@@ -61,3 +67,7 @@ metadata:
         type: "string"
         maxLength: 5120
         description: "Keywords associated with the document content"
+      unique_words:
+        type: "string"
+        maxLength: 5120
+        description: "Unique words in the document content, things that seem relevant only to insiders."
