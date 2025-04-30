@@ -89,11 +89,11 @@ def build_milvus_schema(schema_config: Dict[str, Any], embedding_dim: int) -> 'C
         FieldSchema(name='embedding', dtype=DataType.FLOAT_VECTOR, dim=embedding_dim, description="Dense vector embedding"),
         FieldSchema(name='text', dtype=DataType.VARCHAR, max_length=MAX_DOC_LENGTH, description="Original text chunk"),
         FieldSchema(name='metatext', dtype=DataType.VARCHAR, max_length=20000, description="Metadata associated with the document chunk indexed via sparse vectors for full-text search", enable_analyzer=True),
-        FieldSchema(name='sparse', dtype=DataType.SPARSE_FLOAT_VECTOR),
+        FieldSchema(name='full_text_embedding', dtype=DataType.SPARSE_FLOAT_VECTOR),
         FieldSchema(name='source', dtype=DataType.VARCHAR, max_length=MAX_SOURCE_LENGTH, description="Source of the document", default_value="unknown"),
         FieldSchema(name='chunk_index', dtype=DataType.INT64, description="Index of the chunk within the source", default_value=-1)
     ]
-    processed_field_names: Set[str] = {'id', 'embedding', 'text', 'metatext', 'sparse', 'source', 'chunk_index'}
+    processed_field_names: Set[str] = {'id', 'embedding', 'text', 'metatext', 'full_text_embedding', 'source', 'chunk_index'}
 
 
     # --- Add Fields from Schema Config ---
@@ -134,31 +134,18 @@ def build_milvus_schema(schema_config: Dict[str, Any], embedding_dim: int) -> 'C
                         if milvus_element_type:
                             # Use 'maxItems' from schema if present, otherwise default
                             max_capacity = min(max(0,int(field_def.get("maxItems", DEFAULT_ARRAY_CAPACITY))), DEFAULT_ARRAY_CAPACITY)
+                            element_max_length = min(items_def.get("maxLength", DEFAULT_VARCHAR_MAX_LENGTH), DEFAULT_VARCHAR_MAX_LENGTH) if milvus_element_type == DataType.VARCHAR else None
 
-                            if milvus_element_type == DataType.VARCHAR:
-                                # Varchar elements need max_length specified at the FieldSchema level
-                                element_max_length = min(items_def.get("maxLength", DEFAULT_VARCHAR_MAX_LENGTH), DEFAULT_VARCHAR_MAX_LENGTH)
-
-                                milvus_field = FieldSchema(
-                                    name=field_name,
-                                    dtype=DataType.ARRAY,
-                                    element_type=DataType.VARCHAR,
-                                    max_capacity=max_capacity,
-                                    max_length=element_max_length, # Max length for VARCHAR elements
-                                    description=field_description,
-                                    nullable=True
-                                )
-                            else:
-                                # Other element types (INT64, DOUBLE, BOOL)
-                                milvus_field = FieldSchema(
-                                    name=field_name,
-                                    dtype=DataType.ARRAY,
-                                    element_type=milvus_element_type,
-                                    max_capacity=max_capacity,
-                                    description=field_description,
-                                    nullable=True
-                                )
-                                logging.info(f"Mapping array field '{field_name}' to Milvus ARRAY({milvus_element_type}, capacity={max_capacity}).")
+                            milvus_field = FieldSchema(
+                                name=field_name,
+                                dtype=DataType.ARRAY,
+                                element_type=DataType.VARCHAR,
+                                max_capacity=max_capacity,
+                                max_length=element_max_length, # Max length for VARCHAR elements
+                                description=field_description,
+                                nullable=True
+                            )
+                            logging.info(f"Mapping array field '{field_name}' to Milvus ARRAY({milvus_element_type}, capacity={max_capacity}).")
                         else:
                             logging.warning(f"Unsupported element type '{element_type_str}' for native Milvus array in field '{field_name}'. Falling back to VARCHAR serialization.")
                             # Fallback to VARCHAR serialization
@@ -198,7 +185,7 @@ def build_milvus_schema(schema_config: Dict[str, Any], embedding_dim: int) -> 'C
     bm_function = Function(
         name="text_bm25_embedding",
         input_field_names=["metatext"],
-        output_field_names=["sparse"],
+        output_field_names=["full_text_embedding"],
         function_type=FunctionType.BM25
     )
     schema.add_function(bm_function)

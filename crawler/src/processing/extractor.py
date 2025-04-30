@@ -52,7 +52,7 @@ class Extractor():
                 return DoclingConverter(self.config)
             case "markitdown":
                 return MarkItDownConverter(self.config)
-            case _: # TODO: Implement markitdown converter
+            case _: # TODO: Enable plugins so I can provide a python file with converter interface.
                 raise ValueError(f"Unknown engine: {self.extractor_config.get('engine')}")
         
     def _extract_metadata_prompt(self, text: str) -> str:
