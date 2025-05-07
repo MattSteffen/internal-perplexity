@@ -158,11 +158,11 @@ def perform_search(
 
     search_results = []
     for index in indexes:
-        print("index", index)
+        print("index", index) # embedding_index, full_text_embedding_index
         index_details = client.describe_index(
             collection_name=COLLECTION_NAME, index_name=index
         )
-        if index_details.get("field_name") not in ["embedding", "sparse", "full_text_embedding"]:
+        if index_details.get("field_name") not in ["embedding", "full_text_embedding"]:
             print("Skipping index", index_details.get("field_name"), index_details)
             continue
         anns_field = index_details.get("field_name")

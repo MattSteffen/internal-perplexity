@@ -1,5 +1,19 @@
 ## Now
 
+- [x] format documents returned by database correctly
+- [x] remove duplicates in results by id and chunk index
+- get citations working again
+  - figure out inline citations
+- [x] get tools to work
+- [x] just do requests, no ollama client library
+- Rework crawler
+  - They should import crawler and set extractor and then call run in their process_my_files.py file.
+- [x] Make the potential loop with MAX_TOOL_CALLS work
+- [x] Simplify event emitter code
+- Add user valves where they can put in username and password for database token
+- enable streaming again for final response
+- tech talk on 15, must be ready by then.
+
 - Crawler
 
   - logging

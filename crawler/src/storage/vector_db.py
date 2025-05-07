@@ -149,8 +149,8 @@ class VectorStorage:
                 metric_type="COSINE",
             )
             index_params.add_index(
-                field_name="sparse",
-                index_name="sparse_index",
+                field_name="full_text_embedding",
+                index_name="full_text_embedding_index",
                 index_type="SPARSE_INVERTED_INDEX",
                 metric_type="BM25",
                 params={

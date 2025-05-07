@@ -123,3 +123,21 @@ class Extractor():
             
         except Exception as e:
             print(f"Error processing file {filepath}: {e}")
+
+
+"""
+Extractor:
+- converter().convert(filepath: str)
+- converter().chunk_smart(text: str, chunk_size: int)
+- converter().chunk_length(text: str, chunk_size: int)
+- extract_metadata_with_schema(text: str, llm, prompt: str, schema: Dict[str, Any])
+Required fields without metadata:
+- source: str
+- chunk_index: int
+- text: str
+
+
+# convert to markdown
+# extract metadata and text
+# chunk the text
+"""
