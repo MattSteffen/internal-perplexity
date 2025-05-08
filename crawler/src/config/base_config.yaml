@@ -1,6 +1,12 @@
 # Base Configuration for Crawler
 # This file contains global settings that apply to the entire application
 
+path: "../data" # Path to the data directory
+collection: "default_collection" # Collection name
+partition: "" # Partition name
+description: "Document chunks with embeddings"
+recreate: false # Whether to recreate the collection
+
 # Milvus Connection Settings
 milvus:
   enabled: true
@@ -13,9 +19,6 @@ milvus:
 
 # LLM Settings
 llm:
-  # model: gemini-2.0-flash
-  # provider: "google-genai"
-  # base_url: "https://generativelanguage.googleapis.com/v1beta/"
   model: "llama-3.3-70b-versatile" # Default LLM model - must support structured outputs
   provider: "groq" # required for api configuration
   base_url: "https://api.groq.com"
@@ -25,9 +28,6 @@ llm:
 
 # Vision LLM Settings
 vision_llm:
-  # model: gemini-2.0-flash
-  # provider: "google-genai"
-  # base_url: "https://generativelanguage.googleapis.com/v1beta/"
   model: "granite3.2-vision:latest"
   provider: "ollama"
   base_url: "http://localhost:11434"
@@ -56,3 +56,63 @@ extractor:
     chunk_size: 5000 # number of characters per chunk
     overlap: 100 # number of characters to overlap between chunks, used with engine length
   timeout: 300 # seconds
+
+# Schema Definition
+metadata:
+  semantic_search: # text already included
+    - description
+  full_text_search:
+    - title
+    - author
+    - date
+    - keywords
+    - unique_words
+  schema:
+    $schema: "http://json-schema.org/draft-07/schema#"
+    title: "Document"
+    type: "object"
+    required: ["title", "author", "date"]
+    properties:
+      # text:
+      #   type: "string"
+      #   maxLength: 10240
+      #   description: "Text content of the document chunk."
+      # embedding:
+      #   type: "float_vector"
+      #   dim: 384 # Should match the embedding dimension in base_config.yaml
+      #   description: "Embedding vector of the document chunk."
+      # source:
+      #   type: "string"
+      #   maxLength: 1024
+      #   description: "Source identifier of the document chunk."
+      # chunk_index:
+      #   type: "integer"
+      #   description: "Index of the document chunk."
+      title:
+        type: "string"
+        maxLength: 255
+        description: "Title of the document."
+      author:
+        type: "array"
+        items:
+          type: "string"
+          description: "Author of the document"
+          maxLength: 255
+        description: "List of authors of the document"
+      date:
+        type: "integer"
+        description: "The publication date of the document."
+        minimum: 1900
+        maximum: 2100
+      description:
+        type: "string"
+        maxLength: 5120
+        description: "Description of the document content"
+      keywords:
+        type: "string"
+        maxLength: 5120
+        description: "Keywords associated with the document content"
+      unique_words:
+        type: "string"
+        maxLength: 5120
+        description: "Unique words in the document content, things that seem relevant only to insiders."

@@ -19,7 +19,7 @@ class LocalEmbedder:
         """
         self.provider: str = embeddings_config.get("provider")
         self.model_name = embeddings_config.get("model")
-        self.url = embeddings_config.get("url")
+        self.url = embeddings_config.get("base_url")
         self.api_key = embeddings_config.get("api_key", "ollama")
         
         if self.provider == "ollama":

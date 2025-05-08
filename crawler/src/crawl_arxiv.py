@@ -2,8 +2,6 @@ import json
 import os
 import argparse
 from pydoc import Doc
-import concurrent.futures
-from concurrent.futures import TimeoutError as FuturesTimeoutError
 
 from crawler import Crawler
 from processing.process_markitdown import MarkItDownConverter
@@ -60,7 +58,12 @@ schema1 = {
         "description": "A single unique or domain-specific term/phrase."
       },
       "minItems": 0
-    }
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 15000,
+      "description": "A brief overview of the document's content, including its main arguments, findings, or contributions. This should be a high-level summary that captures the essence of the document."
+    },
   }
 }
 schema2 = {
@@ -91,95 +94,32 @@ schema2 = {
 }
 extra_fields = ["summary_item_1", "summary_item_2", "summary_item_3"]
 
-import json
-import time
-from typing import Dict, Any, Optional, List, TypeVar, Type
-from functools import wraps
-
-T = TypeVar('T')
 
 class MyExtractor:
     """
-    Custom extractor class for processing documents with timeout capability.
+    Custom extractor class for processing documents.
+    This class is a placeholder and should be implemented with actual logic.
     """
     def __init__(self, config: dict, llm) -> None:
         self.config = config
+        # self.converter = DoclingConverter(config)  
         self.converter = MarkItDownConverter(config)
         self.llm = llm
-        self.max_retries = 2  # Maximum number of retries after timeout
-        self.timeout_seconds = 180  # 3 minutes
 
     def extract_metadata_with_schema(self, text: str, schema) -> dict:
-        """
-        Extract metadata from text using an LLM with timeout and retry logic.
-        
-        Args:
-            text: The input text to extract metadata from
-            schema: The schema to use for structured output
-            
-        Returns:
-            Dict: Extracted metadata
-        """
         s_llm = self.llm.with_structured_output(schema)
         prompt = f"Extract metadata from the following text according to these guidelines:\nExtract the metadata fields from the text following the schema provided.\n\nText excerpt (analyze the full text even if truncated here):\n{text[:100000]}... [text continues]\n\nReturn your analysis in the required JSON format."
-        
-        retries = 0
-        while retries <= self.max_retries:
-            try:
-                print("Starting LLM request with timeout...")
-                llm_response = self._invoke_llm_with_timeout(s_llm, prompt)
-                print("LLM request completed.")
-
-                if isinstance(llm_response, dict):
-                    return llm_response
-                else:
-                    return json.loads(llm_response.content.replace("```json", "").replace("```", ""))
-            
-            except (TimeoutError, FuturesTimeoutError) as e:
-                retries += 1
-                print(f"LLM request timed out ({self.timeout_seconds}s). Retry {retries}/{self.max_retries}")
-                if retries > self.max_retries:
-                    print(f"Max retries exceeded. Returning empty metadata.")
-                    return {}
-            
-            except Exception as e:
-                print(f"Error parsing LLM metadata response: {e}, response: {llm_response if 'llm_response' in locals() else 'No response'}")
-                return {}
-    
-    def _invoke_llm_with_timeout(self, llm, prompt):
-        """
-        Invoke the LLM with a timeout using concurrent.futures.
-        
-        Args:
-            llm: The LLM instance to use
-            prompt: The prompt to send to the LLM
-            
-        Returns:
-            The LLM response
-            
-        Raises:
-            TimeoutError: If the LLM call exceeds the timeout
-        """
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(llm.invoke, prompt)
-            try:
-                print("Invoking LLM inside timeout wrapped function...")
-                result = future.result(timeout=self.timeout_seconds)
-                return result
-            except FuturesTimeoutError:
-                future.cancel()
-                raise TimeoutError(f"LLM request timed out after {self.timeout_seconds} seconds")
+        try:
+            llm_response = s_llm.invoke(prompt)
+            if isinstance(llm_response, dict):
+                return llm_response
+            else:
+                return json.loads(llm_response.content.replace("```json", "").replace("```", ""))
+        except Exception as e:
+            print(f"Error parsing LLM metadata response: {e}, response: {llm_response}")
+            return {}
 
     def extract(self, filepath: str):
-        """
-        Extract data from a file.
-        
-        Args:
-            filepath: Path to the file to extract data from
-            
-        Returns:
-            List[Dict]: Extracted data
-        """
         data = []
         text = self.converter.convert(filepath)
         metadata = {"source": filepath}
@@ -197,23 +137,21 @@ class MyExtractor:
             meta["chunk_index"] = len(chunks) + i
             data.append(meta)
         return data
+
 def main():
-    """Main entry point with command line argument parsing."""
-    parser = argparse.ArgumentParser(description='Run the document crawler and processor')
-    parser.add_argument('--config', '-c', type=str, help='Path to your configuration file')
-    args = parser.parse_args()
+    arxiv_yaml = "/Users/mattsteffen/projects/llm/internal-perplexity/crawler/src/config/directories/arxiv.yaml"
 
     # Create and run crawler
-    crawler = Crawler(args.config)
-    crawler.set_llm()
-    crawler.set_extractor(MyExtractor(crawler.config, crawler.llm))
+    arxiv_crawler = Crawler(arxiv_yaml)
+    arxiv_crawler.set_llm()
+    arxiv_crawler.set_extractor(MyExtractor(arxiv_crawler.config, arxiv_crawler.llm))
     
     # Process all documents
     docs = []
-    for data in crawler.run():
+    for data in arxiv_crawler.run():
         docs.extend(data)
 
-    with crawler._setup_vector_db() as db:
+    with arxiv_crawler._setup_vector_db() as db:
         db.insert_data(docs)
 
     print("complete")
