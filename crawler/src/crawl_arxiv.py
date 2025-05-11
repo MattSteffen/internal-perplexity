@@ -1,7 +1,4 @@
 import json
-import os
-import argparse
-from pydoc import Doc
 
 from crawler import Crawler
 from processing.process_markitdown import MarkItDownConverter
@@ -102,15 +99,16 @@ class MyExtractor:
     """
     def __init__(self, config: dict, llm) -> None:
         self.config = config
-        # self.converter = DoclingConverter(config)  
-        self.converter = MarkItDownConverter(config)
+        self.converter = DoclingConverter(config)  
+        # self.converter = MarkItDownConverter(config)
         self.llm = llm
 
     def extract_metadata_with_schema(self, text: str, schema) -> dict:
-        s_llm = self.llm.with_structured_output(schema)
         prompt = f"Extract metadata from the following text according to these guidelines:\nExtract the metadata fields from the text following the schema provided.\n\nText excerpt (analyze the full text even if truncated here):\n{text[:100000]}... [text continues]\n\nReturn your analysis in the required JSON format."
+        llm_response = None
         try:
-            llm_response = s_llm.invoke(prompt)
+            llm_response = self.llm.invoke(prompt, response_format=schema)
+            print(f"LLM response ({type(llm_response)}): {llm_response}")
             if isinstance(llm_response, dict):
                 return llm_response
             else:
@@ -136,6 +134,7 @@ class MyExtractor:
             meta["text"] = meta[field]
             meta["chunk_index"] = len(chunks) + i
             data.append(meta)
+        print("Extracted data:", len(data), "chunks")
         return data
 
 def main():
@@ -147,12 +146,11 @@ def main():
     arxiv_crawler.set_extractor(MyExtractor(arxiv_crawler.config, arxiv_crawler.llm))
     
     # Process all documents
-    docs = []
-    for data in arxiv_crawler.run():
-        docs.extend(data)
-
     with arxiv_crawler._setup_vector_db() as db:
-        db.insert_data(docs)
+        for data in arxiv_crawler.run():
+            print("Inserting data into vector db")
+            db.insert_data(data)
+
 
     print("complete")
 

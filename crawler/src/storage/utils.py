@@ -1,7 +1,17 @@
+from importlib import metadata
 import logging
 import os
 import yaml
 from typing import List, Dict, Any, Optional, Set, Tuple
+
+"""
+Utility functions for the vector database.
+The goals of these functions are to:
+- Create a schema for the vector database using the provided JSON schema.
+- Validate the schema.
+- Validate the metadata. This means that the metadata follows the schema.
+"""
+
 
 # Constants
 MAX_DOC_LENGTH = 65000
@@ -55,6 +65,118 @@ def _validate_metadata(x,y):
     # TODO: Implement metadata validation
     # Example: is the varchar  field length within the max length?
     return True
+
+def validate_metadata(
+    metadata_item: Dict[str, Any],
+    schema_config: Dict[str, Any],
+    item_index: Optional[int] = None
+) -> bool:
+    """
+    Validates a metadata item against a given schema configuration.
+    Checks performed:
+    - For string fields: ensures the length does not exceed the effective 'maxLength'.
+      The effective 'maxLength' is the minimum of the schema-defined 'maxLength'
+      (or DEFAULT_VARCHAR_MAX_LENGTH if not defined) and DEFAULT_VARCHAR_MAX_LENGTH.
+    - For array fields containing strings: ensures each string element's length
+      does not exceed its effective 'maxLength'. The effective 'maxLength' for array
+      elements is calculated similarly, using DEFAULT_ARRAY_VARCHAR_MAX_LENGTH.
+
+    Args:
+        metadata_item: The dictionary of metadata for a single item.
+        schema_config: The schema configuration, expected to have a "properties" key
+                       which defines fields and their types/constraints.
+        item_index: Optional index of the item in a larger batch, for logging purposes.
+
+    Returns:
+        True if the metadata_item is valid according to the checks, False otherwise.
+    """
+    if not MILVUS_AVAILABLE: # Should not happen if VectorStorage guards this
+        logging.error("Pymilvus not available, cannot perform full metadata validation logic tied to Milvus types.")
+        return False # Or raise, depending on strictness
+
+    if not isinstance(schema_config, dict) or "properties" not in schema_config:
+        log_prefix = f"Item index {item_index}: " if item_index is not None else ""
+        logging.error(
+            f"{log_prefix}Invalid schema_config provided for validation: Missing 'properties' key."
+        )
+        return False
+
+    fields_config = schema_config.get("properties", {})
+    log_prefix = f"Item index {item_index}" if item_index is not None else "Current item"
+
+    for field_name, field_def in fields_config.items():
+        if not isinstance(field_def, dict) or "type" not in field_def:
+            logging.warning(
+                f"{log_prefix} - Validation: Field definition for '{field_name}' in schema "
+                f"is invalid or missing 'type'. Skipping validation for this field."
+            )
+            continue
+
+        if field_name not in metadata_item:
+            # If field is required by schema, this would be an error.
+            # For now, only validating present fields.
+            continue
+
+        value = metadata_item[field_name]
+        field_type = field_def.get("type")
+
+        # 1. Validate simple string fields
+        if field_type == "string":
+            if not isinstance(value, str):
+                logging.warning(
+                    f"{log_prefix} - Validation: Field '{field_name}' is defined as string "
+                    f"but found type {type(value).__name__}. Skipping length check."
+                )
+                continue
+
+            # Effective maxLength for Milvus field (as used in build_milvus_schema)
+            # If schema defines maxLength, it's min(schema_maxLength, DEFAULT_VARCHAR_MAX_LENGTH)
+            # If schema doesn't define maxLength, it's DEFAULT_VARCHAR_MAX_LENGTH
+            effective_max_length = min(
+                field_def.get("maxLength", DEFAULT_VARCHAR_MAX_LENGTH),
+                DEFAULT_VARCHAR_MAX_LENGTH
+            )
+
+            if len(value) > effective_max_length:
+                logging.warning(
+                    f"{log_prefix} - Validation Failed: Field '{field_name}' (length {len(value)}) "
+                    f"exceeds effective maxLength ({effective_max_length}). Value starts with: '{value[:50]}...'"
+                )
+                # set the new value to the truncated version
+                metadata_item[field_name] = value[:effective_max_length]
+
+        # 2. Validate string elements within array fields
+        # elif field_type == "array":
+        #     if not isinstance(value, list):
+        #         logging.warning(
+        #             f"{log_prefix} - Validation: Field '{field_name}' is defined as array "
+        #             f"but found type {type(value).__name__}. Skipping element checks."
+        #         )
+        #         continue
+
+        #     items_def = field_def.get("items")
+        #     if isinstance(items_def, dict) and items_def.get("type") == "string":
+        #         # Effective maxLength for string elements in an array (as used in build_milvus_schema)
+        #         effective_element_max_length = min(
+        #             items_def.get("maxLength", DEFAULT_ARRAY_VARCHAR_MAX_LENGTH),
+        #             DEFAULT_ARRAY_VARCHAR_MAX_LENGTH
+        #         )
+
+        #         for i, item_element in enumerate(value):
+        #             if isinstance(item_element, str):
+        #                 if len(item_element) > effective_element_max_length:
+        #                     logging.warning(
+        #                         f"{log_prefix} - Validation Failed: Field '{field_name}', "
+        #                         f"element at index {i} (length {len(item_element)}) "
+        #                         f"exceeds item maxLength ({effective_element_max_length}). Element starts with: '{item_element[:50]}...'"
+        #                     )
+        #                     # set the new value to the truncated version
+        #                     metadata_item[field_name][i] = item_element[:effective_element_max_length]
+        #             # else: element is not a string, skip length check for this element.
+        #             # Could add a warning if type doesn't match items_def.type.
+
+    return metadata_item
+
 
 # --- Updated build_milvus_schema ---
 def build_milvus_schema(schema_config: Dict[str, Any], embedding_dim: int) -> 'CollectionSchema':

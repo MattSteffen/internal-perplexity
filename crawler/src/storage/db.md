@@ -1,278 +1,250 @@
-# Milvus
+# Milvus Vector Storage Management
 
-You are a specialized AI assistant responsible for answering questions about a specific Milvus collection. Your primary goal is to help users retrieve relevant information from this collection using the tools provided.
+## Overview
 
-**1. Milvus Collection Context:**
+This project provides a Python interface for managing and interacting with a [Milvus](https://milvus.io/) vector database. It simplifies connecting to Milvus, defining a collection schema (including standard fields and user-defined metadata), inserting document chunks with their embeddings, and performing basic checks like duplicate detection and source existence.
 
-- **Content:** The collection contains chunked documents from internal research and development efforts. The main topics cover signal processing, Artificial Intelligence (AI), and Machine Learning (ML).
-- **Schema:** You MUST use the following schema to understand the available fields, their data types, and which fields can be used for filtering. Pay close attention to field names and types when constructing filter expressions.
-  ```json
-  {database_schema}
-  ```
+The system is designed to:
 
-**2. Available Tools:**
+- Connect to a Milvus instance.
+- Create a Milvus collection with a flexible schema defined in a configuration file.
+- Automatically add six standard fields: `text`, `embedding`, `source`, `chunk_index`, `full_text_embedding`, and `metatext`.
+- Define indexes for dense (`embedding`) and sparse (`full_text_embedding`) vectors.
+- Insert data into the collection, with an initial (though currently partly disabled) mechanism for duplicate prevention.
+- Check if data from a specific source already exists.
 
-You have the following tools to interact with the Milvus collection:
+## Files
 
-- **`search`**: Use this tool for semantic search, optionally combined with metadata filtering.
+The project consists of two main Python files:
 
-  - **Parameters:**
-    - `queries` (list[str]): A list of natural language strings to search for based on semantic similarity. Usually, you'll provide one query reflecting the user's intent.
-    - `filters` (list[str]): A list of filter expressions (strings) to apply _before_ the semantic search. Use this to narrow down results based on metadata criteria. Each string in the list must follow the Milvus boolean expression syntax. If no filtering is needed, provide an empty list `[]`.
-  - **Returns:** `list[dict]` - A list of matching documents, including their metadata (e.g., text snippets, source, scalar fields).
+### 1. `vector_storage.py`
 
-- **`filter`**: Use this tool _only_ when the user wants to retrieve documents based _solely_ on metadata criteria, without any semantic search component.
-  - **Parameters:**
-    - `query` (str): A single filter expression string that specifies the metadata conditions for retrieving documents. This string must follow the Milvus boolean expression syntax.
-  - **Returns:** `list[dict]` - A list of documents matching the filter criteria, including their metadata.
+- **Purpose**: This file contains the `VectorStorage` class, which serves as the primary client for interacting with a specific Milvus collection. It encapsulates the logic for connection management, schema creation, data insertion, and querying metadata.
+- **`VectorStorage` Class**:
+  - **Description**: Manages all operations related to a Milvus collection designed for storing document chunks, their dense vector embeddings, sparse embeddings for metadata, and associated metadata. It ensures the collection is properly set up with the required schema and indexes before use.
+  - **Required Inputs (for the constructor `__init__`)**:
+        The class is initialized with a `config` dictionary, which should contain the following keys:
+    - `collection` (str): **Required**. The name of the Milvus collection to be managed.
+    - `milvus` (dict): **Required**. Connection details for the Milvus server.
+      - `host` (str): Hostname or IP address of the Milvus server.
+      - `port` (int): Port number of the Milvus server.
+      - `user` (str, optional): Username for Milvus authentication. Defaults to "root" if not provided (Note: Default credentials should be handled carefully).
+      - `password` (str, optional): Password for Milvus authentication. Defaults to "Milvus" if not provided (Note: Default credentials should be handled carefully).
+      - `secure` (bool, optional): Set to `True` to use HTTPS, `False` for HTTP. Defaults to `False`.
+    - `embeddings` (dict): **Required**. Configuration related to embeddings.
+      - `dimension` (int): The dimension of the dense vector embeddings (e.g., for the `embedding` field). Defaults to 384 if not specified.
+    - `metadata` (dict): **Required**. Configuration for metadata fields.
+      - `schema` (dict): **Required**. A JSON schema-like dictionary defining the custom metadata fields and their types. This schema is used by `utils.build_milvus_schema` to create the collection schema.
+      - `full_text_search` (List[str], optional): A list of metadata field names that should be concatenated into the `metatext` field for full-text search capabilities.
+    - `partition` (str, optional): The name of a specific partition to use within the collection. If provided and it doesn't exist, it will be created.
+    - `recreate` (bool, optional): If `True`, the collection will be dropped and recreated if it already exists. Defaults to `False`.
 
-**3. How to Answer User Queries:**
+  - **Key Methods**:
+    - `__init__(self, config: Dict[str, Any])`: Initializes the `VectorStorage` instance with the provided configuration. It validates the Pymilvus installation and sets up internal configuration attributes.
+    - `__enter__(self) -> 'VectorStorage'`: Establishes a connection to the Milvus server when entering a `with` statement. It checks if the specified collection exists. If not, it creates the collection using `_create_collection`. If `recreate` is true, it drops and recreates an existing collection. It also creates a partition if `partition_name` is specified and it doesn't exist. Finally, it loads the collection into memory.
+    - `__exit__(self, exc_type, exc_value, traceback)`: Cleans up resources when exiting a `with` statement. It releases the collection from memory and closes the Milvus client connection.
+    - `close(self)`: Provides an explicit method to release the collection and close the client connection, effectively calling `__exit__`.
+    - `_create_collection(self)`: (Internal method) Creates the Milvus collection. It uses `utils.build_milvus_schema` to generate the schema based on the configuration. It then prepares and adds two predefined indexes:
+            1. `embedding_index` for the `embedding` field (dense vectors, `AUTOINDEX`, `COSINE` metric).
+            2. `full_text_embedding_index` for the `full_text_embedding` field (sparse vectors, `SPARSE_INVERTED_INDEX`, `BM25` metric).
+    - `_check_duplicates(self, metadatas: List[Dict[str, Any]]) -> List[int]`: (Internal method, currently not fully utilized in `insert_data`) Designed to identify indices of new items to insert by checking for duplicates based on the `('source', 'chunk_index')` combination. It first checks for duplicates within the input batch and then queries the database for existing entries. *Note: The call to this method in `insert_data` is currently commented out.*
+    - `check_source(self, source: str) -> bool`: Queries the Milvus collection to check if any records with the given `source` identifier already exist. Returns `True` if found, `False` otherwise.
+    - `insert_data(self, data: List[Dict[str, Any]])`: Inserts a list of data entries into the Milvus collection. Each entry in the `data` list is a dictionary where keys correspond to field names in the collection schema.
+      - It originally intended to use `_check_duplicates` to filter out existing entries, but this step is currently bypassed.
+      - It constructs the `metatext` field for each entry by JSON-dumping a dictionary of selected metadata fields (specified in `config.metadata.full_text_search`).
+      - It then inserts the processed data into the collection and flushes it.
 
-- **Check History/Knowledge First:** Before using any tool, check if the user's question can be answered based on the current conversation history or your general knowledge. If so, answer directly without using a tool. Examples: greetings, simple clarifications, questions about your capabilities.
-- **Semantic Queries:** If the user asks a question seeking information based on meaning, concepts, or topics (e.g., "What documents discuss X?", "Find information similar to Y"), use the `search` tool. Provide the core semantic query in the `queries` parameter.
-- **Metadata-Only Queries:** If the user asks a question that only involves filtering by specific metadata fields (e.g., "List all documents by author Jane Doe", "Show me items where year > 2023", "Get documents with ID 12345"), use the `filter` tool. Provide the complete filter expression in the `query` parameter.
-- **Hybrid Queries (Semantic + Filter):** If the user's query combines semantic meaning with metadata filters (e.g., "Find documents _about_ neural networks _published after_ 2022", "Search for 'signal processing techniques' _where the author is_ John Smith"), you MUST use the `search` tool. Put the semantic part in the `queries` parameter and the filtering conditions in the `filters` parameter (as a list containing one or more filter strings).
-- **Ambiguity:**
-  - If a query is ambiguous but seems to have a semantic component, default to using the `search` tool. Include potential filters in the `filters` parameter if they can be inferred, otherwise use an empty list `[]`.
-  - If a query seems purely filter-based but the criteria are unclear (e.g., "Find recent documents"), you may ask one clarifying question. However, if the user doesn't clarify or the intent remains unclear, default to using the `search` tool with the ambiguous term as the query (e.g., `queries=["recent documents"]`, `filters=[]`).
+### 2. `utils.py`
 
-**4. Constructing Filter Expressions:**
+- **Purpose**: This file provides utility functions that support the `VectorStorage` class, primarily focusing on schema generation and validation.
+- **Key Functions**:
+  - `validate_schema(schema_config: Dict[str, Any]) -> Dict[str, Any]`: Performs a basic validation on the schema configuration provided in the main config. It checks if `schema_config` is a dictionary and contains a `properties` key. *Note: It has a TODO to implement full JSON-Schema validation.*
+  - `_validate_metadata(x, y)`: This function is intended to validate individual metadata entries against the defined schema (e.g., checking field types, lengths). *Currently, it's a placeholder and always returns `True`.*
+  - `build_milvus_schema(schema_config: Dict[str, Any], embedding_dim: int) -> CollectionSchema`: Constructs a `pymilvus.CollectionSchema` object.
+    - It starts by defining six standard fields:
+            1. `id`: `INT64`, primary key, auto-generated.
+            2. `embedding`: `FLOAT_VECTOR` with the specified `embedding_dim`.
+            3. `text`: `VARCHAR` (max length `MAX_DOC_LENGTH`) for the document chunk.
+            4. `metatext`: `VARCHAR` (max length 20000) for storing a concatenation of metadata fields for full-text search, with an analyzer enabled.
+            5. `full_text_embedding`: `SPARSE_FLOAT_VECTOR` for BM25 scores from `metatext`.
+            6. `source`: `VARCHAR` (max length `MAX_SOURCE_LENGTH`).
+            7. `chunk_index`: `INT64`.
+    - It then iterates through the `properties` defined in the `schema_config` (user-defined metadata) and adds corresponding `FieldSchema` objects. It maps JSON schema types (`string`, `integer`, `number`/`float`, `boolean`, `array`) to appropriate Milvus `DataType`.
+      - Arrays are mapped to `DataType.ARRAY` if the element type is supported (string, int, float, bool). If the array type or structure is unsupported, it falls back to serializing the array as a `VARCHAR`.
+      - `object` types are currently not supported and will raise a `NotImplementedError`.
+    - Finally, it adds a BM25 `Function` to the schema, which maps the `metatext` input field to the `full_text_embedding` output field.
 
-- **Syntax Reference:** You MUST strictly adhere to the Milvus boolean expression syntax when creating filter strings for the `filters` parameter of the `search` tool or the `query` parameter of the `filter` tool. The detailed syntax rules, available operators (`==`, `>`, `!=`, `IN`, `LIKE`, `AND`, `OR`, `NOT`), handling of strings (use double quotes `"`), numbers, and special functions like `json_contains` are provided in the documentation below.
-- **Use the Schema:** Always refer to the `database_schema` provided above to ensure you are using correct field names and comparing values of the appropriate type.
-- **Documentation:**
+## How to Use
 
-  ```markdown
-  Milvus supports rich boolean expressions over scalar and JSON fields:
-  | Operator / Function | Meaning |
-  |----------------------|--------------------------------------------------------------|
-  | `==`, `!=`, `>`, `<` | Standard numeric/string comparisons |
-  | `>=`, `<=` | Greater/less than or equal to |
-  | `IN`, `NOT IN` | Membership test for lists (e.g. `city IN ["NY","LA"]`) |
-  | `LIKE` | SQL-style wildcard for strings (`%`, `_`) |
-  | `json_contains` | Checks whether a JSON array field contains a value |
-  | `AND`, `OR`, `NOT` | Boolean connectors |
-  Examples
-  -- Simple numeric filter
-  "age >= 21 AND country == \"US\""
-  -- String wildcard
-  "title LIKE \"%Guide%\""
-  -- JSON array
-  "json_contains(tags, \"ai\") AND year < 2023"
-  ```
+### Prerequisites
 
-**5. Responding to the User:**
+1. **Python Environment**: Ensure you have Python installed.
+2. **Pymilvus**: Install the Pymilvus library: `pip install pymilvus`
+3. **Milvus Instance**: Have a Milvus instance running and accessible.
 
-- After receiving results from a tool (which will be a `list[dict]`), do not just output the raw data.
-- Synthesize the information from the returned dictionaries into a clear, concise, and helpful natural language response.
-- Highlight the key findings or relevant snippets from the retrieved documents based on the user's query. Mention relevant metadata if appropriate (like source, author, date).
-- If a tool returns no results, inform the user clearly that no matching documents were found based on their criteria.
+### Configuration
 
-**6. Examples:**
+Prepare a configuration dictionary as described in the `VectorStorage` class's "Required Inputs" section.
 
-- **User Query:** "What are the latest advancements in AI for signal processing?"
-  - **Tool Call:**
-    ```json
-    {
-      "tool_call_id": "call_search_001",
-      "function": {
-        "name": "search",
-        "arguments": "{
-          \"queries\": [\"latest advancements in AI for signal processing\"],
-          \"filters\": [],
-          \"text_search\": []
-        }"
-      }
-    }
-    ```
-- **User Query:** "Find documents that discuss "neural networks in legal research" or "AI for case law analysis", but only those tagged with domain:legaltech and from the year 2023."
-  - **Tool Call:** (Assuming 'doc_type' and 'publish_year' are valid fields in the schema)
-    ```json
-    {
-      "tool_call_id": "call_search_001",
-      "function": {
-        "name": "search",
-        "arguments": "{
-          \"queries\": [
-            \"neural networks in legal research\",
-            \"AI for case law analysis\"
-          ],
-          \"filters\": [
-            [\"domain == \\\"legaltech\\\" AND year == 2023\"]
-          ],
-          \"text_search\": []
-        }"
-      }
-    }
-    ```
-- **User Query:** "Show me all documents written by 'Dr. Evelyn Reed'."
-  - **Tool Call:** (Assuming 'author' is a valid field in the schema)
-    ```json
-    {
-      "tool_call_id": "call_filter_001",
-      "function": {
-        "name": "filter",
-        "arguments": "{
-          \"filters\": [\"author == \\\"Dr. Evelyn Reed\\\"\"]
-        }"
-      }
-    }
-    ```
-- **User Query:** "Find documents containing the exact phrase 'quantum computing applications' in healthcare research."
-  - **Tool Call:**
-    `json
-    {
-      "tool_call_id": "call_search_001",
-      "function": {
-        "name": "search",
-        "arguments": "{
-          \"queries\": [\"healthcare research\"],
-          \"filters\": [],
-          \"text_search\": [\"quantum computing applications\"]
-        }"
-      }
-    }
-    `
-    Follow these instructions carefully to effectively query the Milvus database and provide accurate, relevant answers to the user.
-
----
-
-# Tools:
-
-```python
-from typing import List
-from pydantic import BaseModel, Field
-
-class SearchInput(BaseModel):
-    queries: List[str] = Field(..., description="List of queries for semantic search")
-    text_search: List[str] = Field(default_factory=list, description="List of text snippets to search for, when a user submits a query with a confusing word, it is likely domain specific, use the text search to find the word in the document")
-    filters: List[str] = Field(default_factory=list, description="List of filter expressions to apply to the search")
-
-class QueryInput(BaseModel):
-    filters: List[str] = Field(default_factory=list, description="List of filter expressions to apply to the query")
-```
-
-query:
+Example `config.json`:
 
 ```json
 {
-  "type": "function",
-  "function": {
-    "name": "query",
-    "description": "Runs a filtered query without semantic search. Only filters are used.",
-    "parameters": {
-      "type": "object",
+  "collection": "research_documents",
+  "milvus": {
+    "host": "localhost",
+    "port": 19530,
+    "user": "root",
+    "password": "Milvus"
+  },
+  "embeddings": {
+    "dimension": 768
+  },
+  "metadata": {
+    "schema": {
+      "description": "Schema for research documents",
       "properties": {
-        "filters": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "List of filter expressions to apply to the query",
-          "default": []
-        }
-      },
-      "required": []
-    }
-  }
+        "author": { "type": "string", "maxLength": 256, "description": "Author of the document" },
+        "year": { "type": "integer", "description": "Publication year" },
+        "keywords": { "type": "array", "items": { "type": "string", "maxLength": 100 }, "maxItems": 20, "description": "List of keywords" },
+        "category": { "type": "string", "maxLength": 128, "description": "Document category" }
+      }
+    },
+    "full_text_search": ["author", "category", "keywords_serialized_for_metatext"]
+    // Note: If 'keywords' is an array, you'd typically pre-process it into a string
+    // or handle its inclusion in metatext carefully. For simplicity, this example assumes
+    // you might have a separate field or process it before metatext creation.
+    // The current `insert_data` metatext creation simply JSON dumps selected fields.
+  },
+  "partition": "signal_processing_papers",
+  "recreate": false
 }
 ```
 
-search:
+*(Adjust `full_text_search` based on how you want to construct `metatext`. If using array fields, you'll need to decide how they contribute to a single string `metatext` field).*
 
-```json
-{
-  "type": "function",
-  "function": {
-    "name": "search",
-    "description": "Performs a semantic search using the given queries and optional filters.",
-    "parameters": {
-      "type": "object",
-      "properties": {
-        "queries": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "List of queries for semantic search"
-        },
-        "filters": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "List of filter expressions to apply to the search",
-          "default": []
-        }
-        "text_search": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "List of text snippets to search for, when a user submits a query with a confusing word, it is likely domain specific, use the text search to find the word in the document",
-          "default": []
-        }
-      },
-      "required": ["queries"]
-    }
-  }
-}
-```
-
-# Function implementation:
+### Initialization and Usage
 
 ```python
+import json
+from vector_storage import VectorStorage # Assuming your file is vector_storage.py
 
-# connect to Milvus
-client = MilvusClient(uri="http://localhost:19530", token="root:Milvus")
-client.load_collection(collection_name="my_collection")
+# Load configuration
+with open("config.json", "r") as f:
+    config = json.load(f)
 
-# Get the index details to perform the queries
-indexes = client.list_indexes(collection_name="my_collection")
+# Sample data to insert
+# Each dictionary must contain keys for the 6 standard fields
+# (text, embedding, source, chunk_index, full_text_embedding, metatext)
+# plus any custom fields defined in your metadata.schema.
+# 'full_text_embedding' and 'metatext' are generated internally by insert_data for now.
+# 'embedding' and 'full_text_embedding' should be actual vectors.
+# For simplicity, placeholders are used here for embeddings.
 
-def get_embedding(texts):
-  return [np.random.rand(1, 768).tolist() for i in range(len(texts))]
+sample_data_to_insert = [
+    {
+        "text": "This is the first chunk of document A.",
+        "embedding": [0.1] * config["embeddings"]["dimension"], # Replace with actual embedding
+        "source": "doc_A.pdf",
+        "chunk_index": 0,
+        # "full_text_embedding": <generated_by_bm25_if_not_provided>, # Example: sparse vector
+        # "metatext": <generated_from_metadata_fields>,
+        "author": "Jane Doe",
+        "year": 2023,
+        "keywords": ["ai", "signal processing"], # This will be part of metatext
+        "category": "Research Paper"
+    },
+    {
+        "text": "This is a chunk from document B about machine learning.",
+        "embedding": [0.2] * config["embeddings"]["dimension"], # Replace with actual embedding
+        "source": "doc_B.txt",
+        "chunk_index": 0,
+        "author": "John Smith",
+        "year": 2022,
+        "keywords": ["ml", "algorithms"], # This will be part of metatext
+        "category": "Internal Report"
+    }
+]
 
+# Ensure all required fields are present in sample_data_to_insert,
+# including those defined in config.metadata.schema.
+# The `metatext` and `full_text_embedding` fields are handled by `insert_data`
+# and the schema's BM25 function, respectively, based on the current code.
+# You would typically generate dense 'embedding' vectors externally.
 
-def perform_search(query_input: SearchInput, client: MilvusClient) -> List[Document]:
-  # Get the index details to perform the queries
-  indexes = client.list_indexes(collection_name="my_collection")
+try:
+    with VectorStorage(config=config) as vs:
+        # Check if a source already exists
+        if not vs.check_source("doc_A.pdf"):
+            print("Source 'doc_A.pdf' not found, proceeding with insert.")
+        else:
+            print("Source 'doc_A.pdf' already exists.")
 
-  search_requests = []
-  for index in indexes:
-      if index.get("field_name") not in ["embedding", "full_text_embedding"]: continue
-      anns_field = index.get("field_name")
-      metric_type = index.get("metric_type")
-      search_requests.append(AnnSearchRequest(**{
-          "data": [query_input.queries], if anns_field == "embedding" else [query_input.text_search],
-          "anns_field": anns_field,
-          "metric_type": metric_type,
-          "params": {"nprobe": 10} if metric_type == "IP" else {"drop_ratio_build": 0.2},
-          "limit": 10,
-          "expr": "",
-          "expr_params": {},
-      }))
-  if len(search_requests) == 0:
-    raise ValueError("No valid indexes found for the given query.")
+        # Insert data
+        print(f"Inserting {len(sample_data_to_insert)} items...")
+        vs.insert_data(sample_data_to_insert)
+        print("Data insertion process complete.")
 
-  ranker = RRFRanker() # defaults 60
+except ImportError as e:
+    print(f"Error: {e}. Pymilvus might not be installed.")
+except ValueError as e:
+    print(f"Configuration or Schema Error: {e}")
+except RuntimeError as e:
+    print(f"Runtime Error (e.g., Milvus connection): {e}")
+except Exception as e:
+    print(f"An unexpected error occurred: {e}")
 
-  res = client.hybrid_search(
-      collection_name="my_collection",
-      search_requests=search_requests,
-      ranker=ranker,
-      output_fields=["source", "chunk_index", "embedding", "metatext"] + whatever_other_columns_you_want,
-      limit=10,
-  )
-
-  return res
-
-def perform_query(query_input: QueryInput, client: MilvusClient) -> List[Document]:
-  query_results = client.query(
-      collection_name="my_collection",
-      filter="", # required
-      output_fields=["source", "chunk_index", "embedding", "metatext"] + whatever_other_columns_you_want,
-      limit=10,
-  )
-  return query_results
 ```
+
+## Improvements
+
+Here are suggestions to make the files more manageable, usable, and easier to understand:
+
+### `vector_storage.py`
+
+1. **Configuration Management**:
+    - Use Pydantic models for validating the `config` dictionary. This provides clear error messages and type safety for configuration.
+    - Avoid hardcoding default credentials (`user`, `password`) in `__enter__`. Rely solely on the configuration. Remove the `TODO` once done.
+    - Make index parameters (e.g., `metric_type`, `index_type` for both `embedding` and `full_text_embedding` indexes) configurable via the `config` file rather than being hardcoded in `_create_collection`.
+2. **Duplicate Checking (`_check_duplicates`)**:
+    - Clarify the necessity and finalize the implementation of `_check_duplicates`. The comment "TODO: Check again. But actually don't need for now." should be addressed.
+    - If duplicate checking is required, ensure the implementation is efficient for large batches and re-enable its use in `insert_data`.
+3. **Data Insertion (`insert_data`)**:
+    - Re-enable and complete the metadata validation step using `_validate_metadata` (once implemented in `utils.py`).
+    - The creation of `metatext`:
+        - Make the process more robust. Instead of `data[i][k]`, use `data[i].get(k, default_value)` to avoid KeyErrors if a field listed in `full_text_search` is missing from an item.
+        - Consider how array fields should contribute to `metatext` (e.g., join array elements into a string).
+4. **Error Handling**:
+    - Implement more specific custom exceptions for different error conditions (e.g., `SchemaError`, `MilvusConnectionError`).
+5. **Modularity & Clarity**:
+    - The `_create_collection` method is quite long. Index parameter setup could be refactored into a helper method.
+    - The logging message `Collection '{self.collection_name}' already exists.` after *recreating* a collection in `__enter__` seems incorrect and should state that the collection was recreated.
+6. **Embedding Dimension**: The `TODO` for determining `embedding_dim` from the embedding model (in `_create_collection`) is good; this would make the system more flexible.
+7. **Constants**: `MAX_DOC_LENGTH`, `MAX_SOURCE_LENGTH` are defined here and in `utils.py`. Consolidate them into a single `constants.py` file or pass them via configuration.
+
+### `utils.py`
+
+1. **Schema Validation (`validate_schema`)**:
+    - Implement full JSON-Schema validation using a library like `jsonschema` to enforce the structure and types of `schema_config`. Address the `TODO`.
+2. **Metadata Validation (`_validate_metadata`)**:
+    - **Crucial**: Implement this function thoroughly. It should validate each piece of incoming data against the `schema_config` (e.g., checking types, `maxLength` for strings, `maxItems` for arrays, allowed values if `enum` is used in JSON schema).
+3. **Schema Building (`build_milvus_schema`)**:
+    - **Array Element Type Bug**: In the `case "array":` block, when creating `FieldSchema` for an array, `element_type=DataType.VARCHAR,` is hardcoded. This should be `element_type=milvus_element_type,` to use the dynamically determined type.
+    - **Object Type Support**: Implement the `TODO` for handling `object` types (likely by serializing to JSON and using Milvus's JSON field type) if this is a requirement.
+    - **Default Values**: Review default values assigned to fields to ensure they are sensible (e.g., `default_value="Unknown"` for strings, `0` for integers).
+    - **Clarity**: Add more comments explaining fallback logic (e.g., why an array might be serialized to VARCHAR).
+    - **Error Messages**: Provide more specific error messages if a field definition within `schema_config.properties` is invalid.
+4. **Constants**: Consolidate constants as mentioned for `vector_storage.py`.
+
+### General Improvements
+
+1. **Testing**: Add comprehensive unit tests for:
+    - Schema building (`build_milvus_schema`) with various valid and invalid inputs.
+    - Metadata validation (`_validate_metadata`) once implemented.
+    - `VectorStorage` class methods (connection, creation, insertion, checks).
+2. **Docstrings & Type Hinting**: Continue the good practice of using docstrings and type hints. Ensure `_validate_metadata` gets a proper docstring once implemented.
+3. **Dependencies**: Create a `requirements.txt` file listing all dependencies (`pymilvus`, `jsonschema` if added, etc.).
+4. **Examples**:
+    - Provide more complete examples, including how to generate embeddings and how to perform hybrid searches or queries using the created indexes. The commented-out section in `vector_storage.py` regarding hybrid search can be a good basis for an example script.
+5. **Security**: Reiterate the importance of not hardcoding credentials, especially for production environments. Configuration should be managed securely.
+6. **Logging**: Standardize logging levels and ensure log messages are consistently informative.

@@ -2,10 +2,32 @@ import logging
 import json 
 from typing import List, Dict, Any, Optional, Set, Tuple
 
+"""
+The goal of this class:
+- Connect to Milvus
+- Create a collection with a schema provided in a config file.
+  - This schema is a JSON schema that describes the fields and types of the collection.
+  - It is not predetermined, but there are 6 fields that I add:
+    - text: str - the text of the document
+    - embedding: list[float] - the embedding of the text
+    - source: str - the source of the document
+    - chunk_index: int - the index of the chunk in the document
+    - full_text_embedding: list[float] - the embedding of the metatext
+    - metatext: str - the metadata of the document that is enabled on full-text search
+  - It needs to not insert data that is already present, hence checks for duplicates
+  - It needs to be able to insert data into the collection
+  - If the collection or partition don't exist it needs to create them along with the schema and indexes
+    - The indexes are pre-determined, there are 2 indexes:
+      - embedding: list[float] - the embedding of the text
+      - full_text_embedding: list[float] - the embedding of the metatext
+  - It needs to be able to check if a source is already present in the collection
+"""
+
+
 # Configure basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-from .utils import build_milvus_schema, validate_schema, _validate_metadata
+from .utils import build_milvus_schema, validate_schema, validate_metadata
 # Constants
 MAX_DOC_LENGTH = 10240  # Max length for the 'text' field in Milvus should be 65000
 # Define reasonable max lengths for indexed VARCHAR fields
@@ -55,6 +77,7 @@ class VectorStorage:
 
         self.client: Optional[MilvusClient] = None
         logging.info(f"VectorStorage initialized for collection '{self.collection_name}' at {self.host}:{self.port}")
+        self.__enter__()
 
     def __enter__(self) -> 'VectorStorage':
         """
@@ -174,64 +197,35 @@ class VectorStorage:
             logging.error(f"Unexpected error during collection creation: {e}")
             raise
 
-    def _check_duplicates(self, metadatas: List[Dict[str, Any]]) -> List[int]:
-        # TODO: Check again. But actually don't need for now.
-        """Check for duplicates using new client API"""
+    def check_source(self, source: str) -> bool:
+        """
+        Check if a source document already exists in the collection.
+        
+        Args:
+            source: The source identifier to check for
+            
+        Returns:
+            bool: True if the source exists, False otherwise
+        """
         if not self.client:
-            logging.error("Client not connected. Cannot check for duplicates.")
-            return []
-        if not metadatas:
-            return []
-
-        batch_keys: Dict[Tuple[str, int], int] = {} # Stores (source, chunk_index) -> first index mapping
-        indices_to_check_db: List[int] = []
-        sources_in_batch: Set[str] = set()
-        indices_in_batch: Set[int] = set()
-
-        # Check duplicates within batch
-        for i, meta in enumerate(metadatas):
-            source = meta.get('source')
-            chunk_index = meta.get('chunk_index')
-
-            if not source or not isinstance(source, str) or chunk_index is None or not isinstance(chunk_index, int):
-                logging.warning(f"Missing or invalid 'source' or 'chunk_index' in metadata at index {i}. Skipping duplicate check for this item, it won't be inserted by validation.")
-                # We rely on _validate_metadata to prevent insertion later
-                continue
-
-            current_key = (source, chunk_index)
-            if current_key in batch_keys:
-                logging.debug(f"Duplicate (source='{source}', chunk_index={chunk_index}) found within batch (index {i}, original index {batch_keys[current_key]}). Skipping.")
-                continue # Skip this item, keep the first occurrence
-
-            # First occurrence in batch
-            batch_keys[current_key] = i
-            indices_to_check_db.append(i)
-            sources_in_batch.add(source)
-            indices_in_batch.add(chunk_index)
-
-        if not indices_to_check_db:
-            return []
-
-        # Check against database
+            logging.error("Client is not initialized. Cannot check source.")
+            raise RuntimeError("VectorStorage not properly initialized or entered.")
+            
         try:
-            if sources_in_batch and indices_in_batch:
-                expr = f"source in {list(sources_in_batch)} and chunk_index in {list(indices_in_batch)}"
-                results = self.client.query(
-                    collection_name=self.collection_name,
-                    filter=expr,
-                    output_fields=["source", "chunk_index"]
-                )
-
-                existing_keys = {(r['source'], r['chunk_index']) for r in results}
-                final_indices = [i for i in indices_to_check_db 
-                               if (metadatas[i]['source'], metadatas[i]['chunk_index']) not in existing_keys]
-                return final_indices
-
+            results = self.client.query(
+                collection_name=self.collection_name,
+                filter=f"source == '{source}'",
+                output_fields=["source"],
+                limit=1  # We only need one result to confirm existence
+            )
+            return len(results) > 0
+            
         except MilvusException as e:
-            logging.error(f"Failed to query for duplicates: {e}")
-            return indices_to_check_db
-
-        return indices_to_check_db
+            logging.error(f"Failed to query for source '{source}': {e}")
+            raise
+        except Exception as e:
+            logging.error(f"Unexpected error checking source: {e}")
+            raise
 
     def insert_data(self, data: List[Dict[str, Any]]):
         """
@@ -255,8 +249,7 @@ class VectorStorage:
 
         # 1. Check for duplicates and get indices of items to insert
         logging.info(f"Starting duplicate check for {len(data)} items based on (source, chunk_index)...")
-        # indices_to_insert = self._check_duplicates(data)
-        indices_to_insert = list(range(len(data)))
+        indices_to_insert = [i for i in range(len(data)) if not self.check_source(data[i].get('source'))]
         logging.info(f"Duplicate check complete. {len(indices_to_insert)} items identified as new.")
 
         if not indices_to_insert:
@@ -265,10 +258,12 @@ class VectorStorage:
 
         data_to_insert = []
         for i in indices_to_insert:
-            # if not _validate_metadata(data[i]['metadata'], i):
-            #     continue
+            new_data = validate_metadata(data[i], self.schema_config)
+            if not new_data:
+                logging.warning(f"Metadata validation failed for item {i}. Skipping this item.")
+                continue
 
-            data_to_insert.append(data[i])
+            data_to_insert.append(new_data)
 
         if not data_to_insert:
             logging.info("No valid data remaining after metadata validation and preparation.")

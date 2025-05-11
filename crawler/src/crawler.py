@@ -4,6 +4,7 @@ import os
 from typing import Dict, Any, Iterator, Tuple, Generator, Optional, Union, List
 from processing.embeddings import LocalEmbedder
 from processing.extractor import Extractor
+from processing.llm import LLM
 from storage.vector_db import VectorStorage
 from langchain.chat_models import init_chat_model
 
@@ -39,7 +40,8 @@ class Crawler:
         self.config = self.load_config(config_source)
         
         # Set up components based on configuration
-        self.embedder = LocalEmbedder(self.config.get("embeddings", {}))    
+        self.embedder = LocalEmbedder(self.config.get("embeddings", {}))
+        self.vector_db = self._setup_vector_db() 
 
         self.llm = None
         self.extractor = None
@@ -103,12 +105,10 @@ class Crawler:
         # If no LLM is provided, use the one from the config
         if llm is None:
             llm_config = self.config.get("llm", {})
-            llm = init_chat_model(
-                model=llm_config.get("model"), 
-                model_provider=llm_config.get("provider"), 
-                base_url=llm_config.get("base_url"),
-                timeout=llm_config.get("timeout", 60),
-                num_ctx=llm_config.get("num_ctx", 32000),
+            llm = LLM(
+                model_name=llm_config.get("model"),
+                ollama_base_url=llm_config.get("base_url"),
+                default_request_timeout=llm_config.get("timeout", 60),
             )
 
         self.llm = llm
@@ -195,7 +195,11 @@ class Crawler:
         print(f"Processing files: {len(files)} starting with {files[0]}")
         
         # Process the directory and yield results
-        for filepath in files:
+        for filepath in files[:2]:
+            # check if the file exists
+            if self.vector_db.check_source(filepath):
+                print(f"File {filepath} already exists in vector db, skipping")
+                continue
             print(f"Processing file: {filepath}")
             try:
                 chunk_dicts = self.extractor.extract(filepath)

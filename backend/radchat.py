@@ -7,6 +7,7 @@ version: 0.1
 requirements: pymilvus
 """
 
+from http.client import REQUEST_TIMEOUT
 import os
 import re
 import requests
@@ -16,6 +17,7 @@ from pydantic import BaseModel, Field
 import collections
 from pymilvus import (
     MilvusClient,
+    MilvusException,
 )
 
 # OLLAMA_BASE_URL = "http://ollama.a1.autobahn.rinconres.com"
@@ -27,11 +29,13 @@ OLLAMA_BASE_URL = "http://localhost:11434"
 OLLAMA_EMBEDDING_MODEL = "all-minilm:v2"
 OLLAMA_LLM_MODEL = "qwen3:latest"
 COLLECTION_NAME = "arxiv"
-OUTPUT_FIELDS = ["source", "chunk_index", "metatext", "title", "author", "date", "unique_words"]
+OUTPUT_FIELDS = ["source", "chunk_index", "metatext", "title", "author", "date", "keywords", "unique_words"]
+DISPLAY_FIELDS = ["source", "chunk_index", "title", "author", "date", "keywords", "unique_words", "text"]
 MILVUS_HOST = "localhost"
 MILVUS_PORT = "19530"
 DOC_LIMIT = 10
 MAX_TOOL_CALLS = 3
+REQUEST_TIMEOUT = 300
 
 SearchInputSchema = {
     "type": "function",
@@ -142,6 +146,7 @@ def connect_milvus(token: str = "") -> Optional[MilvusClient]:
         )
         return None
 
+# TODO: Add hybrid search.
 
 # def perform_search(query_input: SearchInput, client: MilvusClient) -> List:
 def perform_search(
@@ -149,7 +154,7 @@ def perform_search(
     queries: list[str],
     text_search: str = "",
     filters: list[str] = [],
-) -> List:
+) -> List[str]:
     print("STARTING SEARCH")
     # Get the index details to perform the queries
     # print(client.describe_collection(collection_name=COLLECTION_NAME))
@@ -202,22 +207,20 @@ def perform_search(
 
 
 # def perform_query(query_input: QueryInput, client: MilvusClient) -> List:
-def perform_query(filters: list[str], client: MilvusClient) -> List:
+def perform_query(filters: list[str], client: MilvusClient) -> List[Dict[str, Any]]:
+    print("STARTING QUERY: ", " and ".join(filters))
     query_results = client.query(
         collection_name=COLLECTION_NAME,
-        filter=filters,  # required
+        filter=" and ".join(filters + ["chunk_index == 0"]),  # required
         output_fields=OUTPUT_FIELDS,
-        limit=10,
+        limit=100,
     )
+    print(f"Completing query with {len(query_results)} results")
+    print(document_to_markdown(query_results[0]))
+    return query_results
+    
 
-    docs = [
-        {k: hit.get("entity", {}).get(k) for k in OUTPUT_FIELDS}
-        for hit in query_results[0]
-    ]
-    return docs
-
-
-def process_docs(search_results: List[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+def process_docs(search_results: List[List[Dict[str, Any]]]) -> List[dict[str, Any]]:
     """
     Processes a list of Milvus search results to eliminate duplicates by ID
     (keeping the one with the lowest distance), group results by source,
@@ -301,34 +304,22 @@ def process_docs(search_results: List[List[Dict[str, Any]]]) -> List[Dict[str, A
         final_result.extend(group['chunks'])
 
     print("Done")
-    return [document_to_markdown(document.get("entity")) for document in final_result]
+    return [document.get("entity") for document in final_result]
 
 def document_to_markdown(document: Dict[str, Any]) -> str:
     """
     Converts a document to a Markdown string.
     Using the following keys: title, source, url, date, unique_words, tags, author/authors, keywords, summary, and finally content/text
     """
-
-    title = document.get("title", "")
-    source = document.get("source", "") or document.get("url", "")
-    date = document.get("date", "")
-    authors = document.get("author", "") or document.get("authors", "")
-    keywords = document.get("keywords", "") or document.get("tags", "") or document.get("unique_words", "")
-    summary = document.get("summary", "")
-    content = document.get("text", "")
-    chunk_index = document.get("chunk_index", "")
-
-    # Construct the Markdown string
+    # DISPLAY_FIELDS = ["source", "chunk_index", "title", "author", "date", "keywords", "unique_words", "text"]
     markdown_string = ""
-    if title: markdown_string += f"# {title}\n\n"
-    if source: markdown_string += f"Source: {source}\n"
-    if date: markdown_string += f"Date: {date}\n"
-    if authors: markdown_string += f"Authors: {authors}\n"
-    if keywords: markdown_string += f"Keywords: {keywords}\n"
-    if summary: markdown_string += f"Summary: {summary}\n"
-    if title and chunk_index: markdown_string += f"For inline citations, use the following format:`<{title}.{chunk_index}>`\n\n"
-    if content: markdown_string += f"Content:\n{content}\n"
-
+    for df in DISPLAY_FIELDS:
+        if df in document and document.get(df, "") != "":
+            # if df == "author": print("author", document[df])
+            # if df == "date": print("date", document[df])
+            # if df == "source": print("source", document[df])
+            # if df == "title": print("title", document[df])
+            markdown_string += f"{df}: {document[df]}\n"
     return markdown_string
 
 
@@ -361,7 +352,7 @@ def get_embedding(text: str) -> Optional[List[float]]:
         print(f"Unexpected error during embedding: {e}")
         return None
 
-def call_ollama_api(payload: dict, stream: bool = False, timeout: int = 90) -> dict:
+def call_ollama_api(payload: dict, stream: bool = False, timeout: int = REQUEST_TIMEOUT) -> dict:
     """
     Makes a request to the Ollama API and handles errors.
     
@@ -439,7 +430,7 @@ class Pipe:
     ) -> Union[str, Generator, Iterator]:
         emitter = EventEmitter(__event_emitter__)
         await emitter.status("Beginning Search")
-
+        output = []
         messages = body["messages"]
         print("Starting pipe, messages:", messages)
 
@@ -456,8 +447,11 @@ class Pipe:
 
         # 3. CREATE system prompt for structure
         await emitter.status("Structuring Queries")
+        preliminary_context = "\n\n".join([document_to_markdown(d) for d in perform_search(client=milvus_client,queries=[messages[-1].get("content")])])
         system_prompt = SystemPrompt.replace(
             "<<database_schema>>", str(collection_schema_description)
+        ).replace(
+            "<<preliminary_context>>", preliminary_context
         )
         all_messages = [{"role": "system", "content": system_prompt}] + messages
         available_tools = {"search": perform_search, "query": perform_query}
@@ -472,7 +466,9 @@ class Pipe:
             }
 
             try:
+                print("Starting ollama")
                 response_data = call_ollama_api(payload)
+                print("Ollama response")
                 
                 tool_calls = response_data.get("message", {}).get("tool_calls", [])
                 if not tool_calls:
@@ -482,12 +478,25 @@ class Pipe:
                     
                 for tool in tool_calls:
                     print("Tool call:", tool)
+                    print("Tool name:", tool.get('function', {}).get('name', ''))
+                    print("Tool arguments:", tool.get('function', {}).get('arguments', {}))
                     if func := available_tools.get(tool.get('function', {}).get('name', '')):
-                        output = func(client=milvus_client, **tool.get('function', {}).get('arguments', {}))
+                        try:
+                            output: list[Dict[str, Any]] = func(client=milvus_client, **tool.get('function', {}).get('arguments', {}))
+                        except MilvusException as e:
+                            error_message = f"Error calling tool {tool.get('function', {}).get('name', '')}: {str(e)}"
+                            print(error_message)
+                            await emitter.error(error_message)
+                            return f"An error occurred while processing your request: {str(e)}, try again."
+                        except Exception as e:
+                            print(f"Unexpected error calling tool {tool.get('function', {}).get('name', '')}: {str(e)}")
+                            continue
+                        print("Tool name:", tool.get('function', {}).get('name', ''))
+                        print("Tool output:", output[0])
                         all_messages.append(
                             {
                                 "role": "tool",
-                                "content": "\n\n".join(output),
+                                "content": "\n\n".join([document_to_markdown(d) for d in output]),
                                 "name": tool.get('function', {}).get('name', ''),
                             }
                         )
@@ -503,84 +512,21 @@ class Pipe:
         await emitter.status("Finalizing results...", done=True)
         final_content = response_data.get("message", {}).get("content", "")
 
+        print("setting citations")
+        for o in output:
+            print("setting citation for", o.get("title", "unknown title"))
+            await emitter.citation(
+                [document_to_markdown(o)],
+                [
+                    {
+                        "title": str(o.get("title", "unknown title")),
+                        "authors": str(o.get("author", "unknown author")),
+                        "date": str(o.get("date", "unknown date")),
+                    }
+                ],
+                {"name": str(o.get("title", "unknown title")), "url": str(o.get("source", "unknown source"))},
+            )
         return final_content
-        # if __event_emitter__:
-        #     for r in docs:
-        #         await __event_emitter__(
-        #             {
-        #                 "type": "citation",
-        #                 "data": {
-        #                     "document": [r.get("text")],
-        #                     "metadata": [
-        #                         {
-        #                             "source": r.get("author", "unknown source"),
-        #                             "date_accessed": "yesterday",
-        #                             "title": r.get("title", "unknown title"),
-        #                         }
-        #                     ],
-        #                     "source": {"name": r.get("title", "unknown name")},
-        #                 },
-        #             }
-        #         )
-
-    #     payload = {"stream": body.get("stream", False)}
-    #     if body.get("stream", False):
-    #         return self.stream_response(
-    #             f"{self.valves.OLLAMA_BASE_URL}/api/chat",
-    #             {
-    #                 **payload,
-    #                 "model": "gemma3:27b",
-    #                 "messages": chat_messages,
-    #             },
-    #         )
-    #     return self.non_stream_response(
-    #         f"{self.valves.OLLAMA_BASE_URL}/api/chat",
-    #         {
-    #             **payload,
-    #             "model": "gemma3:27b",
-    #             "messages": chat_messages,
-    #         },
-    #     )
-
-    # def stream_response(self, url, payload):
-    #     try:
-    #         with requests.post(
-    #             url, json=payload, stream=True, timeout=(3.05, 60)
-    #         ) as response:
-    #             if response.status_code != 200:
-    #                 raise Exception(
-    #                     f"HTTP Error {response.status_code}: {response.text}"
-    #                 )
-
-    #             for line in response.iter_lines():
-    #                 if line:
-    #                     line = line.decode("utf-8")
-    #                     try:
-    #                         data = json.loads(line)
-    #                         if "message" in data and "content" in data["message"]:
-    #                             content = data["message"]["content"]
-    #                             if content:
-    #                                 yield content
-    #                         elif "done" in data and data["done"]:
-    #                             break
-    #                     except json.JSONDecodeError:
-    #                         print(f"Failed to parse JSON: {line}")
-    #     except Exception as e:
-    #         print(f"Error in stream_response: {e}")
-    #         yield f"Error: {e}"
-
-    # def non_stream_response(self, url, payload):
-    #     try:
-    #         response = requests.post(url, json=payload, timeout=(3.05, 60))
-    #         if response.status_code != 200:
-    #             raise Exception(f"HTTP Error {response.status_code}: {response.text}")
-
-    #         res = response.json()
-    #         return res.get("message", {}).get("content", "")
-    #     except Exception as e:
-    #         print(f"Error in non_stream_response: {e}")
-    #         return f"Error: {e}"
-
 
 SystemPrompt = """
 You are a specialized AI assistant responsible for answering questions about a specific Milvus collection. Your primary goal is to help users retrieve relevant information from this collection using the tools provided.
@@ -602,12 +548,12 @@ You have the following tools to interact with the Milvus collection:
   - **Parameters:**
     - `queries` (list[str]): A list of natural language strings to search for based on semantic similarity. Usually, you'll provide one query reflecting the user's intent.
     - `filters` (list[str]): A list of filter expressions (strings) to apply _before_ the semantic search. Use this to narrow down results based on metadata criteria. Each string in the list must follow the Milvus boolean expression syntax. If no filtering is needed, provide an empty list `[]`.
-  - **Returns:** `list[dict]` - A list of matching documents, including their metadata (e.g., text snippets, source, scalar fields).
+  - **Returns:** `list[str]` - A list of matching documents, including their metadata (e.g., text snippets, source, scalar fields).
 
-- **`filter`**: Use this tool _only_ when the user wants to retrieve documents based _solely_ on metadata criteria, without any semantic search component.
+- **`query`**: Use this tool _only_ when the user wants to retrieve documents based _solely_ on metadata criteria, without any semantic search component.
   - **Parameters:**
-    - `query` (str): A single filter expression string that specifies the metadata conditions for retrieving documents. This string must follow the Milvus boolean expression syntax.
-  - **Returns:** `list[dict]` - A list of documents matching the filter criteria, including their metadata.
+    - `filters` (str): A single filter expression string that specifies the metadata conditions for retrieving documents. This string must follow the Milvus boolean expression syntax.
+  - **Returns:** `list[str]` - A list of documents matching the filter criteria, including their metadata.
 
 **3. How to Answer User Queries:**
 
@@ -646,10 +592,12 @@ You have the following tools to interact with the Milvus collection:
 
 **5. Responding to the User:**
 
-- After receiving results from a tool (which will be a `list[dict]`), do not just output the raw data.
-- Synthesize the information from the returned dictionaries into a clear, concise, and helpful natural language response.
+- After receiving results from a tool (which will be a `list[str]`), do not just output the raw data.
+- Synthesize the information from the returned strings into a clear, concise, and helpful natural language response.
 - Highlight the key findings or relevant snippets from the retrieved documents based on the user's query. Mention relevant metadata if appropriate (like source, author, date).
 - If a tool returns no results, inform the user clearly that no matching documents were found based on their criteria.
+- If your response includes details from the documents, put their title at the bottom of the response indicating their use.
+- If the documents do not provide enough information to answer the user's question, inform them that you couldn't find relevant documents in the collection.
 
 **6. Examples:**
 
@@ -719,4 +667,9 @@ You have the following tools to interact with the Milvus collection:
     }
     ```
     Follow these instructions carefully to effectively query the Milvus database and provide accurate, relevant answers to the user.
+
+    Some Preliminary Context for the user's query taken from a simple semantic search of the user's query. It may not be a response to the query especially if they need to filter the data for a certain attribute. Use this context to inform your search and response.
+    <<preliminary_context>>
+
+    Be clear in your responses. If the preliminary context can provide an answer use it and don't call search. Otherwise use it to inform your search.
 """

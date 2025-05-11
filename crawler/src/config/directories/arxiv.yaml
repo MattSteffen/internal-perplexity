@@ -2,10 +2,10 @@
 path: "/Users/mattsteffen/projects/llm/internal-perplexity/data/arxiv"
 
 # Override specific collection parameters
-collection: "arxiv"
+collection: "arxiv2"
 partition: "" # Partition name
 description: "Documents about graph methods and other related topics"
-recreate: true
+recreate: false
 
 # Milvus Connection Settings
 milvus:
@@ -25,6 +25,7 @@ llm:
   model: "qwen3:latest" # Default LLM model - must support structured outputs
   provider: "ollama" # required for api configuration
   base_url: "http://localhost:11434"
+  timeout: 600 # seconds
 
 # Vision LLM Settings
 vision_llm:
@@ -97,10 +98,28 @@ metadata:
         maxLength: 5120
         description: "Description of the document content"
       keywords:
-        type: "string"
-        maxLength: 5120
+        type: "array"
+        items:
+          type: "string"
+          maxLength: 512
+          description: "A single keyword that can categorize this document"
         description: "Keywords associated with the document content"
       unique_words:
-        type: "string"
-        maxLength: 5120
+        type: "array"
+        items:
+          type: "string"
+          maxLength: 512
+          description: "A single uniquue or domain specific word to identify this document"
         description: "Unique words in the document content, things that seem relevant only to insiders."
+      summary_item_1:
+        type: "string"
+        maxLength: 15000
+        description: "A concise summary of the primary topic or a unique, central argument discussed in the document. Focus on the most significant general idea or contribution."
+      summary_item_2:
+        type: "string"
+        maxLength: 15000
+        description: "If the document explores a second distinct topic or presents another significant unique aspect, describe it here. This should cover a different core idea than summary_item_1."
+      summary_item_3:
+        type: "string"
+        maxLength: 15000
+        description: "If the document addresses a third distinct major theme or offers an additional unique insight, provide that summary here. Ensure it highlights a separate concept from the previous summary items."
