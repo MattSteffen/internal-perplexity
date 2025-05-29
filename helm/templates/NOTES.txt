@@ -1,14 +1,8 @@
-Thank you for installing the Generic AI Stack!
+Thank you for installing Internal Perplexity!
 
 Your services are available at:
 {{- if .Values.openwebui.enabled }}
-- Open WebUI: http://webui.{{ .Values.global.domain }}.nip.io
-{{- end }}
-{{- if .Values.ollama.enabled }}
-- Ollama: http://ollama.{{ .Values.global.domain }}.nip.io
-{{- end }}
-{{- if .Values.milvus.enabled }}
-- Milvus: http://milvus.{{ .Values.global.domain }}.nip.io
+- Open WebUI: http://oi.{{ .Values.global.domain }}
 {{- end }}
 
 For more information on configuration options, see the chart's README.md
