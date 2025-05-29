@@ -11,19 +11,20 @@ milvus:
   image:
     all:
       repository: milvusdb/milvus
-      tag: "v2.4.15"
+      # tag: "v2.4.15"
       pullPolicy: Always
   persistence:
-    enabled: true
-    storageClass: ""
-    size: 16Gi
+    persistentVolumeClaim:
+      enabled: true
+      storageClass: ""
+      size: 16Gi
   standalone:
     resources:
       requests:
-        cpu: 1000m
+        cpu: 500m
         memory: 2Gi
       limits:
-        cpu: 2000m
+        cpu: 1000m
         memory: 4Gi
   minio:
     enabled: true
@@ -41,6 +42,7 @@ milvus:
         memory: 512Mi
   etcd:
     enabled: true
+    # size
     replicaCount: 1
   cluster:
     enabled: false
@@ -54,7 +56,7 @@ open-webui:
   enabled: true
   image:
     repository: ghcr.io/open-webui/open-webui
-    tag: "main"
+    # tag: "main"
     pullPolicy: Always
   replicaCount: 1
   service:
@@ -63,11 +65,11 @@ open-webui:
     targetPort: 8080
   persistence:
     enabled: true
-    size: 8Gi
+    size: 4Gi
     storageClass: ""
   resources:
     limits:
-      cpu: 1000m
+      cpu: 500m
       memory: 2Gi
     requests:
       cpu: 500m
@@ -77,10 +79,10 @@ open-webui:
     class: "nginx"
     annotations:
       nginx.ingress.kubernetes.io/ssl-redirect: "false"
-    host: oi.{{ .Values.global.domain }}
+    host: "oi.{{ .Values.global.domain }}"
   ollama:
     enabled: false
-  ollamaurls:
+  ollamaUrls:
     - "http://ollama.{{ .Values.global.environment }}.svc.cluster.local:11434"
 
 # Ollama configuration - we'll create this as a custom deployment
@@ -88,29 +90,30 @@ ollama:
   enabled: true
   image:
     repository: ollama/ollama
-    tag: "latest"
+    # tag: "latest"
     pullPolicy: Always
-  service:
-    type: ClusterIP
-    port: 11434
-    targetPort: 11434
-  persistence:
-    enabled: true
-    size: 24Gi
-    storageClass: ""
+  # service:
+  #   type: ClusterIP
+  #   port: 11434
+  #   targetPort: 11434
+  # persistence:
+  #   enabled: true
+  #   size: 24Gi
+  #   storageClass: ""
   resources:
-    limits:
-      cpu: 4000m
-      memory: 8Gi
     requests:
-      cpu: 2000m
+      cpu: 1000m
       memory: 4Gi
-  gpu:
-    enabled: false
-  models:
-    pull:
-      - qwen3:1.7b
-      - phi4-reasoning:14b
-      - granite3.2-vision:2b
+    limits:
+      cpu: 2000m
+      memory: 8Gi
+  ollama:
+    gpu:
+      enabled: false
+    models:
+      pull:
+        - qwen3:1.7b
+        - phi4-reasoning:14b
+        - granite3.2-vision:2b
   ingress:
     enabled: false
