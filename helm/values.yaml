@@ -48,7 +48,7 @@ milvus:
     enabled: false
 
 # OpenWebUI configuration
-openwebui:
+open-webui:
   enabled: true
   image:
     repository: ghcr.io/open-webui/open-webui
