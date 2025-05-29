@@ -12,7 +12,7 @@ dependencies:
   - name: open-webui
     version: "6.17.0" # Example updated version, check the Open WebUI Helm chart repository
     repository: "https://open-webui.github.io/helm-charts"
-    condition: openwebui.enabled
+    condition: open-webui.enabled
   - name: ollama
     version: "1.18.0"
     repository: "https://otwld.github.io/ollama-helm/"

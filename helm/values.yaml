@@ -14,10 +14,9 @@ milvus:
       tag: "v2.4.15"
       pullPolicy: Always
   persistence:
-    persistentVolume:
-      enabled: true
-      storageClass: ""
-      size: 16Gi
+    enabled: true
+    storageClass: ""
+    size: 16Gi
   standalone:
     resources:
       requests:
@@ -75,14 +74,10 @@ open-webui:
       memory: 1Gi
   ingress:
     enabled: true
-    className: "nginx"
+    class: "nginx"
     annotations:
       nginx.ingress.kubernetes.io/ssl-redirect: "false"
-    hosts:
-      - host: oi.{{ .Values.global.domain }}
-        paths:
-          - path: /
-            pathType: Prefix
+    host: oi.{{ .Values.global.domain }}
   ollama:
     enabled: false
   ollamaurls:
