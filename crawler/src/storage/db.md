@@ -1,250 +1,316 @@
-# Milvus Vector Storage Management
+# Milvus Vector Database Storage
 
-## Overview
+This module provides a Python interface for storing document chunks and their embeddings in a Milvus vector database.
 
-This project provides a Python interface for managing and interacting with a [Milvus](https://milvus.io/) vector database. It simplifies connecting to Milvus, defining a collection schema (including standard fields and user-defined metadata), inserting document chunks with their embeddings, and performing basic checks like duplicate detection and source existence.
+## Features
 
-The system is designed to:
+- Automatic schema creation with support for custom metadata fields
+- Duplicate detection based on source and chunk index
+- Full-text search capabilities using BM25
+- Vector similarity search using embeddings
+- Partition support for data organization
 
-- Connect to a Milvus instance.
-- Create a Milvus collection with a flexible schema defined in a configuration file.
-- Automatically add six standard fields: `text`, `embedding`, `source`, `chunk_index`, `full_text_embedding`, and `metatext`.
-- Define indexes for dense (`embedding`) and sparse (`full_text_embedding`) vectors.
-- Insert data into the collection, with an initial (though currently partly disabled) mechanism for duplicate prevention.
-- Check if data from a specific source already exists.
+## Architecture Overview
 
-## Files
+The module consists of two main components:
 
-The project consists of two main Python files:
+1. **MilvusStorage**: Main class for database operations (connection, insertion, duplicate checking)
+2. **Schema Utilities**: Functions for creating and managing collection schemas
 
-### 1. `vector_storage.py`
+## Installation Requirements
 
-- **Purpose**: This file contains the `VectorStorage` class, which serves as the primary client for interacting with a specific Milvus collection. It encapsulates the logic for connection management, schema creation, data insertion, and querying metadata.
-- **`VectorStorage` Class**:
-  - **Description**: Manages all operations related to a Milvus collection designed for storing document chunks, their dense vector embeddings, sparse embeddings for metadata, and associated metadata. It ensures the collection is properly set up with the required schema and indexes before use.
-  - **Required Inputs (for the constructor `__init__`)**:
-        The class is initialized with a `config` dictionary, which should contain the following keys:
-    - `collection` (str): **Required**. The name of the Milvus collection to be managed.
-    - `milvus` (dict): **Required**. Connection details for the Milvus server.
-      - `host` (str): Hostname or IP address of the Milvus server.
-      - `port` (int): Port number of the Milvus server.
-      - `user` (str, optional): Username for Milvus authentication. Defaults to "root" if not provided (Note: Default credentials should be handled carefully).
-      - `password` (str, optional): Password for Milvus authentication. Defaults to "Milvus" if not provided (Note: Default credentials should be handled carefully).
-      - `secure` (bool, optional): Set to `True` to use HTTPS, `False` for HTTP. Defaults to `False`.
-    - `embeddings` (dict): **Required**. Configuration related to embeddings.
-      - `dimension` (int): The dimension of the dense vector embeddings (e.g., for the `embedding` field). Defaults to 384 if not specified.
-    - `metadata` (dict): **Required**. Configuration for metadata fields.
-      - `schema` (dict): **Required**. A JSON schema-like dictionary defining the custom metadata fields and their types. This schema is used by `utils.build_milvus_schema` to create the collection schema.
-      - `full_text_search` (List[str], optional): A list of metadata field names that should be concatenated into the `metatext` field for full-text search capabilities.
-    - `partition` (str, optional): The name of a specific partition to use within the collection. If provided and it doesn't exist, it will be created.
-    - `recreate` (bool, optional): If `True`, the collection will be dropped and recreated if it already exists. Defaults to `False`.
-
-  - **Key Methods**:
-    - `__init__(self, config: Dict[str, Any])`: Initializes the `VectorStorage` instance with the provided configuration. It validates the Pymilvus installation and sets up internal configuration attributes.
-    - `__enter__(self) -> 'VectorStorage'`: Establishes a connection to the Milvus server when entering a `with` statement. It checks if the specified collection exists. If not, it creates the collection using `_create_collection`. If `recreate` is true, it drops and recreates an existing collection. It also creates a partition if `partition_name` is specified and it doesn't exist. Finally, it loads the collection into memory.
-    - `__exit__(self, exc_type, exc_value, traceback)`: Cleans up resources when exiting a `with` statement. It releases the collection from memory and closes the Milvus client connection.
-    - `close(self)`: Provides an explicit method to release the collection and close the client connection, effectively calling `__exit__`.
-    - `_create_collection(self)`: (Internal method) Creates the Milvus collection. It uses `utils.build_milvus_schema` to generate the schema based on the configuration. It then prepares and adds two predefined indexes:
-            1. `embedding_index` for the `embedding` field (dense vectors, `AUTOINDEX`, `COSINE` metric).
-            2. `full_text_embedding_index` for the `full_text_embedding` field (sparse vectors, `SPARSE_INVERTED_INDEX`, `BM25` metric).
-    - `_check_duplicates(self, metadatas: List[Dict[str, Any]]) -> List[int]`: (Internal method, currently not fully utilized in `insert_data`) Designed to identify indices of new items to insert by checking for duplicates based on the `('source', 'chunk_index')` combination. It first checks for duplicates within the input batch and then queries the database for existing entries. *Note: The call to this method in `insert_data` is currently commented out.*
-    - `check_source(self, source: str) -> bool`: Queries the Milvus collection to check if any records with the given `source` identifier already exist. Returns `True` if found, `False` otherwise.
-    - `insert_data(self, data: List[Dict[str, Any]])`: Inserts a list of data entries into the Milvus collection. Each entry in the `data` list is a dictionary where keys correspond to field names in the collection schema.
-      - It originally intended to use `_check_duplicates` to filter out existing entries, but this step is currently bypassed.
-      - It constructs the `metatext` field for each entry by JSON-dumping a dictionary of selected metadata fields (specified in `config.metadata.full_text_search`).
-      - It then inserts the processed data into the collection and flushes it.
-
-### 2. `utils.py`
-
-- **Purpose**: This file provides utility functions that support the `VectorStorage` class, primarily focusing on schema generation and validation.
-- **Key Functions**:
-  - `validate_schema(schema_config: Dict[str, Any]) -> Dict[str, Any]`: Performs a basic validation on the schema configuration provided in the main config. It checks if `schema_config` is a dictionary and contains a `properties` key. *Note: It has a TODO to implement full JSON-Schema validation.*
-  - `_validate_metadata(x, y)`: This function is intended to validate individual metadata entries against the defined schema (e.g., checking field types, lengths). *Currently, it's a placeholder and always returns `True`.*
-  - `build_milvus_schema(schema_config: Dict[str, Any], embedding_dim: int) -> CollectionSchema`: Constructs a `pymilvus.CollectionSchema` object.
-    - It starts by defining six standard fields:
-            1. `id`: `INT64`, primary key, auto-generated.
-            2. `embedding`: `FLOAT_VECTOR` with the specified `embedding_dim`.
-            3. `text`: `VARCHAR` (max length `MAX_DOC_LENGTH`) for the document chunk.
-            4. `metatext`: `VARCHAR` (max length 20000) for storing a concatenation of metadata fields for full-text search, with an analyzer enabled.
-            5. `full_text_embedding`: `SPARSE_FLOAT_VECTOR` for BM25 scores from `metatext`.
-            6. `source`: `VARCHAR` (max length `MAX_SOURCE_LENGTH`).
-            7. `chunk_index`: `INT64`.
-    - It then iterates through the `properties` defined in the `schema_config` (user-defined metadata) and adds corresponding `FieldSchema` objects. It maps JSON schema types (`string`, `integer`, `number`/`float`, `boolean`, `array`) to appropriate Milvus `DataType`.
-      - Arrays are mapped to `DataType.ARRAY` if the element type is supported (string, int, float, bool). If the array type or structure is unsupported, it falls back to serializing the array as a `VARCHAR`.
-      - `object` types are currently not supported and will raise a `NotImplementedError`.
-    - Finally, it adds a BM25 `Function` to the schema, which maps the `metatext` input field to the `full_text_embedding` output field.
-
-## How to Use
-
-### Prerequisites
-
-1. **Python Environment**: Ensure you have Python installed.
-2. **Pymilvus**: Install the Pymilvus library: `pip install pymilvus`
-3. **Milvus Instance**: Have a Milvus instance running and accessible.
-
-### Configuration
-
-Prepare a configuration dictionary as described in the `VectorStorage` class's "Required Inputs" section.
-
-Example `config.json`:
-
-```json
-{
-  "collection": "research_documents",
-  "milvus": {
-    "host": "localhost",
-    "port": 19530,
-    "user": "root",
-    "password": "Milvus"
-  },
-  "embeddings": {
-    "dimension": 768
-  },
-  "metadata": {
-    "schema": {
-      "description": "Schema for research documents",
-      "properties": {
-        "author": { "type": "string", "maxLength": 256, "description": "Author of the document" },
-        "year": { "type": "integer", "description": "Publication year" },
-        "keywords": { "type": "array", "items": { "type": "string", "maxLength": 100 }, "maxItems": 20, "description": "List of keywords" },
-        "category": { "type": "string", "maxLength": 128, "description": "Document category" }
-      }
-    },
-    "full_text_search": ["author", "category", "keywords_serialized_for_metatext"]
-    // Note: If 'keywords' is an array, you'd typically pre-process it into a string
-    // or handle its inclusion in metatext carefully. For simplicity, this example assumes
-    // you might have a separate field or process it before metatext creation.
-    // The current `insert_data` metatext creation simply JSON dumps selected fields.
-  },
-  "partition": "signal_processing_papers",
-  "recreate": false
-}
+```bash
+pip install pymilvus
 ```
 
-*(Adjust `full_text_search` based on how you want to construct `metatext`. If using array fields, you'll need to decide how they contribute to a single string `metatext` field).*
+## Basic Usage
 
-### Initialization and Usage
+### 1. Initialize Connection
 
 ```python
-import json
-from vector_storage import VectorStorage # Assuming your file is vector_storage.py
+from milvus_storage import MilvusStorage
 
-# Load configuration
-with open("config.json", "r") as f:
-    config = json.load(f)
+# Configuration
+milvus_config = {
+    "host": "localhost",
+    "port": "19530",
+    "user": "username",
+    "password": "password",
+    "collection": "document_collection",
+    "partition": "documents_2024"  # Optional
+}
 
-# Sample data to insert
-# Each dictionary must contain keys for the 6 standard fields
-# (text, embedding, source, chunk_index, full_text_embedding, metatext)
-# plus any custom fields defined in your metadata.schema.
-# 'full_text_embedding' and 'metatext' are generated internally by insert_data for now.
-# 'embedding' and 'full_text_embedding' should be actual vectors.
-# For simplicity, placeholders are used here for embeddings.
+# Initialize storage
+storage = MilvusStorage(milvus_config, recreate=False)
+```
 
-sample_data_to_insert = [
+### 2. Create Collection with Custom Schema
+
+```python
+# Define custom metadata schema
+custom_schema = {
+    "properties": {
+        "title": {
+            "type": "string",
+            "maxLength": 512,
+            "description": "Document title"
+        },
+        "author": {
+            "type": "string",
+            "maxLength": 256,
+            "description": "Document author"
+        },
+        "date": {
+            "type": "string",
+            "maxLength": 32,
+            "description": "Publication date"
+        },
+        "keywords": {
+            "type": "array",
+            "items": {"type": "string", "maxLength": 100},
+            "maxItems": 20,
+            "description": "Document keywords"
+        },
+        "page_count": {
+            "type": "integer",
+            "description": "Number of pages"
+        },
+        "is_published": {
+            "type": "boolean",
+            "description": "Publication status"
+        }
+    }
+}
+
+# Create collection
+storage.create_collection(embedding_size=768, schema=custom_schema)
+```
+
+### 3. Insert Document Data
+
+```python
+# Prepare data for insertion
+document_data = [
     {
-        "text": "This is the first chunk of document A.",
-        "embedding": [0.1] * config["embeddings"]["dimension"], # Replace with actual embedding
-        "source": "doc_A.pdf",
+        "text": "This is the first chunk of the document...",
+        "embedding": [0.1, 0.2, 0.3, ...],  # 768-dimensional vector
         "chunk_index": 0,
-        # "full_text_embedding": <generated_by_bm25_if_not_provided>, # Example: sparse vector
-        # "metatext": <generated_from_metadata_fields>,
-        "author": "Jane Doe",
-        "year": 2023,
-        "keywords": ["ai", "signal processing"], # This will be part of metatext
-        "category": "Research Paper"
+        "source": "document_001.pdf",
+        "minio": "https://minio.example.com/bucket/document_001.pdf",
+        # Custom metadata fields
+        "title": "Machine Learning Fundamentals",
+        "author": "Dr. Jane Smith",
+        "date": "2024-01-15",
+        "keywords": ["machine learning", "AI", "algorithms"],
+        "page_count": 250,
+        "is_published": True
     },
     {
-        "text": "This is a chunk from document B about machine learning.",
-        "embedding": [0.2] * config["embeddings"]["dimension"], # Replace with actual embedding
-        "source": "doc_B.txt",
-        "chunk_index": 0,
-        "author": "John Smith",
-        "year": 2022,
-        "keywords": ["ml", "algorithms"], # This will be part of metatext
-        "category": "Internal Report"
+        "text": "This is the second chunk of the document...",
+        "embedding": [0.4, 0.5, 0.6, ...],
+        "chunk_index": 1,
+        "source": "document_001.pdf",
+        "title": "Machine Learning Fundamentals",
+        "author": "Dr. Jane Smith",
+        # ... other fields
     }
 ]
 
-# Ensure all required fields are present in sample_data_to_insert,
-# including those defined in config.metadata.schema.
-# The `metatext` and `full_text_embedding` fields are handled by `insert_data`
-# and the schema's BM25 function, respectively, based on the current code.
-# You would typically generate dense 'embedding' vectors externally.
-
-try:
-    with VectorStorage(config=config) as vs:
-        # Check if a source already exists
-        if not vs.check_source("doc_A.pdf"):
-            print("Source 'doc_A.pdf' not found, proceeding with insert.")
-        else:
-            print("Source 'doc_A.pdf' already exists.")
-
-        # Insert data
-        print(f"Inserting {len(sample_data_to_insert)} items...")
-        vs.insert_data(sample_data_to_insert)
-        print("Data insertion process complete.")
-
-except ImportError as e:
-    print(f"Error: {e}. Pymilvus might not be installed.")
-except ValueError as e:
-    print(f"Configuration or Schema Error: {e}")
-except RuntimeError as e:
-    print(f"Runtime Error (e.g., Milvus connection): {e}")
-except Exception as e:
-    print(f"An unexpected error occurred: {e}")
-
+# Insert data (automatically handles duplicates)
+storage.insert_data(document_data)
 ```
 
-## Improvements
+## API Reference
 
-Here are suggestions to make the files more manageable, usable, and easier to understand:
+### MilvusStorage Class
 
-### `vector_storage.py`
+#### Constructor
 
-1. **Configuration Management**:
-    - Use Pydantic models for validating the `config` dictionary. This provides clear error messages and type safety for configuration.
-    - Avoid hardcoding default credentials (`user`, `password`) in `__enter__`. Rely solely on the configuration. Remove the `TODO` once done.
-    - Make index parameters (e.g., `metric_type`, `index_type` for both `embedding` and `full_text_embedding` indexes) configurable via the `config` file rather than being hardcoded in `_create_collection`.
-2. **Duplicate Checking (`_check_duplicates`)**:
-    - Clarify the necessity and finalize the implementation of `_check_duplicates`. The comment "TODO: Check again. But actually don't need for now." should be addressed.
-    - If duplicate checking is required, ensure the implementation is efficient for large batches and re-enable its use in `insert_data`.
-3. **Data Insertion (`insert_data`)**:
-    - Re-enable and complete the metadata validation step using `_validate_metadata` (once implemented in `utils.py`).
-    - The creation of `metatext`:
-        - Make the process more robust. Instead of `data[i][k]`, use `data[i].get(k, default_value)` to avoid KeyErrors if a field listed in `full_text_search` is missing from an item.
-        - Consider how array fields should contribute to `metatext` (e.g., join array elements into a string).
-4. **Error Handling**:
-    - Implement more specific custom exceptions for different error conditions (e.g., `SchemaError`, `MilvusConnectionError`).
-5. **Modularity & Clarity**:
-    - The `_create_collection` method is quite long. Index parameter setup could be refactored into a helper method.
-    - The logging message `Collection '{self.collection_name}' already exists.` after *recreating* a collection in `__enter__` seems incorrect and should state that the collection was recreated.
-6. **Embedding Dimension**: The `TODO` for determining `embedding_dim` from the embedding model (in `_create_collection`) is good; this would make the system more flexible.
-7. **Constants**: `MAX_DOC_LENGTH`, `MAX_SOURCE_LENGTH` are defined here and in `utils.py`. Consolidate them into a single `constants.py` file or pass them via configuration.
+```python
+MilvusStorage(milvus_config: Dict[str, Any], recreate: bool = False)
+```
 
-### `utils.py`
+**Parameters:**
 
-1. **Schema Validation (`validate_schema`)**:
-    - Implement full JSON-Schema validation using a library like `jsonschema` to enforce the structure and types of `schema_config`. Address the `TODO`.
-2. **Metadata Validation (`_validate_metadata`)**:
-    - **Crucial**: Implement this function thoroughly. It should validate each piece of incoming data against the `schema_config` (e.g., checking types, `maxLength` for strings, `maxItems` for arrays, allowed values if `enum` is used in JSON schema).
-3. **Schema Building (`build_milvus_schema`)**:
-    - **Array Element Type Bug**: In the `case "array":` block, when creating `FieldSchema` for an array, `element_type=DataType.VARCHAR,` is hardcoded. This should be `element_type=milvus_element_type,` to use the dynamically determined type.
-    - **Object Type Support**: Implement the `TODO` for handling `object` types (likely by serializing to JSON and using Milvus's JSON field type) if this is a requirement.
-    - **Default Values**: Review default values assigned to fields to ensure they are sensible (e.g., `default_value="Unknown"` for strings, `0` for integers).
-    - **Clarity**: Add more comments explaining fallback logic (e.g., why an array might be serialized to VARCHAR).
-    - **Error Messages**: Provide more specific error messages if a field definition within `schema_config.properties` is invalid.
-4. **Constants**: Consolidate constants as mentioned for `vector_storage.py`.
+- `milvus_config`: Configuration dictionary containing connection details
+  - `host`: Milvus server hostname
+  - `port`: Milvus server port
+  - `user`: Username for authentication
+  - `password`: Password for authentication
+  - `collection`: Collection name
+  - `partition`: Partition name (optional)
+- `recreate`: Whether to recreate the collection if it exists
 
-### General Improvements
+#### Methods
 
-1. **Testing**: Add comprehensive unit tests for:
-    - Schema building (`build_milvus_schema`) with various valid and invalid inputs.
-    - Metadata validation (`_validate_metadata`) once implemented.
-    - `VectorStorage` class methods (connection, creation, insertion, checks).
-2. **Docstrings & Type Hinting**: Continue the good practice of using docstrings and type hints. Ensure `_validate_metadata` gets a proper docstring once implemented.
-3. **Dependencies**: Create a `requirements.txt` file listing all dependencies (`pymilvus`, `jsonschema` if added, etc.).
-4. **Examples**:
-    - Provide more complete examples, including how to generate embeddings and how to perform hybrid searches or queries using the created indexes. The commented-out section in `vector_storage.py` regarding hybrid search can be a good basis for an example script.
-5. **Security**: Reiterate the importance of not hardcoding credentials, especially for production environments. Configuration should be managed securely.
-6. **Logging**: Standardize logging levels and ensure log messages are consistently informative.
+##### create_collection()
+
+```python
+create_collection(embedding_size: int, schema: Dict[str, Any]) -> None
+```
+
+Creates a new collection with the specified embedding size and custom schema.
+
+**Parameters:**
+
+- `embedding_size`: Dimension of the embedding vectors (e.g., 768 for BERT)
+- `schema`: JSON schema defining custom metadata fields
+
+##### insert_data()
+
+```python
+insert_data(data: List[Dict[str, Any]]) -> None
+```
+
+Inserts document chunks into the collection with automatic duplicate detection.
+
+**Parameters:**
+
+- `data`: List of document chunks, each containing:
+  - `text` (required): The text content
+  - `embedding` (required): Vector embedding of the text
+  - `chunk_index` (required): Index of the chunk within the document
+  - `source` (required): Source identifier (e.g., filename)
+  - `minio` (optional): URL to the original document in MinIO
+  - Custom metadata fields as defined in the schema
+
+**Features:**
+
+- Automatically skips duplicates based on `source` + `chunk_index`
+- Validates required fields before insertion
+- Generates unique UUIDs for each document chunk
+- Serializes custom metadata as JSON
+
+## Schema Configuration
+
+### Base Schema Fields
+
+Every collection automatically includes these base fields:
+
+| Field                       | Type                | Description                       |
+| --------------------------- | ------------------- | --------------------------------- |
+| `id`                        | INT64               | Auto-generated primary key        |
+| `document_id`               | VARCHAR(64)         | UUID for the document chunk       |
+| `minio`                     | VARCHAR(256)        | URL to original document in MinIO |
+| `chunk_index`               | INT64               | Index of chunk within document    |
+| `text`                      | VARCHAR(65535)      | The text content                  |
+| `text_embedding`            | FLOAT_VECTOR        | Dense vector embedding            |
+| `text_sparse_embedding`     | SPARSE_FLOAT_VECTOR | BM25 sparse embedding             |
+| `metadata`                  | VARCHAR(65535)      | JSON string of custom metadata    |
+| `metadata_sparse_embedding` | SPARSE_FLOAT_VECTOR | BM25 embedding of metadata        |
+
+### Custom Schema Fields
+
+You can define additional fields using JSON schema format:
+
+#### Supported Field Types
+
+##### String Fields
+
+```python
+{
+    "field_name": {
+        "type": "string",
+        "maxLength": 512,  # Optional, default 1024, max 1024
+        "description": "Field description"
+    }
+}
+```
+
+##### Numeric Fields
+
+```python
+{
+    "price": {
+        "type": "number",  # or "float" or "integer"
+        "description": "Document price"
+    }
+}
+```
+
+##### Boolean Fields
+
+```python
+{
+    "is_published": {
+        "type": "boolean",
+        "description": "Publication status"
+    }
+}
+```
+
+##### Array Fields
+
+```python
+{
+    "keywords": {
+        "type": "array",
+        "items": {
+            "type": "string",
+            "maxLength": 100
+        },
+        "maxItems": 50,  # Optional, default 100, max 100
+        "description": "Document keywords"
+    }
+}
+```
+
+Supported array element types: `string`, `integer`, `number`, `boolean`
+
+##### Object Fields
+
+```python
+{
+    "metadata_object": {
+        "type": "object",
+        "description": "Complex metadata object"
+    }
+}
+```
+
+### Field Limitations
+
+- **VARCHAR fields**: Maximum length of 1024 characters
+- **Array fields**: Maximum capacity of 100 elements
+- **Array string elements**: Maximum length of 512 characters per element
+- **Reserved field names**: Cannot use base schema field names
+
+## Full-Text Search Features
+
+The module automatically creates BM25 sparse embeddings for:
+
+1. **Text content**: Enables full-text search on document content
+2. **Metadata**: Enables search across custom metadata fields
+
+### BM25 Configuration
+
+Default parameters:
+
+- `bm25_k1`: 1.2 (term frequency saturation parameter)
+- `bm25_b`: 0.75 (field length normalization parameter)
+- Algorithm: `DAAT_MAXSCORE` (Dynamic pruning algorithm)
+
+## Error Handling
+
+The module includes comprehensive error handling:
+
+### Common Exceptions
+
+- **MilvusException**: Raised for Milvus-specific errors (connection, query, insertion)
+- **ValueError**: Raised for invalid schema configurations or field types
+- **Logging**: Detailed logging for debugging and monitoring
+
+### Duplicate Handling
+
+- Duplicates are detected using `source` + `chunk_index` combination
+- Duplicate items are automatically skipped during insertion
+- Detailed logging reports the number of duplicates found
+
+## Performance Considerations
+
+### Indexing
+
+The module creates optimized indexes:
+
+- **Vector index**: AUTOINDEX with COSINE similarity for dense embeddings
+- **Sparse indexes**: SPARSE_INVERTED_INDEX for BM25 full-text search

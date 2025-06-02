@@ -11,14 +11,14 @@ milvus:
   image:
     all:
       repository: milvusdb/milvus
-      # tag: "v2.4.15"
       pullPolicy: Always
-  persistence:
-    persistentVolumeClaim:
-      enabled: true
-      storageClass: ""
-      size: 16Gi
   standalone:
+    persistence:
+      enabled: true
+      annotations: {}
+      persistentVolumeClaim:
+        storageClass: ""
+        size: 10Gi
     resources:
       requests:
         cpu: 500m
@@ -32,7 +32,7 @@ milvus:
     persistence:
       enabled: true
       storageClass: ""
-      size: 16Gi
+      size: 10Gi
     resources:
       limits:
         cpu: 500m
@@ -79,7 +79,7 @@ open-webui:
     class: "nginx"
     annotations:
       nginx.ingress.kubernetes.io/ssl-redirect: "false"
-    host: "oi.{{ .Values.global.domain }}"
+    host: oi.api.meatheadmathematician.com
   ollama:
     enabled: false
   ollamaUrls:

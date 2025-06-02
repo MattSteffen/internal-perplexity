@@ -1,13 +1,8 @@
 import json
-
+from processing.converter import MarkItDownConverter
 from crawler import Crawler
-from processing.process_markitdown import MarkItDownConverter
-from processing.process_docling import DoclingConverter
 
 schema1 = {
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Document Core Properties",
-  "description": "Schema defining the fundamental metadata and unique terminology of a document.",
   "type": "object",
   "required": [
     "title",
@@ -89,70 +84,49 @@ schema2 = {
     }
   }
 }
-extra_fields = ["summary_item_1", "summary_item_2", "summary_item_3"]
 
 
-class MyExtractor:
-    """
-    Custom extractor class for processing documents.
-    This class is a placeholder and should be implemented with actual logic.
-    """
-    def __init__(self, config: dict, llm) -> None:
-        self.config = config
-        self.converter = DoclingConverter(config)  
-        # self.converter = MarkItDownConverter(config)
-        self.llm = llm
 
-    def extract_metadata_with_schema(self, text: str, schema) -> dict:
-        prompt = f"Extract metadata from the following text according to these guidelines:\nExtract the metadata fields from the text following the schema provided.\n\nText excerpt (analyze the full text even if truncated here):\n{text[:100000]}... [text continues]\n\nReturn your analysis in the required JSON format."
-        llm_response = None
-        try:
-            llm_response = self.llm.invoke(prompt, response_format=schema)
-            print(f"LLM response ({type(llm_response)}): {llm_response}")
-            if isinstance(llm_response, dict):
-                return llm_response
-            else:
-                return json.loads(llm_response.content.replace("```json", "").replace("```", ""))
-        except Exception as e:
-            print(f"Error parsing LLM metadata response: {e}, response: {llm_response}")
-            return {}
+arxiv_config = {
+    "embeddings": {
+        "provider": "ollama",
+        "model": "all-minilm:v2",
+        "base_url": "http://localhost:11434",
+        "api_key": "ollama",
+    },
+    "vision_llm": {
+        "model": "gemma3:latest",
+        "provider": "ollama",
+        "base_url": "http://localhost:11434",
+    },
+    "milvus": {
+        "host": "localhost",
+        "port": 19530,
+        "username": "root",
+        "password": "Milvus",
+        "collection": "test_arxiv2",
+        "recreate": True,
+    },
+    "llm": {
+        "model": "gemma3",
+        "provider": "ollama",
+        "base_url": "http://localhost:11434",
+    },
+    "utils": {
+        "chunk_size": 1000,
+    }
+}
 
-    def extract(self, filepath: str):
-        data = []
-        text = self.converter.convert(filepath)
-        metadata = {"source": filepath}
-        metadata.update(self.extract_metadata_with_schema(text, schema1))
-        metadata.update(self.extract_metadata_with_schema(text, schema2))
-        chunks = self.converter.chunk_smart(text, 5000)
-        for i, chunk in enumerate(chunks):
-            meta = metadata.copy()
-            meta["text"] = chunk
-            meta["chunk_index"] = i
-            data.append(meta)
-        for i, field in enumerate(extra_fields):
-            meta = metadata.copy()
-            meta["text"] = meta[field]
-            meta["chunk_index"] = len(chunks) + i
-            data.append(meta)
-        print("Extracted data:", len(data), "chunks")
-        return data
+
+short_options = [
+    "/Users/mattsteffen/projects/llm/internal-perplexity/data/arxiv/2408.12236v1.pdf",
+]
+arxiv_dir_path = "/Users/mattsteffen/projects/llm/internal-perplexity/data/arxiv"
 
 def main():
-    arxiv_yaml = "/Users/mattsteffen/projects/llm/internal-perplexity/crawler/src/config/directories/arxiv.yaml"
-
-    # Create and run crawler
-    arxiv_crawler = Crawler(arxiv_yaml)
-    arxiv_crawler.set_llm()
-    arxiv_crawler.set_extractor(MyExtractor(arxiv_crawler.config, arxiv_crawler.llm))
-    
-    # Process all documents
-    with arxiv_crawler._setup_vector_db() as db:
-        for data in arxiv_crawler.run():
-            print("Inserting data into vector db")
-            db.insert_data(data)
-
-
-    print("complete")
+    mycrawler = Crawler(arxiv_config, None, None, None, None, None, None)
+    mycrawler.crawl(short_options)
 
 if __name__ == "__main__":
     main()
+

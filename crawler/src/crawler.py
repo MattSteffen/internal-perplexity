@@ -1,141 +1,119 @@
-from openai import timeout
-import yaml
 import os
-from typing import Dict, Any, Iterator, Tuple, Generator, Optional, Union, List
+import uuid
+from typing import Dict, Any, Union, List
+
 from processing.embeddings import LocalEmbedder
-from processing.extractor import Extractor
+from processing.extractor import Extractor, BasicExtractor
 from processing.llm import LLM
-from storage.vector_db import VectorStorage
-from langchain.chat_models import init_chat_model
+from processing.converter import Converter, MarkItDownConverter
+from storage.milvus import MilvusStorage
 
 
 """
-TODO:
-  - Retest hybrid search, I think I found a bug in the vector db.
-"""
+Crawler takes a directory or list of filepaths, extracts the markdown and metadata from each, chunks them, and stores them in a vector database.
+The crawler class is a base class.
 
+# TODO: Invlidate metadata that contains any of the following:
+    - "document_id"
+    - "chunk_index"
+    - "source"
+    - "text"
+    - "text_embedding"
+    - "text_sparse_embedding"
+    - "metadata"
+    - "metadata_sparse_embedding"
+
+# TODO: Make a backend server for OI and have radchat model available.
+
+Example config:
+{
+    "embeddings": {
+        "provider": "ollama",
+        "model": "all-minilm:v2",
+        "base_url": "http://localhost:11434",
+        "api_key": "ollama",
+    },
+    "vision_llm": {
+        "model": "gemma3",
+        "provider": "ollama",
+        "base_url": "http://localhost:11434",
+    },
+    "milvus": {
+        "host": "localhost",
+        "port": 19530,
+        "username": "root",
+        "password": "123456",
+        "collection": "test_collection",
+        "partition": "test_partition",
+        "recreate": False,
+        "collection_description": "descriptions of the collection",
+    },
+    "llm": {
+        "model": "gemma3",
+        "provider": "ollama",
+        "base_url": "http://localhost:11434",
+    },
+    "utils": {
+        "chunk_size": 1000,
+    }
+}
+"""
 class Crawler:
-    """
-    Main class for crawling and processing directories of documents.
-    Attributes:
-        config: Configuration dictionary.
-        llm: Language model instance for processing documents.
-        embedder: Embedder instance for generating embeddings.
-        extractor: Extractor instance for extracting metadata and text from documents.
-            Extractor is an interface that has 1 method which returns a list of dicts.
-            This list contains the text and metadata for each chunk of the document.
-            Embeddings for 'text' are generated using the embedder.
-        vector_db: VectorStorage instance for storing and retrieving embeddings.
-    """
-    
-    def __init__(self, config_source: str|Dict[str, any]):
-        """
-        Initialize the crawler with configuration.
-        
-        Args:
-            config_source: source for configuration, either a path to a YAML file or a dictionary.
-            config_manager: Optional ConfigManager instance. If not provided, a new one will be created.
-        """
-        # Set up config manager if not provided
-        self.config = self.load_config(config_source)
-        
-        # Set up components based on configuration
-        self.embedder = LocalEmbedder(self.config.get("embeddings", {}))
-        self.vector_db = self._setup_vector_db() 
-
-        self.llm = None
-        self.extractor = None
-        self.directory_name = self.config.get("path", None)
-    
-    def load_config(self, config_source: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Load configuration from a YAML file or return the provided dict.
-        
-        Args:
-            config_source: Either a filepath string to a YAML file or a dictionary
-            
-        Returns:
-            Dict[str, Any]: The loaded configuration as a dictionary
-            
-        Raises:
-            FileNotFoundError: If the provided filepath doesn't exist
-            ValueError: If the filepath isn't a YAML file or can't be loaded
-        """
-        # If config_source is already a dictionary, return it directly
-        if isinstance(config_source, dict):
-            self.config = config_source
-            return config_source
-        
-        # If config_source is a string, treat it as a filepath
-        elif isinstance(config_source, str):
-            # Check if file exists
-            if not os.path.isfile(config_source):
-                raise FileNotFoundError(f"Config file not found: {config_source}")
-            
-            # Check if file has yaml extension
-            file_ext = os.path.splitext(config_source)[1].lower()
-            if file_ext not in ['.yaml', '.yml']:
-                raise ValueError(f"File is not a YAML file: {config_source}")
-            
-            # Try to load the YAML file
-            try:
-                with open(config_source, 'r') as file:
-                    config = yaml.safe_load(file)
-                    
-                # Ensure loaded content is a dictionary
-                if not isinstance(config, dict):
-                    raise ValueError(f"YAML file does not contain a dictionary: {config_source}")
-                
-                self.config = config
-                return config
-            except yaml.YAMLError as e:
-                raise ValueError(f"Error parsing YAML file {config_source}: {str(e)}")
-        
-        # If config_source is neither a dict nor a string
-        else:
-            raise TypeError(f"Expected dict or filepath string, got {type(config_source).__name__}")
-
-    def _setup_vector_db(self) -> VectorStorage:
-        """Set up the vector database using configuration."""
-        # Initialize vector storage with Milvus connection parameters
-        return VectorStorage(self.config)
-
-    def set_llm(self, llm=None) -> Any:
-        """Set up the LLM using configuration."""
-        # If no LLM is provided, use the one from the config
-        if llm is None:
-            llm_config = self.config.get("llm", {})
-            llm = LLM(
-                model_name=llm_config.get("model"),
-                ollama_base_url=llm_config.get("base_url"),
-                default_request_timeout=llm_config.get("timeout", 60),
-            )
-
+    def __init__(
+                self,
+                config: Dict[str, Any],
+                metadata_schema: Dict[str, Any],
+                converter: Converter = None,
+                extractor: Extractor = None,
+                vector_db: MilvusStorage = None,
+                embedder: LocalEmbedder = None,
+                llm: LLM = None,
+            ) -> None:
+        self.config = config
+        self.metadata_schema = metadata_schema
         self.llm = llm
+        self.embedder = embedder
+        self.converter = converter
+        self.extractor = extractor
+        self.vector_db = vector_db
 
-        if llm is None:
-            raise ValueError("No LLM model provided in config or as argument.")
-        return llm
+        self._initialize_defaults()
+
+    def _initialize_defaults(self) -> None:
+        # initialize defaults if provided as none
+        if self.llm is None:
+            if self.config.get("llm") is None:
+                raise ValueError("LLM config is required")
+            self.llm = LLM(
+                model_name=self.config.get("llm", {}).get("model"),
+                base_url=self.config.get("llm", {}).get("base_url")
+            )
+        
+        if self.embedder is None:
+            if self.config.get("embeddings") is None:
+                raise ValueError("Embeddings config is required")
+            self.embedder = LocalEmbedder(self.config.get("embeddings", {}))
+        
+        if self.extractor is None:
+            if self.llm is None:
+                raise ValueError("LLM is required prior to creating extractor")
+            self.extractor = BasicExtractor(self.metadata_schema, self.llm)
+        
+        if self.vector_db is None:
+            if self.config.get("milvus") is None:
+                raise ValueError("Milvus config is required")
+            self.vector_db = MilvusStorage(
+                self.config.get("milvus", {}),
+                dimension=self.embedder.dimension,
+                metadata_schema=self.metadata_schema,
+            )
+        
+        if self.converter is None:
+            if self.config.get("vision_llm") is None:
+                raise ValueError("Vision LLM config is required")
+            self.converter = MarkItDownConverter(self.config)
     
-    def set_extractor(self, extractor=None):
-        """Set up the extractor using configuration."""
-        # If no extractor is provided, use the one from the config
-        if extractor is None:
-            extractor_config = self.config.get("extractor", {})
-            extractor = Extractor(self.llm, extractor_config)
-        
-        self.extractor = extractor
-
-        if extractor is None:
-            extractor_config = self.config.get("extractor", {})
-            extractor = Extractor(self.llm, extractor_config)
-        
-        self.extractor = extractor
-
-        if extractor is None:
-            raise ValueError("No extractor provided in config or as argument.")
-
-    def get_filepaths(self, path: str) -> List[str]:
+    def _get_filepaths(self, path: Union[str, list[str]]) -> List[str]:
         """
         Returns a list of file paths based on the input path.
         
@@ -148,6 +126,9 @@ class Crawler:
                 - If path is a directory: a list of all file paths in that directory (including subdirectories)
                 - If path is neither: an empty list
         """
+        if isinstance(path, list):
+            return path
+        
         # Check if the path exists
         if not os.path.exists(path):
             print(f"Path {path} does not exist, returning empty list")
@@ -173,41 +154,35 @@ class Crawler:
             print(f"Path {path} is neither a file nor a directory, returning empty list")
             return []
 
-    def run(self, files: Optional[str|list[str]] = None) -> Generator[list[Dict[str, Any]]]:
+    def crawl(self, path: Union[str, List[str]]) -> None:
         """
-        Run the crawler on the configured directory.
-        
-        Yields:
-            list of the data for a whole file split into chunks:
-                - Dict of (text, embedding, **metadata) from the document processor.
+        Crawl the given path(s) and process the documents.
         """
-        if self.llm is None:
-            self.set_llm()
-        if self.extractor is None:
-            self.set_extractor()
-        # If no files are provided, use the directory from the config
-        if files is None:
-            files = self.directory_name
-        # If a single file is provided, convert it to a list
-        if isinstance(files, str):
-            files = self.get_filepaths(files)
+        # Get the filepaths
+        filepaths = self._get_filepaths(path)
         
-        print(f"Processing files: {len(files)} starting with {files[0]}")
-        
-        # Process the directory and yield results
-        for filepath in files[:2]:
-            # check if the file exists
-            if self.vector_db.check_source(filepath):
-                print(f"File {filepath} already exists in vector db, skipping")
-                continue
-            print(f"Processing file: {filepath}")
-            try:
-                chunk_dicts = self.extractor.extract(filepath)
-                print("yielding:", chunk_dicts[0])
-                for chunk_dict in chunk_dicts:
-                    chunk_dict["embedding"] = self.embedder.embed_query(chunk_dict['text'])
-                yield chunk_dicts # yields all the chunks for a single file
-            except Exception as e:
-                print(f"Error processing file {filepath}: {e}")
-                continue
-  
+        for filepath in filepaths:
+            # Convert to markdown and extract metadata and chunks
+            markdown = self.converter.convert(filepath)
+            metadata = self.extractor.extract_metadata(markdown)
+            chunks = self.extractor.chunk_text(markdown, self.config.get("utils", {}).get("chunk_size", 1000))
+
+            entities = []
+            for i, chunk in enumerate(chunks):
+                embeddings = self.embedder.embed(chunk)
+
+                # Create entities for milvus
+                entity = {
+                    "document_id": str(uuid.uuid4()),
+                    "chunk_index": i,
+                    "source": filepath,
+                    "text": chunk,
+                    "text_embedding": embeddings,
+                    **metadata,
+                }
+
+                entities.append(entity)
+
+            # Save the document to the vector database
+            self.vector_db.insert_data(entities)
+            # TODO: Add the file and data to a tmp directory

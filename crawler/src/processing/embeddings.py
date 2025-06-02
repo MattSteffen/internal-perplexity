@@ -40,7 +40,7 @@ class LocalEmbedder:
         
         self.dimension = len(self.embedder.embed_query("test"))
 
-    def embed_query(self, query: str) -> List[float]:
+    def embed(self, query: str) -> List[float]:
         """Generate embedding for a single query string."""
         return self.embedder.embed_query(query)
         
