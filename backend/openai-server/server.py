@@ -26,12 +26,11 @@ app.add_middleware(
 
 # Configuration
 class Config:
-    # Destination server configuration
-    DESTINATION_BASE_URL = "http://localhost:11434"  # Change this to your target server
-    DESTINATION_API_KEY = "your-destination-api-key"  # Set your destination API key
+    # Ollama server configuration
+    OLLAMA_BASE_URL = "http://localhost:11434"  # Ollama default
     
     # Server configuration
-    HOST = "0.0.0.0"
+    HOST = "localhost"
     PORT = 8000
     
     # Timeout settings
@@ -45,101 +44,158 @@ class ChatCompletionRequest(BaseModel):
     temperature: Optional[float] = 1.0
     max_tokens: Optional[int] = None
     stream: Optional[bool] = False
-    # Add other OpenAI parameters as needed
+
+def convert_openai_to_ollama(openai_request: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert OpenAI format to Ollama format"""
+    ollama_request = {
+        "model": openai_request.get("model"),
+        "messages": openai_request.get("messages", []),
+        "stream": openai_request.get("stream", False)
+    }
+    
+    # Add optional parameters
+    if "temperature" in openai_request:
+        ollama_request["options"] = ollama_request.get("options", {})
+        ollama_request["options"]["temperature"] = openai_request["temperature"]
+    
+    if "max_tokens" in openai_request and openai_request["max_tokens"]:
+        ollama_request["options"] = ollama_request.get("options", {})
+        ollama_request["options"]["num_predict"] = openai_request["max_tokens"]
+    
+    return ollama_request
+
+def convert_ollama_to_openai(ollama_response: Dict[str, Any], model: str) -> Dict[str, Any]:
+    """Convert Ollama response to OpenAI format"""
+    if "message" in ollama_response:
+        # Non-streaming response
+        return {
+            "id": f"chatcmpl-{''.join(['0']*29)}",
+            "object": "chat.completion",
+            "created": int(asyncio.get_event_loop().time()),
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "message": ollama_response["message"],
+                "finish_reason": "stop" if ollama_response.get("done", False) else None
+            }],
+            "usage": {
+                "prompt_tokens": ollama_response.get("prompt_eval_count", 0),
+                "completion_tokens": ollama_response.get("eval_count", 0),
+                "total_tokens": ollama_response.get("prompt_eval_count", 0) + ollama_response.get("eval_count", 0)
+            }
+        }
+    return ollama_response
 
 async def forward_request_stream(
-    endpoint: str, 
     request_data: Dict[str, Any], 
     headers: Dict[str, str]
 ) -> AsyncGenerator[bytes, None]:
-    """Forward streaming request to destination server"""
+    """Forward streaming request to Ollama"""
     
-    destination_url = f"{config.DESTINATION_BASE_URL}{endpoint}"
+    destination_url = f"{config.OLLAMA_BASE_URL}/api/chat"
+    ollama_request = convert_openai_to_ollama(request_data)
     
-    # Prepare headers for destination
+    # Ollama doesn't need auth headers
     destination_headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {config.DESTINATION_API_KEY}",
-        "User-Agent": headers.get("User-Agent", "OpenAI-Proxy/1.0")
     }
     
-    # Add any custom headers you want to forward
-    for key, value in headers.items():
-        if key.lower().startswith("x-") or key.lower() in ["user-agent"]:
-            destination_headers[key] = value
-    
     logger.info(f"Forwarding streaming request to {destination_url}")
-    logger.debug(f"Request data: {json.dumps(request_data, indent=2)}")
+    logger.debug(f"Ollama request data: {json.dumps(ollama_request, indent=2)}")
     
     async with httpx.AsyncClient(timeout=config.TIMEOUT) as client:
         try:
             async with client.stream(
                 "POST",
                 destination_url,
-                json=request_data,
+                json=ollama_request,
                 headers=destination_headers
             ) as response:
                 if response.status_code != 200:
                     error_content = await response.aread()
-                    logger.error(f"Destination server error: {response.status_code} - {error_content}")
+                    logger.error(f"Ollama server error: {response.status_code} - {error_content}")
                     raise HTTPException(
                         status_code=response.status_code,
-                        detail=f"Destination server error: {error_content.decode()}"
+                        detail=f"Ollama server error: {error_content.decode()}"
                     )
                 
-                async for chunk in response.aiter_bytes():
-                    yield chunk
+                async for chunk in response.aiter_lines():
+                    if chunk:
+                        try:
+                            # Parse Ollama response
+                            ollama_data = json.loads(chunk)
+                            
+                            # Convert to OpenAI streaming format
+                            if "message" in ollama_data and "content" in ollama_data["message"]:
+                                openai_chunk = {
+                                    "id": f"chatcmpl-{''.join(['0']*29)}",
+                                    "object": "chat.completion.chunk",
+                                    "created": int(asyncio.get_event_loop().time()),
+                                    "model": request_data.get("model"),
+                                    "choices": [{
+                                        "index": 0,
+                                        "delta": {
+                                            "content": ollama_data["message"]["content"]
+                                        },
+                                        "finish_reason": "stop" if ollama_data.get("done", False) else None
+                                    }]
+                                }
+                                
+                                formatted_chunk = f"data: {json.dumps(openai_chunk)}\n\n"
+                                yield formatted_chunk.encode()
+                            
+                            if ollama_data.get("done", False):
+                                yield b"data: [DONE]\n\n"
+                                break
+                                
+                        except json.JSONDecodeError:
+                            continue
                     
         except httpx.TimeoutException:
-            logger.error("Request to destination server timed out")
+            logger.error("Request to Ollama server timed out")
             raise HTTPException(status_code=504, detail="Request timeout")
         except httpx.RequestError as e:
             logger.error(f"Request error: {e}")
             raise HTTPException(status_code=502, detail="Bad Gateway")
 
 async def forward_request(
-    endpoint: str, 
     request_data: Dict[str, Any], 
     headers: Dict[str, str]
 ) -> Dict[str, Any]:
-    """Forward non-streaming request to destination server"""
+    """Forward non-streaming request to Ollama"""
     
-    destination_url = f"{config.DESTINATION_BASE_URL}{endpoint}"
+    destination_url = f"{config.OLLAMA_BASE_URL}/api/chat"
+    ollama_request = convert_openai_to_ollama(request_data)
     
-    # Prepare headers for destination
+    # Ollama doesn't need auth headers
     destination_headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {config.DESTINATION_API_KEY}",
-        "User-Agent": headers.get("User-Agent", "OpenAI-Proxy/1.0")
     }
     
-    # Add any custom headers you want to forward
-    for key, value in headers.items():
-        if key.lower().startswith("x-") or key.lower() in ["user-agent"]:
-            destination_headers[key] = value
-    
     logger.info(f"Forwarding request to {destination_url}")
-    logger.debug(f"Request data: {json.dumps(request_data, indent=2)}")
+    logger.debug(f"Ollama request data: {json.dumps(ollama_request, indent=2)}")
     
     async with httpx.AsyncClient(timeout=config.TIMEOUT) as client:
         try:
             response = await client.post(
                 destination_url,
-                json=request_data,
+                json=ollama_request,
                 headers=destination_headers
             )
             
             if response.status_code != 200:
-                logger.error(f"Destination server error: {response.status_code} - {response.text}")
+                logger.error(f"Ollama server error: {response.status_code} - {response.text}")
                 raise HTTPException(
                     status_code=response.status_code,
-                    detail=f"Destination server error: {response.text}"
+                    detail=f"Ollama server error: {response.text}"
                 )
             
-            return response.json()
+            ollama_response = response.json()
+            openai_response = convert_ollama_to_openai(ollama_response, request_data.get("model"))
+            return openai_response
                 
         except httpx.TimeoutException:
-            logger.error("Request to destination server timed out")
+            logger.error("Request to Ollama server timed out")
             raise HTTPException(status_code=504, detail="Request timeout")
         except httpx.RequestError as e:
             logger.error(f"Request error: {e}")
@@ -161,7 +217,7 @@ async def chat_completions(request: Request):
         if stream:
             # Handle streaming response
             return StreamingResponse(
-                forward_request_stream("/v1/chat/completions", request_data, headers),
+                forward_request_stream(request_data, headers),
                 media_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",
@@ -171,7 +227,7 @@ async def chat_completions(request: Request):
             )
         else:
             # Handle non-streaming response
-            response_data = await forward_request("/v1/chat/completions", request_data, headers)
+            response_data = await forward_request(request_data, headers)
             return JSONResponse(content=response_data)
             
     except json.JSONDecodeError:
@@ -184,70 +240,72 @@ async def chat_completions(request: Request):
 async def list_models(request: Request):
     """Handle models list requests"""
     try:
-        headers = dict(request.headers)
-        response_data = await forward_request("/v1/models", {}, headers)
-        return JSONResponse(content=response_data)
+        # Get models from Ollama
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.get(f"{config.OLLAMA_BASE_URL}/api/tags")
+            if response.status_code == 200:
+                ollama_models = response.json()
+                
+                # Convert to OpenAI format
+                openai_models = {
+                    "object": "list",
+                    "data": []
+                }
+                
+                for model in ollama_models.get("models", []):
+                    openai_models["data"].append({
+                        "id": model["name"],
+                        "object": "model",
+                        "created": 0,
+                        "owned_by": "ollama"
+                    })
+                
+                return JSONResponse(content=openai_models)
+            else:
+                raise HTTPException(status_code=response.status_code, detail="Failed to fetch models from Ollama")
+                
     except Exception as e:
         logger.error(f"Error fetching models: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-@app.post("/v1/completions")
-async def completions(request: Request):
-    """Handle completions requests (legacy endpoint)"""
-    try:
-        request_data = await request.json()
-        headers = dict(request.headers)
-        stream = request_data.get("stream", False)
-        
-        logger.info(f"Received completion request - Model: {request_data.get('model')}, Stream: {stream}")
-        
-        if stream:
-            return StreamingResponse(
-                forward_request_stream("/v1/completions", request_data, headers),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                    "Access-Control-Allow-Origin": "*"
-                }
-            )
-        else:
-            response_data = await forward_request("/v1/completions", request_data, headers)
-            return JSONResponse(content=response_data)
-            
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="Invalid JSON in request body")
-    except Exception as e:
-        logger.error(f"Error processing request: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    return {"status": "healthy", "service": "openai-proxy"}
+    try:
+        # Check if Ollama is available
+        async with httpx.AsyncClient(timeout=5) as client:
+            response = await client.get(f"{config.OLLAMA_BASE_URL}/api/tags")
+            ollama_status = "healthy" if response.status_code == 200 else "unhealthy"
+    except:
+        ollama_status = "unhealthy"
+    
+    return {
+        "status": "healthy", 
+        "service": "openai-proxy",
+        "ollama_status": ollama_status
+    }
 
 @app.get("/")
 async def root():
     """Root endpoint with basic info"""
     return {
-        "service": "OpenAI Compatible Proxy Server",
+        "service": "OpenAI Compatible Proxy Server for Ollama",
         "version": "1.0.0",
         "endpoints": [
             "/v1/chat/completions",
-            "/v1/completions", 
             "/v1/models",
             "/health"
-        ]
+        ],
+        "ollama_url": config.OLLAMA_BASE_URL
     }
 
 if __name__ == "__main__":
-    # Update configuration before starting
     print(f"Starting OpenAI Compatible Proxy Server on {config.HOST}:{config.PORT}")
-    print(f"Forwarding requests to: {config.DESTINATION_BASE_URL}")
-    print("Remember to update DESTINATION_BASE_URL and DESTINATION_API_KEY in the Config class!")
+    print(f"Forwarding requests to Ollama at: {config.OLLAMA_BASE_URL}")
+    print("Make sure Ollama is running: ollama serve")
     
     uvicorn.run(
-        "server:app",  # Changed from main:app to server:app
+        "server:app",
         host=config.HOST,
         port=config.PORT,
         reload=True,
