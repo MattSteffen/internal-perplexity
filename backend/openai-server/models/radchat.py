@@ -111,7 +111,6 @@ def connect_milvus(token: str = "") -> Optional[MilvusClient]:
         )
         return None
 
-# TODO: Add hybrid search.
 
 def perform_search(
     client: MilvusClient,

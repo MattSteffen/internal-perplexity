@@ -69,7 +69,7 @@ app = FastAPI(title="OpenAI Compatible API", version="1.0.0")
 
 # Configuration - you can modify these
 PROXY_API_URL = "https://localhost:11434"  # Change this to your target API
-AVAILABLE_MODELS = ["model-a"]
+AVAILABLE_MODELS = ["radchat"]
 
 
 class ModelHandler:
@@ -193,8 +193,20 @@ async def stream_chat_completion(request: ChatCompletionRequest, headers: Dict[s
     created = int(time.time())
 
     try:
-        if request.model == "model-a":
+        if request.model == "radchat":
             radchat_response = radchat.pipe(request.model_dump())
+
+            chunk_data = {
+                "id": response_id,
+                "object": "chat.completion",
+                "created": created,
+                "model": request.model,
+                "choices": [{
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "test content"},
+                    "finish_reason": None,
+                }]
+            }
             yield f"data: {json.dumps(radchat_response)}\n\n"
             yield "data: [DONE]\n\n"
         else:
@@ -248,6 +260,7 @@ async def non_stream_chat_completion(request: ChatCompletionRequest, headers: Di
         if request.model == "model-a":
             # Proxy to another API
             response_text = ""
+            request.model = "qwen3:1.7b"
             async for chunk in model_handler.proxy_request(request, headers):
                 response_text += chunk
             
