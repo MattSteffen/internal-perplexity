@@ -1,6 +1,9 @@
 import os
 import uuid
 from typing import Dict, Any, Union, List
+import json
+import hashlib
+from pathlib import Path
 
 from processing.embeddings import LocalEmbedder
 from processing.extractor import Extractor, BasicExtractor
@@ -158,13 +161,41 @@ class Crawler:
         """
         Crawl the given path(s) and process the documents.
         """
-        # Get the filepaths
         filepaths = self._get_filepaths(path)
-        
+        temp_dir_str = self.config.get("utils", {}).get("temp_dir")
+        temp_dir = Path(temp_dir_str) if temp_dir_str else None
+
+        if temp_dir:
+            temp_dir.mkdir(parents=True, exist_ok=True)
+
         for filepath in filepaths:
-            # Convert to markdown and extract metadata and chunks
-            markdown = self.converter.convert(filepath)
-            metadata = self.extractor.extract_metadata(markdown)
+            if self.vector_db._check_duplicate(filepath, 0):
+                print(f"Document {filepath} already in Milvus. Skipping.")
+                continue
+
+            markdown = None
+            metadata = None
+            temp_filepath = None
+
+            if temp_dir:
+                filename = os.path.basename(filepath) + '.json'
+                temp_filepath = temp_dir / filename
+                if temp_filepath.exists():
+                    print(f"Loading processed document from {temp_filepath}")
+                    with open(temp_filepath, 'r') as f:
+                        data = json.load(f)
+                        markdown = data['text']
+                        metadata = data['metadata']
+
+            if markdown is None or metadata is None:
+                # Convert to markdown and extract metadata and chunks
+                markdown = self.converter.convert(filepath)
+                metadata = self.extractor.extract_metadata(markdown)
+                if temp_filepath:
+                    print(f"Saving processed document to {temp_filepath}")
+                    with open(temp_filepath, 'w') as f:
+                        json.dump({'text': markdown, 'metadata': metadata}, f)
+
             chunks = self.extractor.chunk_text(markdown, self.config.get("utils", {}).get("chunk_size", 1000))
 
             entities = []
@@ -185,4 +216,3 @@ class Crawler:
 
             # Save the document to the vector database
             self.vector_db.insert_data(entities)
-            # TODO: Add the file and data to a tmp directory

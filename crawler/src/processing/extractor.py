@@ -70,10 +70,11 @@ class Extractor(ABC):
         pass
 
 class BasicExtractor(Extractor):
-    def __init__(self, metadata_schema: Dict[str, Any], llm: LLM):
+    def __init__(self, metadata_schema: Dict[str, Any], llm: LLM, document_library_context: str = ""):
         super().__init__(metadata_schema)
         self.metadata_schema = metadata_schema
         self.llm = llm
+        self.document_library_context = document_library_context
     
     def extract_metadata(self, text: str) -> Dict[str, Any]:
         """Extract metadata and chunks from the text."""
@@ -90,8 +91,87 @@ class BasicExtractor(Extractor):
         return chunks
     
     def _get_prompt(self, text: str) -> str:
-        return f"Extract the metadata according to the provided schema for the following text:\n{text}"
+        # replace the document context and document text in the prompt template
+        return extract_metadata_prompt.replace("{{document_library_context}}", self.document_library_context).replace("{{document_text}}", text)
 
+extract_metadata_prompt = """
+You are an expert metadata extraction engine. Your job is to read a Markdown document (converted from PDF, so formatting may vary), identify the required metadata fields, and output a JSON object conforming exactly to the JSON schema provided at runtime.
+
+---
+
+## How It Works
+
+1. **Schema Injection**  
+   Before processing, you will receive a JSON schema defining the exact fields, types, formats, and requirements.
+
+2. **Document Context**  
+   You may also receive background context about the document collection to help with ambiguous cases—but never output it. This describes the type of information present in the document.
+
+3. **Extraction Process**  
+   - **Scan the entire document** for metadata: author, title, dates, identifiers, etc.  
+   - **Normalize values** (e.g. convert dates to `YYYY-MM-DD`, strip extra markup or artifacts).  
+   - **Handle missing required fields** by setting their value to `"Unknown"`.  
+   - **Validate** every extracted value against the schema: correct type, format, and presence of all `required` fields.  
+
+4. **Output**  
+   Emit **only** a JSON object (no commentary, no Markdown fences), matching the schema exactly.
+
+---
+
+## Example
+
+> **Injected Schema:**  
+> ```json
+> {
+>   "type": "object",
+>   "properties": {
+>     "author":      { "type": "string" },
+>     "title":       { "type": "string" },
+>     "pub_date":    { "type": "string", "format": "date" }
+>   },
+>   "required": ["author","title","pub_date"]
+> }
+> ```
+
+> **Input Document:**  
+> ```
+> The Future of AI in Healthcare
+> By Dr. Sarah Chen
+> Published March 15, 2024
+>
+> Artificial intelligence is transforming medical diagnosis and treatment...
+> ```
+
+> **Expected Output:**  
+> {
+>   "author": "Dr. Sarah Chen",
+>   "title":  "The Future of AI in Healthcare",
+>   "pub_date": "2024-03-15"
+> }
+
+---
+
+## Your Task
+
+1. You will be given:
+   - json_schema  
+   - (optional) document_library_context  
+   - document  
+
+2. Extract and normalize metadata exactly as the schema demands.  
+3. If any required field is missing, set it to `"Unknown"`.  
+4. Output **only** the JSON object.  
+
+Begin now.
+
+**Document Library Context:**
+{{document_library_context}}
+
+
+**Document:**
+{{document_text}}
+
+"""
 
 def test():
     # Test the extractor
