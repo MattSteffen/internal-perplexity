@@ -1,7 +1,7 @@
 from typing import Any, Dict
 from crawler import Crawler
 from processing.llm import LLM
-from processing.extractor import Extractor, BasicExtractor
+from processing.extractor import Extractor, MultiSchemaExtractor
 
 full_schema = {
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -193,30 +193,10 @@ irad_config = {
 dir_path = "/home/ubuntu/irads-crawler/data/irads"
 short_options = ["/home/ubuntu/irads-crawler/data/irads/test.pdf"]
 
-class MyExtractor(Extractor):
-    """
-    Custom extractor class for processing documents with timeout capability.
-    """
-    def __init__(self, config: dict, schema1: dict, schema2: dict) -> None:
-        super().__init__(config)
-        self.config = config
-        llm = LLM(
-                model_name=self.config.get("llm", {}).get("model"),
-                base_url=self.config.get("llm", {}).get("base_url")
-            )
-        self.extractor1 = BasicExtractor(schema1, llm, irad_library_description)
-        self.extractor2 = BasicExtractor(schema2, llm, irad_library_description)
-
-    def extract_metadata(self, text: str) -> Dict[str, Any]:
-        metadata1 = self.extractor1.extract_metadata(text)
-        metadata2 = self.extractor2.extract_metadata(text)
-        metadata = {**metadata1, **metadata2}
-        return metadata
-    
-    
 
 def main():
-    mycrawler = Crawler(irad_config, full_schema, None, MyExtractor, None, None, None)
+    myExtractor = MultiSchemaExtractor(irad_config, [schema1, schema2], irad_library_description)
+    mycrawler = Crawler(irad_config, full_schema, None, myExtractor, None, None, None)
     mycrawler.crawl(short_options)
 
 

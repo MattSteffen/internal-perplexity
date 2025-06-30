@@ -94,6 +94,26 @@ class BasicExtractor(Extractor):
         # replace the document context and document text in the prompt template
         return extract_metadata_prompt.replace("{{document_library_context}}", self.document_library_context).replace("{{document_text}}", text)
 
+class MultiSchemaExtractor(Extractor):
+    """
+    Custom extractor class for processing documents with timeout capability.
+    """
+    def __init__(self, config: dict, schemas: list[dict], library_description: str = "") -> None:
+        super().__init__(config)
+        self.config = config
+        llm = LLM(
+                model_name=self.config.get("llm", {}).get("model"),
+                base_url=self.config.get("llm", {}).get("base_url")
+            )
+        for schema in schemas:
+            self.extractors.append(BasicExtractor(schema, llm, library_description))
+
+    def extract_metadata(self, text: str) -> Dict[str, Any]:
+        metadata = {}
+        for extractor in self.extractors:
+            metadata.update(extractor.extract_metadata(text))
+        return metadata
+
 extract_metadata_prompt = """
 You are an expert metadata extraction engine. Your job is to read a Markdown document (converted from PDF, so formatting may vary), identify the required metadata fields, and output a JSON object conforming exactly to the JSON schema provided at runtime.
 
