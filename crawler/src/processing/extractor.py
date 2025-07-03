@@ -4,19 +4,6 @@ from abc import ABC, abstractmethod
 from .llm import LLM
 
 
-
-"""
-# TODO: Make an Abstract Base Class for Extractor
-Extractor:
-- Accepts:
-  - Markdown text
-Does:
-  - Extracts metadata according to json schema
-  - Chunks the text
-- Outputs:
-  - List of chunks with metadata
-"""
-
 class Extractor(ABC):
     """
     Abstract base class for document extractors.

@@ -43,7 +43,7 @@ class MilvusDocument(BaseModel):
     chunk_index: int
     metadata: Optional[str] = ""
     title: Optional[str] = ""
-    author: Optional[List[str]|str] = []
+    author: Optional[List[str]| str] = []
     date: Optional[int] = 0
     keywords: Optional[List[str]] = []
     unique_words: Optional[List[str]] = []
