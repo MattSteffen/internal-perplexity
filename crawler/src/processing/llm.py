@@ -173,7 +173,7 @@ class LLM:
 def test():
     # Initialize the LLM client
     llm = LLM(
-        model_name="gemma3",  # or whatever model you have
+        model_name="qwen3:latest",  # or whatever model you have
         system_prompt="You are a helpful assistant.",
         ctx_length=16000,
         default_timeout=120.0
@@ -216,3 +216,6 @@ def test():
     
     history_response = llm.invoke(messages)
     print("History response:", history_response)
+
+if __name__ == "__main__":
+    test()

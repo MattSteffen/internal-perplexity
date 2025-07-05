@@ -1,0 +1,38 @@
+services:
+  openwebui:
+    image: openwebui/open-webui:latest
+    container_name: open-webui
+    ports:
+      - "3000:8080"
+    volumes:
+      - open-webui:/app/backend/data
+    environment:
+      # Basic configuration
+      - WEBUI_NAME=Open WebUI
+      - WEBUI_URL=http://localhost:3000
+      # Disable pipelines and ollama as per your helm values
+      - ENABLE_OLLAMA_API=false
+      - ENABLE_OPENAI_API=true
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  open-webui:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./open-webui-data

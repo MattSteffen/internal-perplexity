@@ -156,7 +156,7 @@ schema2 = {
 extra_fields = ["summary_item_1", "summary_item_2", "summary_item_3"]
 
 
-irad_library_description = ""
+irad_library_description = "You are about to process a collection of internal company research documents focused on signal processing, machine learning, and development initiatives. These materials contain proprietary research findings, technical methodologies, experimental results, implementation strategies, and development protocols specific to our organization's projects and objectives. The documents span various aspects of signal processing algorithms, machine learning model architectures, data analysis techniques, software development practices, and applied research outcomes. Each document represents internal knowledge, technical insights, and research progress that may include confidential methodologies, performance metrics, and strategic technical directions relevant to our company's research and development efforts."
 
 
 irad_config = {

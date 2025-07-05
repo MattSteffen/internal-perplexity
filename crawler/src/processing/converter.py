@@ -22,16 +22,16 @@ from markitdown import (
     MissingDependencyException,
 )
 
-# # Docling imports
-# from docling.datamodel.base_models import InputFormat
-# from docling.datamodel.document import ConversionResult
-# from docling.datamodel.pipeline_options import (
-#     ApiVlmOptions,
-#     ResponseFormat,
-#     VlmPipelineOptions,
-# )
-# from docling.document_converter import DocumentConverter, PdfFormatOption
-# from docling.pipeline.vlm_pipeline import VlmPipeline
+# Docling imports
+from docling.datamodel.base_models import InputFormat
+from docling.datamodel.document import ConversionResult
+from docling.datamodel.pipeline_options import (
+    ApiVlmOptions,
+    ResponseFormat,
+    VlmPipelineOptions,
+)
+from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling.pipeline.vlm_pipeline import VlmPipeline
 
 
 class Converter(ABC):
@@ -108,9 +108,9 @@ class MarkItDownConverter(Converter):
     def _create_converter(self) -> MarkItDown:
         """Create and configure the MarkItDown converter."""
         vision_config = self.config.get("vision_llm", {})
-        model = vision_config.get("model", "gemma3")
+        model = vision_config.get("model", "granite-3.2vision:latest")
         provider = vision_config.get("provider", "ollama")
-        base_url = vision_config.get("base_url", "http://localhost:11434")
+        base_url = vision_config.get("base_url", "http://localhost:8002")
         
         # Adjust URL based on provider
         api_url = f"{base_url}/v1" if provider == "ollama" else base_url
@@ -162,94 +162,152 @@ class MarkItDownConverter(Converter):
             raise
 
 
-# class DoclingConverter(Converter):
-#     """
-#     Document converter using the Docling library.
+class DoclingConverter(Converter):
+    """
+    Document converter using the Docling library.
     
-#     This converter specializes in PDF processing with advanced vision model
-#     integration for handling complex layouts and visual elements.
-#     """
+    This converter specializes in PDF processing with advanced vision model
+    integration for handling complex layouts and visual elements.
+    """
     
-#     DEFAULT_VISION_PROMPT = "Describe the image in detail, including any text or objects present."
+    DEFAULT_VISION_PROMPT = "Analyze the page content. Convert all text to Markdown. For any technical diagrams, provide a detailed description of its components, connections, and overall structure within the Markdown output.  Be brief and concise."
     
-#     def __init__(self, config: Dict[str, Any]):
-#         """
-#         Initialize the Docling converter.
+    def __init__(self, config: Dict[str, Any]):
+        """
+        Initialize the Docling converter.
         
-#         Args:
-#             config: Configuration dictionary with keys:
-#                 - vision_llm: Dict with model, provider, base_url
-#                 - prompt: String prompt for the VLM
-#                 - extractor: Dict with timeout and other extraction options
-#                 - scale: Optional image scale factor (default: 1.0)
-#         """
-#         super().__init__(config)
-#         self.doc_converter = self._create_converter()
+        Args:
+            config: Configuration dictionary with keys:
+                - vision_llm: Dict with model, provider, base_url
+                - prompt: String prompt for the VLM
+                - extractor: Dict with timeout and other extraction options
+                - scale: Optional image scale factor (default: 1.0)
+        """
+        super().__init__(config)
+        self.doc_converter = self._create_converter()
     
-#     def _create_vlm_options(self) -> ApiVlmOptions:
-#         """Create VLM options based on the configuration."""
-#         vision_config = self.config.get("vision_llm", {})
-#         model = vision_config.get("model", "gemma3")
-#         provider = vision_config.get("provider", "ollama")
-#         base_url = vision_config.get("base_url", "http://localhost:11434")
+    def _ollama_vlm_options(self) -> ApiVlmOptions:
+        """Create VLM options for Ollama based on the configuration."""
+        vision_config = self.config.get("vision_llm", {})
+        model = vision_config.get("model", "granite3.2-vision:latest")
+        base_url = vision_config.get("base_url", "http://localhost:8002")
         
-#         extractor_config = self.config.get("extractor", {})
-#         timeout = extractor_config.get("timeout", 300)
-#         scale = self.config.get("scale", 1.0)
-#         prompt = self.config.get("prompt", self.DEFAULT_VISION_PROMPT)
+        extractor_config = self.config.get("extractor", {})
+        timeout = extractor_config.get("timeout", 600)
+        scale = self.config.get("scale", 1.0)
+        prompt = self.config.get("prompt", self.DEFAULT_VISION_PROMPT)
         
-#         # Adjust URL based on provider
-#         api_url = f"{base_url}/v1" if provider == "ollama" else base_url
+        api_url = f"{base_url}/v1/chat/completions"
         
-#         return ApiVlmOptions(
-#             url=f"{api_url}/chat/completions",
-#             params={"model": model},
-#             prompt=prompt,
-#             timeout=timeout,
-#             scale=scale,
-#             response_format=ResponseFormat.MARKDOWN,
-#         )
+        return ApiVlmOptions(
+            url=api_url,
+            params=dict(model=model),
+            prompt=prompt,
+            timeout=timeout,
+            scale=scale,
+            response_format=ResponseFormat.MARKDOWN,
+        )
     
-#     def _create_converter(self) -> DocumentConverter:
-#         """Create and configure the document converter."""
-#         pipeline_options = VlmPipelineOptions(enable_remote_services=True)
-#         pipeline_options.vlm_options = self._create_vlm_options()
+    def _create_converter(self) -> DocumentConverter:
+        """Create and configure the document converter."""
+        pipeline_options = VlmPipelineOptions(enable_remote_services=True)
+        pipeline_options.vlm_options = self._ollama_vlm_options()
         
-#         return DocumentConverter(
-#             format_options={
-#                 InputFormat.PDF: PdfFormatOption(
-#                     pipeline_options=pipeline_options,
-#                     pipeline_cls=VlmPipeline,
-#                 )
-#             }
-#         )
+        return DocumentConverter(
+            format_options={
+                InputFormat.PDF: PdfFormatOption(
+                    pipeline_options=pipeline_options,
+                    pipeline_cls=VlmPipeline,
+                )
+            }
+        )
     
-#     def convert(self, filepath: str) -> str:
-#         """
-#         Convert a document to markdown using Docling.
+    def convert(self, filepath: str) -> str:
+        """
+        Convert a document to markdown using Docling.
         
-#         Args:
-#             filepath: Path to the document to convert
+        Args:
+            filepath: Path to the document to convert
             
-#         Returns:
-#             Markdown string representation of the document
+        Returns:
+            Markdown string representation of the document
             
-#         Raises:
-#             FileNotFoundError: If the input file doesn't exist
-#             Exception: If conversion fails
-#         """
-#         self._validate_file_exists(filepath)
+        Raises:
+            FileNotFoundError: If the input file doesn't exist
+            Exception: If conversion fails
+        """
+        self._validate_file_exists(filepath)
         
-#         try:
-#             self.logger.info(f"Converting {filepath} using Docling")
-#             result = self.doc_converter.convert(filepath)
-#             markdown_text = result.document.export_to_markdown()
-#             self.logger.info("Conversion completed successfully")
-#             return markdown_text
+        try:
+            self.logger.info(f"Converting {filepath} using Docling")
+            result = self.doc_converter.convert(Path(filepath))
+            markdown_text = result.document.export_to_markdown()
+            self.logger.info("Conversion completed successfully")
+            return markdown_text
             
-#         except Exception as e:
-#             self.logger.error(f"Failed to convert '{filepath}': {e}")
-#             raise
+        except Exception as e:
+            self.logger.error(f"Failed to convert '{filepath}': {e}")
+            raise
+
+
+class DoclingVLMConverter(Converter):
+    """
+    Document converter using the Docling library with its default VLM.
+
+    This converter specializes in PDF processing with advanced vision model
+    integration for handling complex layouts and visual elements. It relies on
+    Docling's default VLM configuration.
+    """
+
+    def __init__(self, config: Dict[str, Any]):
+        """
+        Initialize the Docling VLM converter.
+
+        Args:
+            config: Configuration dictionary (currently unused, for future compatibility).
+        """
+        super().__init__(config)
+        self.doc_converter = self._create_converter()
+
+    def _create_converter(self) -> DocumentConverter:
+        """Create and configure the document converter with default VLM."""
+        pipeline_options = VlmPipelineOptions(enable_remote_services=True)
+
+        return DocumentConverter(
+            format_options={
+                InputFormat.PDF: PdfFormatOption(
+                    pipeline_options=pipeline_options,
+                    pipeline_cls=VlmPipeline,
+                )
+            }
+        )
+
+    def convert(self, filepath: str) -> str:
+        """
+        Convert a document to markdown using Docling's default VLM.
+
+        Args:
+            filepath: Path to the document to convert
+
+        Returns:
+            Markdown string representation of the document
+
+        Raises:
+            FileNotFoundError: If the input file doesn't exist
+            Exception: If conversion fails
+        """
+        self._validate_file_exists(filepath)
+
+        try:
+            self.logger.info(f"Converting {filepath} using Docling with default VLM")
+            result = self.doc_converter.convert(Path(filepath))
+            markdown_text = result.document.export_to_markdown()
+            self.logger.info("Conversion completed successfully")
+            return markdown_text
+
+        except Exception as e:
+            self.logger.error(f"Failed to convert '{filepath}': {e}")
+            raise
 
 
 def create_converter(converter_type: str, config: Dict[str, Any]) -> Converter:
@@ -257,7 +315,7 @@ def create_converter(converter_type: str, config: Dict[str, Any]) -> Converter:
     Factory function to create converter instances.
     
     Args:
-        converter_type: Type of converter ("markitdown" or "docling")
+        converter_type: Type of converter ("markitdown", "docling", or "docling_vlm")
         config: Configuration dictionary
         
     Returns:
@@ -268,7 +326,8 @@ def create_converter(converter_type: str, config: Dict[str, Any]) -> Converter:
     """
     converters = {
         "markitdown": MarkItDownConverter,
-        # "docling": DoclingConverter,
+        "docling": DoclingConverter,
+        "docling_vlm": DoclingVLMConverter,
     }
     
     if converter_type.lower() not in converters:
@@ -283,9 +342,9 @@ def test_markitdown_converter():
     """Test the MarkItDown converter with sample configuration."""
     config = {
         "vision_llm": {
-            "model": "gemma3",
+            "model": "granite3.2-vision:latest",
             "provider": "ollama",
-            "base_url": "http://localhost:11434"
+            "base_url": "http://localhost:8002"
         },
         "prompt": "You are a helpful assistant.",
         "timeout": 300
@@ -293,9 +352,9 @@ def test_markitdown_converter():
     
     converter = MarkItDownConverter(config)
     # Replace with actual file path for testing
-    # filepath = "/path/to/your/document.pdf"
-    # markdown = converter.convert(filepath)
-    # print(markdown)
+    filepath = "/Users/mattsteffen/projects/llm/internal-perplexity/data/arxiv/2408.12236v1.pdf"
+    markdown = converter.convert(filepath)
+    print(markdown)
     print("MarkItDown converter created successfully")
 
 
@@ -303,42 +362,60 @@ def test_docling_converter():
     """Test the Docling converter with sample configuration."""
     config = {
         "vision_llm": {
-            "model": "gemma3",
+            "model": "granite3.2-vision:latest",
             "provider": "ollama",
-            "base_url": "http://localhost:11434",
+            "base_url": "http://localhost:8002",
         },
         "extractor": {
             "timeout": 300,
         },
     }
     
-    # converter = DoclingConverter(config)
+    converter = DoclingConverter(config)
     # Replace with actual file path for testing
-    # filepath = "/path/to/your/document.pdf"
-    # markdown = converter.convert(filepath)
-    # print(markdown)
+    filepath = "/Users/mattsteffen/projects/llm/internal-perplexity/data/arxiv/2408.12236v1.pdf"
+    markdown = converter.convert(filepath)
+    print(markdown)
     print("Docling converter created successfully")
+
+
+def test_docling_vlm_converter():
+    """Test the Docling VLM converter with sample configuration."""
+    config = {}  # No config needed for default VLM
+    
+    converter = create_converter("docling_vlm", config)
+    # Replace with actual file path for testing
+    filepath = "/Users/mattsteffen/projects/llm/internal-perplexity/data/arxiv/2408.12236v1.pdf"
+    try:
+        markdown = converter.convert(filepath)
+        print(markdown)
+        print("Docling VLM converter test completed successfully")
+    except Exception as e:
+        print(f"Docling VLM converter test failed: {e}")
 
 
 def test_factory_function():
     """Test the converter factory function."""
     config = {
         "vision_llm": {
-            "model": "gemma3",
+            "model": "granite3.2-vision:latest",
             "provider": "ollama",
-            "base_url": "http://localhost:11434"
+            "base_url": "http://localhost:8002"
         }
     }
     
     # Test creating different converter types
     markitdown_converter = create_converter("markitdown", config)
     docling_converter = create_converter("docling", config)
+    docling_vlm_converter = create_converter("docling_vlm", config)
     
     print(f"Created MarkItDown converter: {type(markitdown_converter).__name__}")
     print(f"Created Docling converter: {type(docling_converter).__name__}")
+    print(f"Created Docling VLM converter: {type(docling_vlm_converter).__name__}")
 
 
 if __name__ == "__main__":
     test_markitdown_converter()
     test_docling_converter()
+    test_docling_vlm_converter()
     test_factory_function()

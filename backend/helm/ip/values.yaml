@@ -2,6 +2,7 @@
 global:
   storageClass: standard
   registry: docker.io
+  domain: ip.meatheadmathematician.com
 
 # Open WebUI configuration
 open-webui:
@@ -10,7 +11,7 @@ open-webui:
   image:
     repository: openwebui/open-webui
     tag: latest
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
   service:
     type: ClusterIP
     port: 80
@@ -18,7 +19,7 @@ open-webui:
     enabled: true
     className: "nginx"
     hosts:
-      - host: webui.local
+      - host: "{{ .Values.global.domain }}"
         paths:
           - path: /
             pathType: Prefix
@@ -30,7 +31,7 @@ open-webui:
       cpu: 1000m
       memory: 1Gi
   pipelines:
-    enabled: true
+    enabled: false
   ollama:
     enabled: false
   persistence:

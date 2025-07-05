@@ -9,6 +9,8 @@ requirements: pymilvus
 
 from http.client import REQUEST_TIMEOUT
 import os
+import ollama
+import logging
 import uuid
 import time
 import re
@@ -112,67 +114,40 @@ def connect_milvus(token: str = "") -> Optional[MilvusClient]:
         return None
 
 
-def perform_search(
-    client: MilvusClient,
-    queries: list[str],
-    filters: list[str] = [],
-) -> list[dict[str, Any]]:
-    print("STARTING SEARCH", queries, filters)
+def perform_search(client: MilvusClient, queries: list[str], filters: list[str] = []) -> list[Dict]:
     # There are 3 types of searches to perform, semantic on text, full-text on text, and full-text on metadata.
     # Each must be performed for each query, not all at once.
     search_requests = []
     for query in queries:
-        search_parameters_semantic_on_text = {
-            "data": get_embedding(query),
-            "anns_field": "text_embedding",
-            "param": {
-                "metric_type": "COSINE",
-                "params": {"nprobe": 10},
-            },
-            "expr": " and ".join(filters),
-            "limit": 10,
-        }
-        search_requests.append(
-            AnnSearchRequest(**search_parameters_semantic_on_text)
-        )
+        search_requests.append(AnnSearchRequest(
+            data=[get_embedding(query)],
+            anns_field="text_embedding",
+            param={"metric_type": "COSINE", "params": {"nprobe": 10}},
+            expr=" and ".join(filters),
+            limit=10
+        ))
+        search_requests.append(AnnSearchRequest(
+            data=[query],
+            anns_field="text_sparse_embedding",
+            param={"drop_ratio_search": 0.2},
+            expr=" and ".join(filters),
+            limit=10
+        ))
+        search_requests.append(AnnSearchRequest(
+            data=[query],
+            anns_field="metadata_sparse_embedding",
+            param={"drop_ratio_search": 0.2},
+            expr=" and ".join(filters),
+            limit=10
+        ))
 
-        search_parameters_full_text_on_text = {
-            "data": [query],
-            "anns_field": "text_sparse_embedding",
-            "param": {
-                "drop_ratio_search": 0.2,
-            },
-            "expr": " and ".join(filters),
-            "limit": 10,
-        }
-        search_requests.append(
-            AnnSearchRequest(**search_parameters_full_text_on_text)
-        )
-
-        search_parameters_full_text_on_metadata = {
-            "data": [query],
-            "anns_field": "metadata_sparse_embedding",
-            "param": {
-                "drop_ratio_search": 0.2,
-            },
-            "expr": " and ".join(filters),
-            "limit": 10,
-        }
-        search_requests.append(
-            AnnSearchRequest(**search_parameters_full_text_on_metadata)
-        )
-
-    ranker = RRFRanker(100)
-    # Perform the search
     result = client.hybrid_search(
         collection_name=COLLECTION_NAME,
         reqs=search_requests,
-        ranker=ranker,
-        output_fields=["text", "source", "chunk_index", "metadata"],
+        ranker=RRFRanker(k=100),
+        output_fields=OUTPUT_FIELDS,
         limit=100,
     )
-
-
     results = []
     for doc in result[0]:
         entity = doc['entity']
@@ -183,11 +158,10 @@ def perform_search(
     return results
 
 def perform_query(filters: list[str], client: MilvusClient) -> List[Dict[str, Any]]:
-    # TODO: Make sure the results are correct types
     print("STARTING QUERY: ", " and ".join(filters))
     query_results = client.query(
         collection_name=COLLECTION_NAME,
-        filter=" and ".join(filters + ["chunk_index == 0"]),  # required
+        filter=" and ".join(filters + ["chunk_index == 0"]),  # required chunk_index == 0
         output_fields=OUTPUT_FIELDS,
         limit=100,
     )
@@ -297,7 +271,7 @@ def document_to_markdown(document: Dict[str, Any]) -> str:
             # if df == "date": print("date", document[df])
             # if df == "source": print("source", document[df])
             # if df == "title": print("title", document[df])
-            markdown_string += f"{df}: {document[df]}\n"
+            parts.append(f"**{df.replace('_', ' ').title()}:** {document[df]}")
     return markdown_string
 
 def combine_documents(documents: List[Dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
@@ -327,31 +301,12 @@ def combine_documents(documents: List[Dict[str, Any]]) -> dict[str, list[dict[st
 
 
 def get_embedding(text: str) -> Optional[List[float]]:
-    """
-    Gets embedding from Ollama for the given text.
-
-    Args:
-        OLLAMA_BASE_URL: Base URL of the Ollama API.
-        text: The text to embed.
-        model: The embedding model name to use in Ollama.
-
-    Returns:
-        A list of floats representing the embedding, or None if an error occurs.
-    """
     try:
-        response = requests.post(
-            f"{OLLAMA_BASE_URL}/api/embed",
-            json={"model": OLLAMA_EMBEDDING_MODEL, "input": text},
-            timeout=30,  # Add a timeout
-        )
-        response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
-        result = response.json()
-        return result.get("embeddings")
-    except requests.exceptions.RequestException as e:
-        print(f"Error getting embedding from Ollama ({OLLAMA_BASE_URL}): {e}")
-        return None
+        client = ollama.Client(host=OLLAMA_BASE_URL)
+        response = client.embeddings(model=OLLAMA_EMBEDDING_MODEL, prompt=text)
+        return response.embedding
     except Exception as e:
-        print(f"Unexpected error during embedding: {e}")
+        logging.error(f"Error getting embedding from Ollama ({OLLAMA_BASE_URL}): {e}")
         return None
 
 def call_ollama_api(payload: dict, stream: bool = False, timeout: int = REQUEST_TIMEOUT) -> dict:

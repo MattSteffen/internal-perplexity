@@ -95,7 +95,7 @@ arxiv_config = {
         "api_key": "ollama",
     },
     "vision_llm": {
-        "model": "gemma3:latest",
+        "model": "granite-3.2vision:latest",
         "provider": "ollama",
         "base_url": "http://localhost:11434",
     },
@@ -108,7 +108,7 @@ arxiv_config = {
         "recreate": True,
     },
     "llm": {
-        "model": "gemma3",
+        "model": "qwen3:latest",
         "provider": "ollama",
         "base_url": "http://localhost:11434",
     },
