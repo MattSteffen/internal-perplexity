@@ -264,7 +264,7 @@ def document_to_markdown(document: Dict[str, Any]) -> str:
     Using the following keys: title, source, url, date, unique_words, tags, author/authors, keywords, summary, and finally content/text
     """
     # DISPLAY_FIELDS = ["source", "chunk_index", "title", "author", "date", "keywords", "unique_words", "text"]
-    markdown_string = ""
+    parts = []
     for df in DISPLAY_FIELDS:
         if df in document and document.get(df, "") != "":
             # if df == "author": print("author", document[df])
@@ -272,7 +272,7 @@ def document_to_markdown(document: Dict[str, Any]) -> str:
             # if df == "source": print("source", document[df])
             # if df == "title": print("title", document[df])
             parts.append(f"**{df.replace('_', ' ').title()}:** {document[df]}")
-    return markdown_string
+    return "\n".join(parts)
 
 def combine_documents(documents: List[Dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     """

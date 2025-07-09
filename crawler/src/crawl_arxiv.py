@@ -1,5 +1,5 @@
 import json
-from processing.converter import MarkItDownConverter
+from processing.converter import PyMuPDFConverter
 from crawler import Crawler
 
 schema1 = {
@@ -104,7 +104,7 @@ arxiv_config = {
         "port": 19530,
         "username": "root",
         "password": "Milvus",
-        "collection": "test_arxiv2",
+        "collection": "test_arxiv3",
         "recreate": True,
     },
     "llm": {
@@ -124,7 +124,8 @@ short_options = [
 arxiv_dir_path = "/Users/mattsteffen/projects/llm/internal-perplexity/data/arxiv"
 
 def main():
-    mycrawler = Crawler(arxiv_config, None, None, None, None, None, None)
+    converter = PyMuPDFConverter(arxiv_config)
+    mycrawler = Crawler(arxiv_config, None, converter, None, None, None, None)
     mycrawler.crawl(short_options)
 
 if __name__ == "__main__":

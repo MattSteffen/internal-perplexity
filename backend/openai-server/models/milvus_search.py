@@ -29,7 +29,7 @@ from pymilvus import (
 # Using environment variables for configuration improves security and flexibility.
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_EMBEDDING_MODEL = os.getenv("OLLAMA_EMBEDDING_MODEL", "all-minilm:v2")
-OLLAMA_LLM_MODEL = os.getenv("OLLAMA_LLM_MODEL", "qwen3:1.7b")
+OLLAMA_LLM_MODEL = os.getenv("OLLAMA_LLM_MODEL", "qwen3:latest")
 MILVUS_TOKEN = os.getenv("MILVUS_TOKEN", "root:Milvus")
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "test_arxiv2")
 MILVUS_HOST = os.getenv("MILVUS_HOST", "localhost")

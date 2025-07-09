@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Docker Compose deployment script
-# Usage: ./deploy.sh <service_name>
+# Usage: ./deploy.sh [service_name]
 
 set -e  # Exit on any error
 
@@ -24,42 +24,6 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Check if argument is provided
-if [ $# -eq 0 ]; then
-    print_error "No service specified!"
-    echo "Usage: $0 <service_name>"
-    echo "Available services: ollama, service2, service3"
-    echo "Example: $0 ollama"
-    exit 1
-fi
-
-SERVICE=$1
-COMPOSE_FILE=""
-
-# Map service names to compose files
-case $SERVICE in
-    "ollama")
-        COMPOSE_FILE="docker-compose-ollama.yml"
-        ;;
-    "service2")
-        COMPOSE_FILE="docker-compose-service2.yml"
-        ;;
-    "service3")
-        COMPOSE_FILE="docker-compose-service3.yml"
-        ;;
-    *)
-        print_error "Unknown service: $SERVICE"
-        echo "Available services: ollama, service2, service3"
-        exit 1
-        ;;
-esac
-
-# Check if compose file exists
-if [ ! -f "$COMPOSE_FILE" ]; then
-    print_error "Compose file not found: $COMPOSE_FILE"
-    exit 1
-fi
-
 # Check if Docker is running
 if ! docker info >/dev/null 2>&1; then
     print_error "Docker is not running. Please start Docker and try again."
@@ -72,31 +36,53 @@ if ! command -v docker-compose >/dev/null 2>&1; then
     exit 1
 fi
 
-print_info "Deploying service: $SERVICE"
-print_info "Using compose file: $COMPOSE_FILE"
+COMPOSE_FILE="docker-compose.yml"
 
-# Stop any existing containers for this service
+# Check if compose file exists
+if [ ! -f "$COMPOSE_FILE" ]; then
+    print_error "Compose file not found: $COMPOSE_FILE"
+    exit 1
+fi
+
+SERVICE=$1
+
+if [ -z "$SERVICE" ]; then
+    print_info "No service specified, deploying all services."
+    SERVICES=$(docker-compose -f "$COMPOSE_FILE" config --services)
+else
+    # Validate service name
+    if ! docker-compose -f "$COMPOSE_FILE" config --services | grep -q "^$SERVICE$"; then
+        print_error "Unknown service: $SERVICE"
+        echo "Available services:"
+        docker-compose -f "$COMPOSE_FILE" config --services
+        exit 1
+    fi
+    print_info "Deploying service: $SERVICE"
+    SERVICES=$SERVICE
+fi
+
+# Stop any existing containers for the specified services
 print_info "Stopping existing containers..."
-docker-compose -f "$COMPOSE_FILE" down 2>/dev/null || true
+docker-compose -f "$COMPOSE_FILE" down $SERVICES 2>/dev/null || true
 
 # Pull latest images
-print_info "Pulling latest images..."
-docker-compose -f "$COMPOSE_FILE" pull
+print_info "Pulling latest images for $SERVICES..."
+docker-compose -f "$COMPOSE_FILE" pull $SERVICES
 
-# Start the service
-print_info "Starting service..."
-docker-compose -f "$COMPOSE_FILE" up -d
+# Start the services
+print_info "Starting services: $SERVICES..."
+docker-compose -f "$COMPOSE_FILE" up -d $SERVICES
 
 # Check if containers are running
-if docker-compose -f "$COMPOSE_FILE" ps | grep -q "Up"; then
-    print_info "Service $SERVICE deployed successfully!"
+if docker-compose -f "$COMPOSE_FILE" ps $SERVICES | grep -q "Up"; then
+    print_info "Deployment of $SERVICES completed successfully!"
     echo ""
     print_info "Container status:"
-    docker-compose -f "$COMPOSE_FILE" ps
+    docker-compose -f "$COMPOSE_FILE" ps $SERVICES
 else
-    print_error "Failed to deploy service $SERVICE"
+    print_error "Failed to deploy $SERVICES"
     print_info "Checking logs..."
-    docker-compose -f "$COMPOSE_FILE" logs --tail=20
+    docker-compose -f "$COMPOSE_FILE" logs --tail=20 $SERVICES
     exit 1
 fi
 
