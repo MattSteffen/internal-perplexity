@@ -1,0 +1,76 @@
+openapi: 3.0.0
+info:
+  title: Tools Server
+  version: 1.0.0
+paths:
+  /milvus/search:
+    post:
+      summary: Milvus Search
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchInput'
+      responses:
+        '200':
+          description: Successful Response
+  /milvus/query:
+    post:
+      summary: Milvus Query
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueryInput'
+      responses:
+        '200':
+          description: Successful Response
+  /comb/comb:
+    post:
+      summary: Comb
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CombInput'
+      responses:
+        '200':
+          description: Successful Response
+components:
+  schemas:
+    SearchInput:
+      type: object
+      required:
+        - queries
+      properties:
+        queries:
+          type: array
+          items:
+            type: string
+        filters:
+          type: array
+          items:
+            type: string
+    QueryInput:
+      type: object
+      required:
+        - filters
+      properties:
+        filters:
+          type: array
+          items:
+            type: string
+    CombInput:
+      type: object
+      required:
+        - perspective
+      properties:
+        perspective:
+          type: string
+        filters:
+          type: array
+          items:
+            type: string
