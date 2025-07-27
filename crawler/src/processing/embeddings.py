@@ -1,55 +1,104 @@
-from langchain_openai import OpenAIEmbeddings
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from langchain_ollama import OllamaEmbeddings
-from typing import Optional, List, Dict, Any
-import yaml
+from typing import List, Dict
 
-# Try using langchain's milvus so you can upload full documents with metadata.
+from pymilvus.client import abstract
 
-class LocalEmbedder:
-    def __init__(self, embeddings_config: Dict[str, Any] = {}):
-        """Initialize embeddings model based on provider.
-        
+
+@dataclass
+class EmbedderConfig:
+    """Configuration for the embedder."""
+
+    model: str
+    base_url: str
+    api_key: str = ""
+    provider: str = "ollama"
+
+    @classmethod
+    def from_dict(cls, config: Dict[str, any]):
+        return cls(
+            model=config.get("model"),
+            base_url=config.get("base_url"),
+            api_key=config.get("api_key", ""),
+            provider=config.get("provider", "ollama"),
+        )
+
+
+class Embedder(ABC):
+    """Abstract interface for embedding models."""
+
+    @abstractmethod
+    def embed(self, query: str) -> List[float]:
+        """Generate embedding for a single query string.
+
         Args:
-          config: Configuration dictionary
-            - embeddings
-              - provider: Ollama or OpenAI
-              - model: Ollama model name or OpenAI model name
-              - url: Ollama URL or OpenAI URL
-              - api_key: OpenAI API key
+            query: Text string to embed
+
+        Returns:
+            List of floats representing the embedding vector
         """
-        self.provider: str = embeddings_config.get("provider")
-        self.model_name = embeddings_config.get("model")
-        self.url = embeddings_config.get("base_url")
-        self.api_key = embeddings_config.get("api_key", "ollama")
-        
-        if self.provider == "ollama":
-            self.embedder = OllamaEmbeddings(
-                model=self.model_name,
-                base_url=self.url
-            )
-        elif self.provider == "openai":
-            if not self.api_key:
-                raise ValueError("API key required for OpenAI embeddings")
-            self.embedder = OpenAIEmbeddings(
-                model=self.model_name,
-                openai_api_key=self.api_key,
-                openai_api_base=self.url
-            )
-        else:
-            raise ValueError(f"Unsupported embedding provider: {self.provider}")
-        
+        pass
+
+    @abstractmethod
+    def get_dimension(self) -> int:
+        """Returns the dimension of the embedding model"""
+        pass
+
+
+def get_embedder(config: EmbedderConfig) -> Embedder:
+    if config.provider == "ollama":
+        return OllamaEmbedder(config)
+    raise ValueError(f"unsupported provider: {config.provider}")
+
+
+class OllamaEmbedder(Embedder):
+    """Ollama implementation of the Embedder interface."""
+
+    def __init__(self, config: EmbedderConfig):
+        self.embedder = None
+        self.dimension = None
+        self.model_name = config.model
+        self.url = config.base_url
+
+        self.embedder = OllamaEmbeddings(model=self.model_name, base_url=self.url)
+
+        # Calculate dimension by embedding a test query
         self.dimension = len(self.embedder.embed_query("test"))
 
     def embed(self, query: str) -> List[float]:
-        """Generate embedding for a single query string."""
+        """Generate embedding for a single query string.
+
+        Args:
+            query: Text string to embed
+
+        Returns:
+            List of floats representing the embedding vector
+
+        Raises:
+            RuntimeError: If embedder is not initialized
+        """
+        if self.embedder is None:
+            raise RuntimeError("Embedder not initialized. Call init() first.")
+
         return self.embedder.embed_query(query)
-        
-    def embed_queries(self, texts: List[str]) -> List[List[float]]:
-        """Generate embeddings for multiple texts."""
-        return self.embedder.embed_documents(texts)
-    
+
+    def get_dimension(self):
+        return self.dimension
+
+
 def test():
-    config = {"embeddings": {"provider": "ollama", "model": "all-minilm:v2", "url": "http://localhost:11434"}}
-    embedder = LocalEmbedder(config)
-    print(embedder.embed_query("test"))
-    print(embedder.embed_queries(["test", "test2"]))
+    """Test function for the OllamaEmbedder."""
+    config = EmbedderConfig(model="all-minilm:v2", base_url="http://localhost:11434")
+
+    embedder = OllamaEmbedder()
+    embedder.init(config)
+
+    # Test single embedding
+    result = embedder.embed("test")
+    print(f"Embedding dimension: {len(result)}")
+    print(f"First 5 values: {result[:5]}")
+
+
+if __name__ == "__main__":
+    test()

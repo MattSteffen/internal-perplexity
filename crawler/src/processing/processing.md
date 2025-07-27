@@ -1,34 +1,55 @@
-# Document Processing System
+# Document Processing Pipeline
 
-## TODO
-
-- [ ] Make it so that non-required parts of the schema don't cause it to fail as metadata extracted from llm
-
-This module provides a framework for extracting text and metadata from various document formats, processing the content with LLMs, and generating embeddings for search and retrieval.
+This directory contains the core logic for processing documents, from initial conversion to content extraction and embedding generation. The system is designed to be modular, allowing for different implementations of converters, extractors, and language models.
 
 ## Overview
 
-The system consists of three main components:
+The document processing pipeline consists of four main stages:
 
-1. **Processors** - Extract content from various file formats (PDF, TXT, HTML, etc.)
-2. **Extractors** - Process document content with LLMs to extract structured metadata
-3. **Embeddings** - Generate vector embeddings for document content
-4. **LLM** - An interface allowing rest requests to a provided api (supporting only ollama currently)
+1.  **Conversion**: Raw source files (like PDFs) are converted into a standardized Markdown format.
+2.  **Extraction**: Structured metadata is extracted from the Markdown content using a Large Language Model (LLM). The text is also broken down into smaller, manageable chunks.
+3.  **LLM Interaction**: A dedicated module handles all communication with LLMs, supporting various providers and features like structured JSON output.
+4.  **Embedding**: Text chunks are transformed into numerical vector embeddings for similarity search.
 
-## Convert
+---
 
-- Take a document and convert to markdown
+## Key Modules
 
-## Metadata
+### `converter.py`
 
-- Extract metadata from markdown
+This module is responsible for converting various document formats into clean Markdown.
 
-## Embeddings
+-   **`Converter` (Abstract Base Class)**: Defines the standard interface for all converter implementations.
+-   **Implementations**:
+    -   `MarkItDownConverter`: Uses the `markitdown` library for conversion.
+    -   `DoclingConverter`: Leverages the `docling` library, specializing in PDF processing with VLM (Vision Language Model) integration.
+    -   `PyMuPDFConverter`: A comprehensive converter that uses `PyMuPDF` to extract not only text but also tables and images. It includes an `ImageDescriptionInterface` to generate text descriptions for images using a VLM, embedding them directly into the Markdown output.
+-   **Factory Function**: `create_converter` provides a simple way to instantiate a specific converter based on a configuration string.
 
-- Generate embeddings for each chunk
+### `extractor.py`
 
-## The rest
+This module extracts structured information from the converted Markdown text.
 
-- Chunk the markdown into smaller chunks
-- Generate embeddings for each chunk
-- Return list dict of entities for milvus
+-   **`Extractor` (Abstract Base Class)**: Defines the interface for metadata extraction and text chunking.
+-   **`BasicExtractor`**: A standard implementation that uses an LLM and a user-provided JSON schema to extract structured metadata from text. It also provides a simple method for splitting text into fixed-size chunks.
+-   **`MultiSchemaExtractor`**: An extractor that can apply multiple JSON schemas sequentially to extract a broader range of metadata from a single document.
+
+### `llm.py`
+
+This module provides a standardized interface for interacting with Large Language Models.
+
+-   **`LLM` (Abstract Base Class)**: Defines the core `invoke` method for sending prompts to a model.
+-   **`OllamaLLM`**: An implementation for interacting with models served via the Ollama platform. It robustly handles various tasks:
+    -   Simple text generation from a prompt.
+    -   Conversational history.
+    -   Structured JSON output based on a provided schema.
+    -   Request timeouts to prevent indefinite hangs.
+-   **`LLMConfig`**: A dataclass for configuring LLM clients, specifying the model, URL, system prompt, and other parameters.
+
+### `embeddings.py`
+
+This module is responsible for generating vector embeddings from text chunks.
+
+-   **`Embedder` (Abstract Base Class)**: Defines the interface for embedding models, including methods to generate an embedding and retrieve the model's vector dimension.
+-   **`OllamaEmbedder`**: An implementation that uses `langchain_ollama` to generate embeddings from models hosted on an Ollama server.
+-   **`EmbedderConfig`**: A dataclass for configuring the embedding model, provider, and connection details.
