@@ -56,15 +56,8 @@ class OllamaEmbedder(Embedder):
     """Ollama implementation of the Embedder interface."""
 
     def __init__(self, config: EmbedderConfig):
-        self.embedder = None
-        self.dimension = None
-        self.model_name = config.model
-        self.url = config.base_url
-
-        self.embedder = OllamaEmbeddings(model=self.model_name, base_url=self.url)
-
-        # Calculate dimension by embedding a test query
-        self.dimension = len(self.embedder.embed_query("test"))
+        self.embedder = OllamaEmbeddings(model=config.model, base_url=config.base_url)
+        self._dimension = None
 
     def embed(self, query: str) -> List[float]:
         """Generate embedding for a single query string.
@@ -74,17 +67,15 @@ class OllamaEmbedder(Embedder):
 
         Returns:
             List of floats representing the embedding vector
-
-        Raises:
-            RuntimeError: If embedder is not initialized
         """
-        if self.embedder is None:
-            raise RuntimeError("Embedder not initialized. Call init() first.")
-
         return self.embedder.embed_query(query)
 
-    def get_dimension(self):
-        return self.dimension
+    def get_dimension(self) -> int:
+        """Returns the dimension of the embedding model."""
+        if self._dimension is None:
+            # Calculate dimension on first request
+            self._dimension = len(self.embedder.embed_query("test"))
+        return self._dimension
 
 
 def test():

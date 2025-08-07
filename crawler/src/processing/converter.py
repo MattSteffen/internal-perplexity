@@ -921,33 +921,7 @@ def create_converter(converter_type: str, config: Dict[str, Any]) -> Converter:
     return converters[converter_type.lower()](config)
 
 
-def create_converter(converter_type: str, config: Dict[str, Any]) -> Converter:
-    """
-    Factory function to create converter instances.
 
-    Args:
-        converter_type: Type of converter ("markitdown", "docling", or "docling_vlm")
-        config: Configuration dictionary
-
-    Returns:
-        Converter instance
-
-    Raises:
-        ValueError: If converter_type is not supported
-    """
-    converters = {
-        "markitdown": MarkItDownConverter,
-        "docling": DoclingConverter,
-        "docling_vlm": DoclingVLMConverter,
-    }
-
-    if converter_type.lower() not in converters:
-        raise ValueError(
-            f"Unsupported converter type: {converter_type}. "
-            f"Supported types: {list(converters.keys())}"
-        )
-
-    return converters[converter_type.lower()](config)
 
 
 # Example usage and testing functions

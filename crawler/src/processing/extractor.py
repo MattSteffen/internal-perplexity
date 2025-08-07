@@ -33,7 +33,6 @@ class Extractor(ABC):
         """
         pass
 
-    @abstractmethod
     def chunk_text(self, text: str, chunk_size: int = 1000) -> List[str]:
         """
         Chunk the text into smaller pieces.
@@ -45,7 +44,10 @@ class Extractor(ABC):
         Returns:
             List of text chunks
         """
-        pass
+        chunks = []
+        for i in range(0, len(text), chunk_size):
+            chunks.append(text[i : i + chunk_size])
+        return chunks
 
 
 class BasicExtractor(Extractor):
@@ -68,13 +70,6 @@ class BasicExtractor(Extractor):
             )
         else:
             return {}
-
-    def chunk_text(self, text: str, chunk_size: int) -> List[str]:
-        """Chunk the text into chunks of the specified size."""
-        chunks = []
-        for i in range(0, len(text), chunk_size):
-            chunks.append(text[i : i + chunk_size])
-        return chunks
 
     def _get_prompt(self, text: str) -> str:
         # replace the document context and document text in the prompt template
@@ -100,13 +95,6 @@ class MultiSchemaExtractor(Extractor):
         for extractor in self.extractors:
             metadata.update(extractor.extract_metadata(text))
         return metadata
-
-    def chunk_text(self, text: str, chunk_size: int = 1000) -> List[str]:
-        """Chunk the text into chunks of the specified size."""
-        chunks = []
-        for i in range(0, len(text), chunk_size):
-            chunks.append(text[i : i + chunk_size])
-        return chunks
 
 
 extract_metadata_prompt = """

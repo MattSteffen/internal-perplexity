@@ -267,7 +267,7 @@ class Crawler:
             self.vector_db.insert_data(entities)
 
     def benchmark(self, generate_queries: bool = False) -> None:
-        if self.benchmarker != None:
+        if self.benchmarker:
             results = self.benchmarker.run_benchmark(generate_queries)
             self.benchmarker.plot_results(results, "benchmark_results")
             self.benchmarker.save_results(results, "benchmark_results/results.json")

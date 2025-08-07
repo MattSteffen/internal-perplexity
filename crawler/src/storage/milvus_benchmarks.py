@@ -149,7 +149,6 @@ class MilvusBenchmark(DatabaseBenchmark):
             output_fields=["text"],
             limit=10000,
         )
-        print(all_docs[0])
         for doc in all_docs:
             source = doc.get("id")
             text = doc.get("text")
@@ -224,8 +223,6 @@ class MilvusBenchmark(DatabaseBenchmark):
             percent_in_top_k=percent_in_top_k,
             search_time_distribution=search_time_distribution,
         )
-
-    
 
 
 # if __name__ == "__main__":

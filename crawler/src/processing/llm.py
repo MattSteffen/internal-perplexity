@@ -79,34 +79,23 @@ class OllamaLLM(LLM):
     """
 
     def __init__(self, config: LLMConfig):
-        # model_name: str,
-        # base_url: str = "http://localhost:11434",
-        # system_prompt: Optional[str] = None,
-        # ctx_length: int = 32000,
-        # default_timeout: float = 300.0,
         """
         Initialize the LLM client.
 
         Args:
-            model_name: Name of the Ollama model to use
-            host: Ollama server URL
-            system_prompt: Optional system prompt to prepend to conversations
-            ctx_length: Context length for the model
-            default_timeout: Default request timeout in seconds
+            config: Configuration object for the LLM
         """
         self.model_name = config.model_name
         self.system_prompt = config.system_prompt
         self.ctx_length = config.ctx_length
-        self.default_timeout = config.default_timeout
 
-        # Initialize Ollama client
-        self.client = ollama.Client(host=config.base_url)
+        # Initialize Ollama client with timeout from config
+        self.client = ollama.Client(host=config.base_url, timeout=config.default_timeout)
 
     def invoke(
         self,
         prompt_or_messages: Union[str, List[Dict[str, Any]]],
         response_format: Optional[Dict[str, Any]] = None,
-        timeout: Optional[float] = None,
     ) -> Union[str, Dict[str, Any]]:
         """
         Send a prompt or message history to the model and get a response.
@@ -114,7 +103,6 @@ class OllamaLLM(LLM):
         Args:
             prompt_or_messages: Either a string prompt or list of message dictionaries
             response_format: Optional JSON schema for structured output
-            timeout: Request timeout in seconds (uses default if None)
 
         Returns:
             String response or parsed JSON dictionary if response_format is provided
@@ -123,65 +111,33 @@ class OllamaLLM(LLM):
             TimeoutError: If the request exceeds the timeout duration
             RuntimeError: If there's an error with the API call
         """
-        # TODO: Dynamically set the context length to whatever the largest required is.
-        if timeout is None:
-            timeout = self.default_timeout
-
-        # Build messages list
         messages = self._build_messages(prompt_or_messages)
-
-        # Set up options
         options = {"num_ctx": self.ctx_length}
 
-        # Use threading to enforce timeout
-        result = {"response": None, "error": None}
-
-        def api_call():
-            try:
-                response = self.client.chat(
-                    model=self.model_name,
-                    messages=messages,
-                    format=response_format,
-                    options=options,
-                    stream=False,
-                )
-                result["response"] = response
-            except Exception as e:
-                result["error"] = e
-
-        # Start the API call in a separate thread
-        thread = threading.Thread(target=api_call)
-        thread.daemon = True
-        thread.start()
-
-        # Wait for completion with timeout
-        thread.join(timeout=timeout)
-
-        if thread.is_alive():
-            # Thread is still running, meaning we hit the timeout
-            raise TimeoutError(
-                f"Request to Ollama model '{self.model_name}' timed out after {timeout} seconds"
+        try:
+            response = self.client.chat(
+                model=self.model_name,
+                messages=messages,
+                format="json" if response_format else None,
+                options=options,
             )
+            content = response["message"]["content"]
 
-        # Check if there was an error in the API call
-        if result["error"]:
+            if response_format is not None:
+                return self._parse_json_response(content)
+            return content
+        except ollama.ResponseError as e:
+            if "timeout" in str(e).lower():
+                raise TimeoutError(
+                    f"Request to Ollama model '{self.model_name}' timed out."
+                ) from e
             raise RuntimeError(
-                f"Error calling Ollama model '{self.model_name}': {result['error']}"
-            )
-
-        if result["response"] is None:
+                f"Error calling Ollama model '{self.model_name}': {e}"
+            ) from e
+        except Exception as e:
             raise RuntimeError(
-                f"No response received from Ollama model '{self.model_name}'"
-            )
-
-        # Extract content from response
-        content = result["response"]["message"]["content"]
-
-        # If we requested JSON format, try to parse it
-        if response_format is not None:
-            return self._parse_json_response(content)
-
-        return content
+                f"An unexpected error occurred while calling Ollama model '{self.model_name}': {e}"
+            ) from e
 
     def _build_messages(
         self, prompt_or_messages: Union[str, List[Dict[str, Any]]]

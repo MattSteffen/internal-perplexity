@@ -294,8 +294,9 @@ class DatabaseBenchmark(ABC):
         """
         Run a benchmark for a set of documents and queries.
         Args:
-            queries_by_doc: A dictionary where keys are document source identifiers
-                            and values are lists of queries to run for that document.
+            queries_by_doc: An optional dictionary where keys are document source
+                            identifiers and values are lists of queries to run. If not
+                            provided, queries will be generated automatically.
             top_k_values: A list of integers for calculating 'percent in top k'.
                           Defaults to [1, 5, 10, 20, 50, 100].
         Returns:
