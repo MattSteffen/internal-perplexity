@@ -106,7 +106,7 @@ arxiv_config_dict = {
         "recreate": True,
     },
     "llm": {
-        "model_name": "qwen3:latest",
+        "model_name": "gpt-oss:20b",
         "provider": "ollama",
         "base_url": "http://localhost:11434",
     },

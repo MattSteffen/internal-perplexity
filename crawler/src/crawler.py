@@ -258,6 +258,7 @@ class Crawler:
                             **metadata,
                         }
                     )
+                    print("Metadata:  ", metadata)
 
                     entities.append(doc)
                 except ValueError:
