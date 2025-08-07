@@ -1,4 +1,8 @@
-## Now
+# TODO
+
+## General
+
+- Test the tools
 
 ## Deployment
 
@@ -6,10 +10,6 @@
   - [ ] It should be separate deployments, but have a script for each like `./deploy.sh open-webui` and `./deploy.sh ollama`
   - [ ] test
 - [ ] Add user valves where they can put in username and password for database token
-
-- Crawler
-
-- Radchat
 
 ## Other
 

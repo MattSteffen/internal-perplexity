@@ -112,6 +112,7 @@ arxiv_config_dict = {
     },
     "utils": {
         "chunk_size": 1000,
+        "benchmark": True,
     },
     "metadata_schema": metadata_schema,
 }
@@ -128,6 +129,7 @@ def main():
     converter = PyMuPDFConverter()
     mycrawler = Crawler(config, converter=converter)
     mycrawler.crawl(short_options)
+    mycrawler.benchmark()
 
 
 if __name__ == "__main__":

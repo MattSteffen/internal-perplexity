@@ -22,6 +22,7 @@ from src.storage import (
     DatabaseClientConfig,
     DatabaseDocument,
     get_db,
+    get_db_benchmark,
 )
 
 
@@ -72,7 +73,8 @@ Example config:
     },
     "utils": {
         "chunk_size": 1000,
-        "temp_dir": "tmp/"
+        "temp_dir": "tmp/",
+        "benchmark": False,
     },
     "extractor": {},
     "converter": {}
@@ -91,6 +93,7 @@ class CrawlerConfig:
     chunk_size: int = 10000  # treated as maximum if using semantic chunking
     metadata_schema: Dict[str, any] = field(default_factory=dict)
     temp_dir: str = "tmp/"
+    benchmark: bool = False
 
     @classmethod
     def from_dict(cls, config: Dict[str, any]):
@@ -104,6 +107,7 @@ class CrawlerConfig:
             metadata_schema=config.get("metadata_schema", {}),
             chunk_size=config.get("utils", {}).get("chunk_size", 10000),
             temp_dir=config.get("utils", {}).get("temp_dir", "tmp/"),
+            benchmark=config.get("utils", {}).get("benchmark", False),
         )
 
 
@@ -124,6 +128,7 @@ class Crawler:
         self.extractor = extractor
         self.vector_db = vector_db
 
+        self.benchmarker = None
         self._initialize_defaults()
 
     def _initialize_defaults(self) -> None:
@@ -144,6 +149,10 @@ class Crawler:
                 self.embedder.get_dimension(),
                 self.config.metadata_schema,
             )
+            if self.config.benchmark:
+                self.benchmarker = get_db_benchmark(
+                    self.config.database, self.config.embeddings
+                )
 
         if self.converter is None:
             # self.converter = get_converter(self.config.converter)
@@ -256,3 +265,9 @@ class Crawler:
 
             # Save the document to the vector database
             self.vector_db.insert_data(entities)
+
+    def benchmark(self, generate_queries: bool = False) -> None:
+        if self.benchmarker != None:
+            results = self.benchmarker.run_benchmark(generate_queries)
+            self.benchmarker.plot_results(results, "benchmark_results")
+            self.benchmarker.save_results(results, "benchmark_results/results.json")
