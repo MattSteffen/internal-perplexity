@@ -5,7 +5,7 @@ from typing import Dict, Union, List
 import json
 from pathlib import Path
 
-from src.processing import (
+from .processing import (
     Embedder,
     EmbedderConfig,
     get_embedder,
@@ -15,9 +15,10 @@ from src.processing import (
     LLMConfig,
     get_llm,
     Converter,
-    MarkItDownConverter,
+    ConverterConfig,
+    create_converter,
 )
-from src.storage import (
+from .storage import (
     DatabaseClient,
     DatabaseClientConfig,
     DatabaseDocument,
@@ -50,8 +51,13 @@ Example config:
         "base_url": "http://localhost:11434",
         "api_key": "ollama",
     },
+    "llm": {
+        "model": "llama3.2:3b",  # or use "model_name": "llama3.2:3b"
+        "provider": "ollama",
+        "base_url": "http://localhost:11434",
+    },
     "vision_llm": {
-        "model": "gemma3",
+        "model": "llava:latest",
         "provider": "ollama",
         "base_url": "http://localhost:11434",
     },
@@ -60,24 +66,31 @@ Example config:
         "host": "localhost",
         "port": 19530,
         "username": "root",
-        "password": "123456",
-        "collection": "test_collection",
-        "partition": "test_partition",
+        "password": "Milvus",
+        "collection": "documents",
         "recreate": False,
-        "collection_description": "descriptions of the collection",
     },
-    "llm": {
-        "model": "gemma3",
-        "provider": "ollama",
-        "base_url": "http://localhost:11434",
-    },
-    "utils": {
-        "chunk_size": 1000,
-        "temp_dir": "tmp/",
-        "benchmark": False,
+    "converter": {
+        "type": "markitdown",
+        "vision_llm": {
+            "model": "llava:latest",
+            "provider": "ollama",
+            "base_url": "http://localhost:11434",
+        }
     },
     "extractor": {},
-    "converter": {}
+    "metadata_schema": {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string", "maxLength": 512},
+            "author": {"type": "string", "maxLength": 256},
+        }
+    },
+    "utils": {
+        "chunk_size": 10000,
+        "temp_dir": "tmp/",
+        "benchmark": False,
+    }
 }
 """
 
@@ -88,8 +101,8 @@ class CrawlerConfig:
     llm: LLMConfig
     vision_llm: LLMConfig
     database: DatabaseClientConfig
+    converter: ConverterConfig = field(default_factory=lambda: ConverterConfig())
     extractor: Dict[str, any] = field(default_factory=dict)
-    converter: Dict[str, any] = field(default_factory=dict)
     chunk_size: int = 10000  # treated as maximum if using semantic chunking
     metadata_schema: Dict[str, any] = field(default_factory=dict)
     temp_dir: str = "tmp/"
@@ -101,9 +114,9 @@ class CrawlerConfig:
             embeddings=EmbedderConfig.from_dict(config.get("embeddings", {})),
             llm=LLMConfig.from_dict(config.get("llm", {})),
             vision_llm=LLMConfig.from_dict(config.get("vision_llm", {})),
-            extractor=config.get("extractor"),
-            converter=config.get("converter"),
             database=DatabaseClientConfig.from_dict(config.get("database", {})),
+            converter=ConverterConfig.from_dict(config.get("converter", {})),
+            extractor=config.get("extractor", {}),
             metadata_schema=config.get("metadata_schema", {}),
             chunk_size=config.get("utils", {}).get("chunk_size", 10000),
             temp_dir=config.get("utils", {}).get("temp_dir", "tmp/"),
@@ -155,8 +168,17 @@ class Crawler:
                 )
 
         if self.converter is None:
-            # self.converter = get_converter(self.config.converter)
-            self.converter = MarkItDownConverter(self.config)
+            # Create converter config dict for factory function
+            conv_cfg = {}
+            if self.config.converter.vision_llm:
+                # Convert LLMConfig back to dict format expected by converter factory
+                conv_cfg["vision_llm"] = {
+                    "model": self.config.converter.vision_llm.model_name,
+                    "provider": self.config.converter.vision_llm.provider,
+                    "base_url": self.config.converter.vision_llm.base_url,
+                }
+
+            self.converter = create_converter(self.config.converter.type, conv_cfg)
 
     def _get_filepaths(self, path: Union[str, list[str]]) -> List[str]:
         """

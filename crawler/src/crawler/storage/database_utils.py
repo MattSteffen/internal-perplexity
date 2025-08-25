@@ -3,7 +3,7 @@ from .milvus_client import MilvusDB
 from .milvus_benchmarks import MilvusBenchmark
 from typing import Dict
 
-from src.processing.embeddings import EmbedderConfig
+from ..processing.embeddings import EmbedderConfig
 
 
 def get_db(

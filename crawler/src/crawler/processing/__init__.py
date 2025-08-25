@@ -1,6 +1,7 @@
 
 from .converter import (
     Converter,
+    ConverterConfig,
     MarkItDownConverter,
     DoclingConverter,
     DoclingVLMConverter,
@@ -14,6 +15,7 @@ from .embeddings import Embedder, OllamaEmbedder, EmbedderConfig, get_embedder
 __all__ = [
     # converter.py
     "Converter",
+    "ConverterConfig",
     "MarkItDownConverter",
     "DoclingConverter",
     "DoclingVLMConverter",

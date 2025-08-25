@@ -32,10 +32,13 @@ from typing import Any, Dict, List
 import json, copy, os, sys
 import uuid
 from pathlib import Path
-from crawler.src import Crawler, CrawlerConfig
-from crawler.src.processing import BasicExtractor, PyMuPDFConverter
-from crawler.src.processing.llm import LLM
-from crawler.src.storage import get_db
+# Add the src directory to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+
+from src import Crawler, CrawlerConfig
+from src.processing import BasicExtractor, PyMuPDFConverter
+from src.processing.llm import LLM
+from src.storage import get_db
 
 
 # Schema for LearnXM data (learnxm.json)

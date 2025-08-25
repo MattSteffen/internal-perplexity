@@ -9,13 +9,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 from pymilvus import MilvusClient, AnnSearchRequest, RRFRanker
 
-from src.storage.database_client import (
+from .database_client import (
     DatabaseBenchmark,
     BenchmarkResult,
     BenchmarkRunResults,
     DatabaseClientConfig,
 )
-from src.processing.embeddings import EmbedderConfig
+from ..processing.embeddings import EmbedderConfig
 
 
 OUTPUT_FIELDS = [

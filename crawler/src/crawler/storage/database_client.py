@@ -15,7 +15,7 @@ from enum import Enum
 from typing import Protocol, Any, List, Dict, runtime_checkable
 from abc import abstractmethod
 
-from src.processing.embeddings import EmbedderConfig
+from ..processing.embeddings import EmbedderConfig
 
 
 @dataclass
@@ -107,15 +107,23 @@ class DatabaseClientConfig:
 
     @classmethod
     def from_dict(cls, config: Dict[str, any]):
+        provider = config.get("provider")
+        if not provider:
+            raise ValueError("Database provider cannot be empty")
+
+        collection = config.get("collection")
+        if not collection:
+            raise ValueError("Database collection cannot be empty")
+
         return cls(
-            provider=config.get("provider"),
-            host=config.get("host"),
-            port=config.get("port"),
-            username=config.get("username"),
-            password=config.get("password"),
-            collection=config.get("collection"),
+            provider=provider,
+            host=config.get("host", "localhost"),
+            port=config.get("port", 19530),
+            username=config.get("username", "root"),
+            password=config.get("password", "Milvus"),
+            collection=collection,
             partition=config.get("partition"),
-            recreate=config.get("recreate"),
+            recreate=config.get("recreate", False),
             collection_description=config.get("collection_description"),
         )
 

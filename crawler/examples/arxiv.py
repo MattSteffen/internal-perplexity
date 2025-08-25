@@ -1,5 +1,5 @@
-from src.processing import PyMuPDFConverter
-from src import Crawler, CrawlerConfig
+from crawler import Crawler, CrawlerConfig
+from crawler.processing import PyMuPDFConverter
 
 schema1 = {
     "type": "object",

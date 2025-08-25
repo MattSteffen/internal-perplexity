@@ -1,7 +1,12 @@
+import sys
+import os
 from typing import Any, Dict
-from crawler import Crawler
-from processing.llm import LLM
-from processing.extractor import Extractor, MultiSchemaExtractor
+# Add the src directory to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+
+from src import Crawler
+from src.processing.llm import LLM
+from src.processing.extractor import Extractor, MultiSchemaExtractor
 
 full_schema = {
   "$schema": "http://json-schema.org/draft-07/schema#",

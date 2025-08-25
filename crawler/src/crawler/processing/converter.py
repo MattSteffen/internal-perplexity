@@ -40,6 +40,28 @@ from docling.pipeline.vlm_pipeline import VlmPipeline
 # TODO: init should take in config that has vision_llm config as an item
 
 
+@dataclass
+class ConverterConfig:
+    """Configuration for document converters."""
+
+    type: str = "markitdown"
+    vision_llm: Optional[Dict[str, Any]] = None
+
+    @classmethod
+    def from_dict(cls, config: Dict[str, Any]) -> "ConverterConfig":
+        """Create ConverterConfig from dictionary with validation."""
+        converter_type = config.get("type", "markitdown")
+        if not converter_type:
+            raise ValueError("Converter type cannot be empty")
+
+        vision_llm_config = config.get("vision_llm")
+
+        return cls(
+            type=converter_type,
+            vision_llm=vision_llm_config,
+        )
+
+
 class Converter(ABC):
     """
     Abstract base class for document converters.

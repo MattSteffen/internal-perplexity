@@ -23,12 +23,21 @@ class LLMConfig:
 
     @classmethod
     def from_dict(cls, config: Dict[str, any]):
+        # Support both 'model' and 'model_name' keys for flexibility
+        model_name = config.get("model_name") or config.get("model")
+        if not model_name:
+            raise ValueError("Either 'model_name' or 'model' must be provided")
+
+        base_url = config.get("base_url", "http://localhost:11434")
+        if not base_url:
+            raise ValueError("LLM base_url cannot be empty")
+
         return cls(
-            model_name=config.get("model_name"),
-            base_url=config.get("base_url"),
+            model_name=model_name,
+            base_url=base_url,
             system_prompt=config.get("system_prompt"),
-            ctx_length=config.get("ctx_length"),
-            default_timeout=config.get("default_timeout"),
+            ctx_length=config.get("ctx_length", 32000),
+            default_timeout=config.get("default_timeout", 300.0),
             provider=config.get("provider", "ollama"),
         )
 

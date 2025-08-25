@@ -17,9 +17,17 @@ class EmbedderConfig:
 
     @classmethod
     def from_dict(cls, config: Dict[str, any]):
+        model = config.get("model")
+        if not model:
+            raise ValueError("Embedder model cannot be empty")
+
+        base_url = config.get("base_url")
+        if not base_url:
+            raise ValueError("Embedder base_url cannot be empty")
+
         return cls(
-            model=config.get("model"),
-            base_url=config.get("base_url"),
+            model=model,
+            base_url=base_url,
             api_key=config.get("api_key", ""),
             provider=config.get("provider", "ollama"),
         )
