@@ -1,5 +1,4 @@
 from crawler import Crawler, CrawlerConfig
-from crawler.processing import PyMuPDFConverter
 
 schema1 = {
     "type": "object",
@@ -92,7 +91,7 @@ arxiv_config_dict = {
         "api_key": "ollama",
     },
     "vision_llm": {
-        "model": "granite-3.2vision:latest",
+        "model_name": "granite-3.2vision:latest",
         "provider": "ollama",
         "base_url": "http://localhost:11434",
     },
@@ -106,9 +105,26 @@ arxiv_config_dict = {
         "recreate": True,
     },
     "llm": {
-        "model_name": "gpt-oss:20b",
+        "model_name": "gemma3:latest",
         "provider": "ollama",
         "base_url": "http://localhost:11434",
+    },
+    "converter": {
+        "type": "pymupdf",
+        "metadata": {
+            "preserve_formatting": True,
+            "include_page_numbers": True,
+            "include_metadata": True,
+            "sort_reading_order": True,
+            "extract_tables": True,
+            "table_strategy": "lines_strict",
+            "image_description_prompt": "Describe this image in detail for a technical document.",
+            "image_describer": {
+                "type": "ollama",
+                "model": "granite-3.2vision:latest",
+                "base_url": "http://localhost:11434",
+            },
+        }
     },
     "utils": {
         "chunk_size": 1000,
@@ -126,10 +142,10 @@ arxiv_dir_path = "/Users/mattsteffen/projects/llm/internal-perplexity/data/arxiv
 
 def main():
     config = CrawlerConfig.from_dict(arxiv_config_dict)
-    converter = PyMuPDFConverter()
-    mycrawler = Crawler(config, converter=converter)
+    config.log_level = "INFO"  # Set log level for testing
+    mycrawler = Crawler(config)
     mycrawler.crawl(short_options)
-    mycrawler.benchmark()
+    # mycrawler.benchmark()  # Comment out benchmark for now
 
 
 if __name__ == "__main__":

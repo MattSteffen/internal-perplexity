@@ -4,7 +4,7 @@ from typing import Any, Dict
 # Add the src directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from src import Crawler
+from src import Crawler, CrawlerConfig
 from src.processing.llm import LLM
 from src.processing.extractor import Extractor, BasicExtractor
 
@@ -137,11 +137,12 @@ irad_config = {
         "api_key": "ollama",
     },
     "vision_llm": {
-        "model": "gemma3:latest",
+        "model_name": "gemma3:latest",
         "provider": "ollama",
         "base_url": "http://localhost:11434",
     },
-    "milvus": {
+    "database": {
+        "provider": "milvus",
         "host": "localhost",
         "port": 19530,
         "username": "root",
@@ -150,9 +151,26 @@ irad_config = {
         "recreate": True,
     },
     "llm": {
-        "model": "gemma3",
+        "model_name": "gemma3",
         "provider": "ollama",
         "base_url": "http://localhost:11434",
+    },
+    "converter": {
+        "type": "pymupdf",
+        "metadata": {
+            "preserve_formatting": True,
+            "include_page_numbers": True,
+            "include_metadata": True,
+            "sort_reading_order": True,
+            "extract_tables": True,
+            "table_strategy": "lines_strict",
+            "image_description_prompt": "Describe this image in detail for a technical document.",
+            "image_describer": {
+                "type": "ollama",
+                "model": "gemma3:latest",
+                "base_url": "http://localhost:11434",
+            },
+        }
     },
     "utils": {
         "chunk_size": 1000,
@@ -170,9 +188,11 @@ class MyExtractor(Extractor):
     def __init__(self, config: dict, schema1: dict, schema2: dict) -> None:
         super().__init__(config)
         self.config = config
+        llm_config = self.config.get("llm", {})
         llm = LLM(
-                model_name=self.config.get("llm", {}).get("model"),
-                base_url=self.config.get("llm", {}).get("base_url")
+                model_name=llm_config.get("model_name") or llm_config.get("model"),
+                base_url=llm_config.get("base_url"),
+                provider=llm_config.get("provider", "ollama")
             )
         self.extractor1 = BasicExtractor(schema1, llm, irad_library_description)
         self.extractor2 = BasicExtractor(schema2, llm, irad_library_description)
@@ -186,7 +206,9 @@ class MyExtractor(Extractor):
     
 
 def main():
-    mycrawler = Crawler(irad_config, full_schema, None, MyExtractor, None, None, None)
+    config = CrawlerConfig.from_dict(irad_config)
+    config.metadata_schema = full_schema
+    mycrawler = Crawler(config, extractor=MyExtractor(irad_config, schema1, schema2))
     mycrawler.crawl(short_options)
 
 

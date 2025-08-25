@@ -4,7 +4,7 @@ from typing import Any, Dict
 # Add the src directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from src import Crawler
+from src import Crawler, CrawlerConfig
 from src.processing.llm import LLM
 from src.processing.extractor import Extractor, MultiSchemaExtractor
 
@@ -172,11 +172,12 @@ irad_config = {
         "api_key": "ollama",
     },
     "vision_llm": {
-        "model": "gemma3:latest",
+        "model_name": "gemma3:latest",
         "provider": "ollama",
         "base_url": "http://localhost:11434",
     },
-    "milvus": {
+    "database": {
+        "provider": "milvus",
         "host": "localhost",
         "port": 19530,
         "username": "root",
@@ -185,9 +186,26 @@ irad_config = {
         "recreate": True,
     },
     "llm": {
-        "model": "gemma3",
+        "model_name": "gemma3",
         "provider": "ollama",
         "base_url": "http://localhost:11434",
+    },
+    "converter": {
+        "type": "pymupdf",
+        "metadata": {
+            "preserve_formatting": True,
+            "include_page_numbers": True,
+            "include_metadata": True,
+            "sort_reading_order": True,
+            "extract_tables": True,
+            "table_strategy": "lines_strict",
+            "image_description_prompt": "Describe this image in detail for a technical document.",
+            "image_describer": {
+                "type": "ollama",
+                "model": "gemma3:latest",
+                "base_url": "http://localhost:11434",
+            },
+        }
     },
     "utils": {
         "chunk_size": 1000,
@@ -200,8 +218,10 @@ short_options = ["/home/ubuntu/irads-crawler/data/irads/test.pdf"]
 
 
 def main():
+    config = CrawlerConfig.from_dict(irad_config)
+    config.metadata_schema = full_schema
     myExtractor = MultiSchemaExtractor(irad_config, [schema1, schema2], irad_library_description)
-    mycrawler = Crawler(irad_config, full_schema, None, myExtractor, None, None, None)
+    mycrawler = Crawler(config, extractor=myExtractor)
     mycrawler.crawl(short_options)
 
 

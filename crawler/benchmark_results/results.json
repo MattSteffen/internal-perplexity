@@ -1,0 +1,355 @@
+{
+    "results_by_doc": {
+        "459191814626873757": [
+            {
+                "query": "Page 1 MedDiT: A Knowledge-Controlled Diffusion Transformer Framework for Dynamic Medical Image Generation in Virtual Simulated Patient Yanzeng Li1,2, Cheng Zeng3, Jinchao Zhang2*, Jie Zhou2, Lei Zou1* 1Wangxuan Institute of",
+                "expected_source": 459191814626873757,
+                "placement_order": 1,
+                "distance": 0.028892889618873596,
+                "time_to_search": 0.06672191619873047,
+                "found": true
+            }
+        ],
+        "459191814626873758": [
+            {
+                "query": "Gyrard et al. 2018). These KGs meticulously describe patient attributes and symptoms, serving as a foundation to guide the behavior of LLMs. By dynamically prompt- ing LLM behavior, MedDiT ensures",
+                "expected_source": 459191814626873758,
+                "placement_order": 1,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.025091886520385742,
+                "found": true
+            }
+        ],
+        "459191814626873759": [
+            {
+                "query": "provide a safe environment for students to practice clinical skills, including medical image analysis. However, the high cost of recruiting qualified SPs and the lack of diverse med- ical imaging",
+                "expected_source": 459191814626873759,
+                "placement_order": 1,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.02193307876586914,
+                "found": true
+            }
+        ],
+        "459191814626873760": [
+            {
+                "query": "pa- tient Knowledge Graphs (KGs), which describe the attributes and symptoms of patients, to dynamically prompt Large Lan- guage Models\u2019 (LLMs) behavior and control the patient char- acteristics, mitigating hallucination",
+                "expected_source": 459191814626873760,
+                "placement_order": 1,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.021960020065307617,
+                "found": true
+            }
+        ],
+        "459191814626873761": [
+            {
+                "query": "potential to build prac- tical virtual SPs (VSPs) (Chen et al. 2023; Ben\u00b4\u0131tez et al. 2024; Holderried et al. 2024; Li et al. 2024a), the scarcity of 2 System Design",
+                "expected_source": 459191814626873761,
+                "placement_order": 1,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.019047975540161133,
+                "found": true
+            }
+        ],
+        "459191814626873762": [
+            {
+                "query": "flow across various modalities, including graph, text and image. ![Image Description](png) *[Error getting description from Ollama: HTTP 404]* KG-enhanced LLM-based VSP To construct a control- lable and less-hallucinatory VSP system,",
+                "expected_source": 459191814626873762,
+                "placement_order": 1,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.02075791358947754,
+                "found": true
+            }
+        ],
+        "459191814626873763": [
+            {
+                "query": "man- ner, MedDiT maintains dialogue consistency effectively, re- duces the hallucinations, and saves token costs. KG-controlled DiT Model We utilize HunyuanDiT (Li et al. 2024b) as our backbone generative model",
+                "expected_source": 459191814626873763,
+                "placement_order": 1,
+                "distance": 0.0197049118578434,
+                "time_to_search": 0.017835140228271484,
+                "found": true
+            }
+        ],
+        "459191814626873764": [
+            {
+                "query": "tem based on LLMs, MedDiT has successfully integrated KGs to control the chat flow and utilized DiT models to pro- duce medical images that align with the context and symp-",
+                "expected_source": 459191814626873764,
+                "placement_order": 1,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.019032955169677734,
+                "found": true
+            }
+        ],
+        "459191814626873765": [
+            {
+                "query": "experiments on MedDiT to test large vision models and in- vestigate the possibility of using large multi-modal models for comprehensive diagnosis. SP Evaluation As a VSP system, it is crucial",
+                "expected_source": 459191814626873765,
+                "placement_order": 1,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.016468048095703125,
+                "found": true
+            }
+        ],
+        "459191814626873766": [
+            {
+                "query": "an actual evaluation report. ## Page 3 References Baraheem, S. S.; Le, T.-N.; and Nguyen, T. V. 2023. Image synthesis: a review of methods, datasets, evaluation metrics, and future outlook.",
+                "expected_source": 459191814626873766,
+                "placement_order": 2,
+                "distance": 0.01942479982972145,
+                "time_to_search": 0.0205230712890625,
+                "found": true
+            }
+        ],
+        "459191814626873767": [
+            {
+                "query": "Knowledge graphs: Methodology, tools and selected use cases, 1\u201310. Gaba, D. M. 2007. The future vision of simulation in health- care. Simulation in Healthcare, 2(2): 126\u2013135. Glatard, T.; Lartizien, C.;",
+                "expected_source": 459191814626873767,
+                "placement_order": 1,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.01853489875793457,
+                "found": true
+            }
+        ],
+        "459191814626873768": [
+            {
+                "query": "sim- ulation. Holderried, F.; Stegemann-Philipps, C.; Herschbach, L.; Moldt, J.-A.; Nevins, A.; Griewatz, J.; Holderried, M.; Herrmann-Werner, A.; Festl-Wietek, T.; Mahling, M.; et al. 2024. A Generative Pretrained Transformer (GPT)\u2013Powered",
+                "expected_source": 459191814626873768,
+                "placement_order": 1,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.021716833114624023,
+                "found": true
+            }
+        ],
+        "459191814626873769": [
+            {
+                "query": "J.; Zhang, C.; Chen, M.; Liu, J.; Fang, Z.; Wang, W.; Xue, J.; Tao, Y.; Zhu, J.; Liu, K.; Lin, S.; Sun, Y.; Li, Y.; Wang, D.; Chen, M.; Hu,",
+                "expected_source": 459191814626873769,
+                "placement_order": 1,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.0169680118560791,
+                "found": true
+            }
+        ],
+        "459191814626873770": [
+            {
+                "query": "Yang, X. 2021. A review on medical imaging synthesis using deep learning and its clinical applications. Journal of applied clinical medical physics, 22(1): 11\u201336. Yang, A.; Yang, B.; Hui, B.;",
+                "expected_source": 459191814626873770,
+                "placement_order": 1,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.017599105834960938,
+                "found": true
+            }
+        ],
+        "459191814626873771": [
+            {
+                "query": "relations, and T \u2286E \u00d7 R \u00d7 E is the collection of knowledge triples \u27e8s, p, o\u27e9, with s, o \u2208 E, p \u2208R being subjects, objects, and predicates, respec-",
+                "expected_source": 459191814626873771,
+                "placement_order": 3,
+                "distance": 0.01924678310751915,
+                "time_to_search": 0.020294904708862305,
+                "found": true
+            }
+        ],
+        "459191814626873772": [
+            {
+                "query": "perform subgraph retrievel, where a sub- graph G\u2032 = (E\u2032, R\u2032, T \u2032) is derived from the original patient graph G = (E, R, T), ensuring that E\u2032 \u2286E, R\u2032",
+                "expected_source": 459191814626873772,
+                "placement_order": 1,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.016904830932617188,
+                "found": true
+            }
+        ],
+        "459191814626873773": [
+            {
+                "query": "knowledge contained in the text equals that of the subgraph. In practice, we employ a strong LLM as the f for encoding subgraph to text as losslessly as possible. Subsequently,",
+                "expected_source": 459191814626873773,
+                "placement_order": 1,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.016999006271362305,
+                "found": true
+            }
+        ],
+        "459191814626873774": [
+            {
+                "query": "also any discomfort experienced in the past few months or years. This helps to piece together a complete health picture and identify clues that may require further examination. Comprehensiveness and",
+                "expected_source": 459191814626873774,
+                "placement_order": 1,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.015381813049316406,
+                "found": true
+            }
+        ],
+        "459191814626873775": [
+            {
+                "query": "in image synthesis. B Hyperparameter Settings The hyperparameters used to train the DiT model for generating responses during medical conversations are dis- played in Table 1. The unmentioned parameters are",
+                "expected_source": 459191814626873775,
+                "placement_order": 1,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.015902042388916016,
+                "found": true
+            }
+        ],
+        "459191814626873776": [
+            {
+                "query": "1: Hyperparameter settings for our approach. C Assessment Example In Listing 1, we present an example of a generated assess- ment designed to evaluate a student\u2019s performance. MedDiT concludes with",
+                "expected_source": 459191814626873776,
+                "placement_order": 1,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.01883077621459961,
+                "found": true
+            }
+        ]
+    },
+    "placement_distribution": {
+        "1": 18,
+        "2": 1,
+        "3": 1
+    },
+    "distance_distribution": [
+        0.028892889618873596,
+        0.019801979884505272,
+        0.019801979884505272,
+        0.019801979884505272,
+        0.019801979884505272,
+        0.019801979884505272,
+        0.0197049118578434,
+        0.019801979884505272,
+        0.019801979884505272,
+        0.01942479982972145,
+        0.019801979884505272,
+        0.019801979884505272,
+        0.019801979884505272,
+        0.019801979884505272,
+        0.01924678310751915,
+        0.019801979884505272,
+        0.019801979884505272,
+        0.019801979884505272,
+        0.019801979884505272,
+        0.019801979884505272
+    ],
+    "percent_in_top_k": {
+        "1": 5.0,
+        "2": 10.0,
+        "3": 15.0,
+        "4": 15.0,
+        "5": 15.0,
+        "6": 15.0,
+        "7": 15.0,
+        "8": 15.0,
+        "9": 15.0,
+        "10": 15.0,
+        "11": 15.0,
+        "12": 15.0,
+        "13": 15.0,
+        "14": 15.0,
+        "15": 15.0,
+        "16": 15.0,
+        "17": 15.0,
+        "18": 15.0,
+        "19": 15.0,
+        "20": 15.0,
+        "21": 15.0,
+        "22": 15.0,
+        "23": 15.0,
+        "24": 15.0,
+        "25": 15.0,
+        "26": 15.0,
+        "27": 15.0,
+        "28": 15.0,
+        "29": 15.0,
+        "30": 15.0,
+        "31": 15.0,
+        "32": 15.0,
+        "33": 15.0,
+        "34": 15.0,
+        "35": 15.0,
+        "36": 15.0,
+        "37": 15.0,
+        "38": 15.0,
+        "39": 15.0,
+        "40": 15.0,
+        "41": 15.0,
+        "42": 15.0,
+        "43": 15.0,
+        "44": 15.0,
+        "45": 15.0,
+        "46": 15.0,
+        "47": 15.0,
+        "48": 15.0,
+        "49": 15.0,
+        "50": 15.0,
+        "51": 15.0,
+        "52": 15.0,
+        "53": 15.0,
+        "54": 15.0,
+        "55": 15.0,
+        "56": 15.0,
+        "57": 15.0,
+        "58": 15.0,
+        "59": 15.0,
+        "60": 15.0,
+        "61": 15.0,
+        "62": 15.0,
+        "63": 15.0,
+        "64": 15.0,
+        "65": 15.0,
+        "66": 15.0,
+        "67": 15.0,
+        "68": 15.0,
+        "69": 15.0,
+        "70": 15.0,
+        "71": 15.0,
+        "72": 15.0,
+        "73": 15.0,
+        "74": 15.0,
+        "75": 15.0,
+        "76": 15.0,
+        "77": 15.0,
+        "78": 15.0,
+        "79": 15.0,
+        "80": 15.0,
+        "81": 15.0,
+        "82": 15.0,
+        "83": 15.0,
+        "84": 15.0,
+        "85": 15.0,
+        "86": 15.0,
+        "87": 15.0,
+        "88": 15.0,
+        "89": 15.0,
+        "90": 15.0,
+        "91": 15.0,
+        "92": 15.0,
+        "93": 15.0,
+        "94": 15.0,
+        "95": 15.0,
+        "96": 15.0,
+        "97": 15.0,
+        "98": 15.0,
+        "99": 15.0,
+        "100": 15.0
+    },
+    "search_time_distribution": [
+        0.06672191619873047,
+        0.025091886520385742,
+        0.02193307876586914,
+        0.021960020065307617,
+        0.019047975540161133,
+        0.02075791358947754,
+        0.017835140228271484,
+        0.019032955169677734,
+        0.016468048095703125,
+        0.0205230712890625,
+        0.01853489875793457,
+        0.021716833114624023,
+        0.0169680118560791,
+        0.017599105834960938,
+        0.020294904708862305,
+        0.016904830932617188,
+        0.016999006271362305,
+        0.015381813049316406,
+        0.015902042388916016,
+        0.01883077621459961
+    ]
+}

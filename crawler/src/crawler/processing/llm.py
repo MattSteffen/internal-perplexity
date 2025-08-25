@@ -1,3 +1,4 @@
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import List, Dict, Union, Optional, Any
@@ -88,6 +89,7 @@ class OllamaLLM(LLM):
     """
     A simplified client for interacting with Ollama using the official Python client library.
     Supports text prompts, message history, and structured JSON output with schema validation.
+    Includes comprehensive logging and performance monitoring.
     """
 
     def __init__(self, config: LLMConfig):
@@ -97,14 +99,28 @@ class OllamaLLM(LLM):
         Args:
             config: Configuration object for the LLM
         """
+        self.config = config
         self.model_name = config.model_name
         self.system_prompt = config.system_prompt
         self.ctx_length = config.ctx_length
 
+        # Setup logging
+        self.logger = logging.getLogger('OllamaLLM')
+        self.logger.propagate = False  # Prevent duplicate messages
+        self.logger.info(f"Initializing OllamaLLM with model: {config.model_name}")
+        self.logger.debug(f"Base URL: {config.base_url}")
+        self.logger.debug(f"Context length: {config.ctx_length}")
+        self.logger.debug(f"Default timeout: {config.default_timeout}s")
+
         # Initialize Ollama client with timeout from config
-        self.client = ollama.Client(
-            host=config.base_url, timeout=config.default_timeout
-        )
+        try:
+            self.client = ollama.Client(
+                host=config.base_url, timeout=config.default_timeout
+            )
+            self.logger.info("✅ OllamaLLM client initialized successfully")
+        except Exception as e:
+            self.logger.error(f"❌ Failed to initialize OllamaLLM client: {e}")
+            raise
 
     def invoke(
         self,
@@ -112,7 +128,7 @@ class OllamaLLM(LLM):
         response_format: Optional[Dict[str, Any]] = None,
     ) -> Union[str, Dict[str, Any]]:
         """
-        Send a prompt or message history to the model and get a response.
+        Send a prompt or message history to the model and get a response with comprehensive logging.
 
         Args:
             prompt_or_messages: Either a string prompt or list of message dictionaries
@@ -125,39 +141,99 @@ class OllamaLLM(LLM):
             TimeoutError: If the request exceeds the timeout duration
             RuntimeError: If there's an error with the API call
         """
+        invoke_start_time = time.time()
+
+        # Build messages
         messages = self._build_messages(prompt_or_messages)
+        input_length = self._calculate_input_length(prompt_or_messages)
+
+        # Log request details
+        self.logger.info("🤖 Starting LLM API call...")
+        self.logger.debug(f"Model: {self.model_name}")
+        self.logger.debug(f"Input length: {input_length} characters")
+        self.logger.debug(f"Number of messages: {len(messages)}")
+        self.logger.debug(f"Context length: {self.ctx_length}")
+
+        if response_format:
+            required_fields = response_format.get("required", [])
+            self.logger.info(f"📋 Requesting structured output with {len(required_fields)} required fields: {required_fields}")
+
         options = {
             "num_ctx": self.ctx_length
         }  # TODO: Update as min(tokens_needed_for_message, ctx_length)
 
         try:
+            # Make the API call
+            api_start_time = time.time()
+            self.logger.debug("📡 Sending request to Ollama API...")
+
             response = self.client.chat(
                 model=self.model_name,
                 messages=messages,
                 format="json" if response_format else None,
                 options=options,
             )
-            content = response["message"]["content"]
 
+            api_time = time.time() - api_start_time
+            content = response["message"]["content"]
+            output_length = len(content)
+
+            self.logger.info("✅ LLM API call completed successfully")
+            self.logger.info("📊 LLM API Call Statistics:")
+            self.logger.info(f"   • API processing time: {api_time:.2f}s")
+            self.logger.info(f"   • Input length: {input_length} characters")
+            self.logger.info(f"   • Output length: {output_length} characters")
+            self.logger.info(f"   • Processing rate: {input_length/api_time:.0f} chars/sec")
+            self.logger.info(f"   • Generation rate: {output_length/api_time:.0f} chars/sec")
+
+            # Handle structured output
             if response_format is not None:
-                return self._parse_json_response(content)
+                self.logger.debug("🔄 Parsing structured JSON response...")
+                try:
+                    parsed_response = self._parse_json_response(content)
+                    self.logger.info("✅ JSON response parsed successfully")
+                    self.logger.debug(f"Parsed fields: {list(parsed_response.keys()) if isinstance(parsed_response, dict) else type(parsed_response)}")
+                    return parsed_response
+                except Exception as parse_error:
+                    self.logger.error(f"❌ Failed to parse JSON response: {parse_error}")
+                    self.logger.debug(f"Raw content: {content}")
+                    raise
+
+            self.logger.debug("📝 Returning text response")
             return content
+
         except ollama.ResponseError as e:
+            api_time = time.time() - api_start_time
             if "timeout" in str(e).lower():
+                self.logger.error(f"⏰ Request to Ollama model '{self.model_name}' timed out after {api_time:.2f}s")
                 raise TimeoutError(
                     f"Request to Ollama model '{self.model_name}' timed out."
                 ) from e
+            self.logger.error(f"❌ Ollama API error after {api_time:.2f}s: {e}")
             raise RuntimeError(
                 f"Error calling Ollama model '{self.model_name}': {e}"
             ) from e
         except httpx.ReadTimeout as e:
+            api_time = time.time() - api_start_time
+            self.logger.error(f"⏰ Request to Ollama model '{self.model_name}' timed out after {api_time:.2f}s")
             raise TimeoutError(
                 f"Request to Ollama model '{self.model_name}' timed out."
             ) from e
         except Exception as e:
+            api_time = time.time() - api_start_time
+            self.logger.error(f"❌ Unexpected error calling Ollama model '{self.model_name}' after {api_time:.2f}s: {e}")
             raise RuntimeError(
                 f"An unexpected error occurred while calling Ollama model '{self.model_name}': {e}"
             ) from e
+
+    def _calculate_input_length(self, prompt_or_messages: Union[str, List[Dict[str, Any]]]) -> int:
+        """Calculate the total character length of the input."""
+        if isinstance(prompt_or_messages, str):
+            return len(prompt_or_messages)
+        elif isinstance(prompt_or_messages, list):
+            return sum(len(msg.get("content", "")) for msg in prompt_or_messages)
+        else:
+            return 0
 
     def _build_messages(
         self, prompt_or_messages: Union[str, List[Dict[str, Any]]]

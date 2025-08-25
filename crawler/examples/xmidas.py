@@ -36,7 +36,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from src import Crawler, CrawlerConfig
-from src.processing import BasicExtractor, PyMuPDFConverter
+from src.processing import BasicExtractor
 from src.processing.llm import LLM
 from src.storage import get_db
 
@@ -164,7 +164,7 @@ xm_config = {
         "api_key": "ollama",
     },
     "vision_llm": {
-        "model": "mistral-small3.2:latest",
+        "model_name": "mistral-small3.2:latest",
         "provider": "ollama",
         "base_url": "http://ollama.a1.autobahn.rinconres.com",
     },
@@ -178,9 +178,26 @@ xm_config = {
         "recreate": False,
     },
     "llm": {
-        "model": "mistral-small3.2",
+        "model_name": "mistral-small3.2",
         "provider": "ollama",
         "base_url": "http://ollama.a1.autobahn.rinconres.com",
+    },
+    "converter": {
+        "type": "pymupdf",
+        "metadata": {
+            "preserve_formatting": True,
+            "include_page_numbers": True,
+            "include_metadata": True,
+            "sort_reading_order": True,
+            "extract_tables": True,
+            "table_strategy": "lines_strict",
+            "image_description_prompt": "Describe this image in detail for a technical document.",
+            "image_describer": {
+                "type": "ollama",
+                "model": "mistral-small3.2:latest",
+                "base_url": "http://ollama.a1.autobahn.rinconres.com",
+            },
+        }
     },
     "utils": {
         "chunk_size": 10000,
