@@ -127,7 +127,6 @@ def sanitize_metadata(md: dict, schema: dict = None, logger: logging.Logger = No
     if schema:
         try:
             import jsonschema
-            print(sanitized)
             jsonschema.validate(instance=sanitized, schema=schema)
             if logger:
                 logger.debug("Metadata validation passed")
