@@ -224,15 +224,20 @@ class MilvusBenchmark(DatabaseBenchmark):
         self.logger.info(f"✅ Loaded {len(all_docs)} documents in {docs_load_time:.2f}s")
 
         # Generate queries from documents
-        self.logger.info("🔍 Generating benchmark queries from documents...")
+        if generate_queries:
+            self.logger.info("🔍 Generating benchmark queries from documents...")
+        else:
+            self.logger.info("🔍 Using stored benchmark questions when available...")
+
         queries_by_doc = {}
         query_generation_stats = {
             'total_docs': len(all_docs),
             'docs_with_queries': 0,
-            'total_queries_generated': 0
+            'total_queries_generated': 0,
+            'stored_questions_used': 0
         }
 
-        with tqdm(total=len(all_docs), desc="Generating queries", unit="doc") as pbar:
+        with tqdm(total=len(all_docs), desc="Processing documents", unit="doc") as pbar:
             for doc in all_docs:
                 source = doc.get("id")
                 text = doc.get("text")
@@ -242,6 +247,34 @@ class MilvusBenchmark(DatabaseBenchmark):
                     pbar.update(1)
                     continue
 
+                # Try to use stored benchmark questions first (when generate_queries=False)
+                if not generate_queries:
+                    try:
+                        # Query for stored benchmark questions (only for chunk_index 0 to avoid duplicates)
+                        stored_questions_result = self.milvus_client.query(
+                            collection_name=self.db_config.collection,
+                            filter=f"source == '{source}' AND chunk_index == 0",
+                            output_fields=["benchmark_questions"],
+                            limit=1,
+                        )
+
+                        if stored_questions_result and stored_questions_result[0].get("benchmark_questions"):
+                            import json
+                            try:
+                                stored_questions = json.loads(stored_questions_result[0]["benchmark_questions"])
+                                if isinstance(stored_questions, list) and len(stored_questions) > 0:
+                                    queries_by_doc[source] = stored_questions
+                                    query_generation_stats['docs_with_queries'] += 1
+                                    query_generation_stats['stored_questions_used'] += len(stored_questions)
+                                    pbar.set_postfix_str(f"Stored questions: {query_generation_stats['stored_questions_used']}")
+                                    pbar.update(1)
+                                    continue  # Skip to next document
+                            except (json.JSONDecodeError, KeyError) as e:
+                                self.logger.debug(f"Failed to parse stored questions for {source}: {e}")
+                    except Exception as e:
+                        self.logger.debug(f"Error retrieving stored questions for {source}: {e}")
+
+                # Fall back to generating queries from text
                 words = text.split()
                 if len(words) > 30:
                     # Generate multiple queries per document for better statistics
@@ -257,7 +290,7 @@ class MilvusBenchmark(DatabaseBenchmark):
                         query_generation_stats['total_queries_generated'] += 1
 
                     query_generation_stats['docs_with_queries'] += 1
-                    pbar.set_postfix_str(f"Queries: {query_generation_stats['total_queries_generated']}")
+                    pbar.set_postfix_str(f"Generated queries: {query_generation_stats['total_queries_generated']}")
                 else:
                     self.logger.debug(f"Document too short for query generation: {source}")
 
@@ -269,11 +302,14 @@ class MilvusBenchmark(DatabaseBenchmark):
         self.logger.info(f"   • Total documents processed: {query_generation_stats['total_docs']}")
         self.logger.info(f"   • Documents with queries: {query_generation_stats['docs_with_queries']}")
         self.logger.info(f"   • Total queries generated: {query_generation_stats['total_queries_generated']}")
+        self.logger.info(f"   • Stored questions used: {query_generation_stats.get('stored_questions_used', 0)}")
         self.logger.info(f"   • Average queries per document: {query_generation_stats['total_queries_generated']/max(query_generation_stats['docs_with_queries'], 1):.1f}")
 
         if generate_queries:
             # TODO: Implement LLM-based query generation
             self.logger.info("🤖 LLM-based query generation not yet implemented, using auto-extracted queries")
+        else:
+            self.logger.info("📚 Used stored benchmark questions when available, fell back to auto-extraction")
 
         if not queries_by_doc:
             self.logger.error("❌ No queries generated - cannot run benchmark")

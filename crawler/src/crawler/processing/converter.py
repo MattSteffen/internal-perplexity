@@ -90,9 +90,8 @@ class Converter(ABC):
         self._setup_logging()
 
     def _setup_logging(self) -> None:
-        """Configure logging for the converter."""
+        """Get logger for the converter (already configured by main crawler)."""
         self.logger = logging.getLogger(self.__class__.__name__)
-        self.logger.propagate = False  # Prevent duplicate messages
 
     def _validate_file_exists(self, filepath: str) -> None:
         """

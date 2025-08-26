@@ -130,6 +130,32 @@ class MilvusDB(DatabaseClient):
             self.client.create_partition(self.config.collection, self.config.partition)
             logging.info(f"Created partition: {self.config.partition}")
 
+    def _existing_chunk_indexes(self, source: str) -> Set[int]:
+        """
+        Get all existing chunk indexes for a given source in a single query.
+
+        Args:
+            source: Source identifier (file path)
+
+        Returns:
+            Set[int]: Set of existing chunk indexes for the source
+        """
+        try:
+            results = self.client.query(
+                collection_name=self.config.collection,
+                filter=f"source == '{source}'",
+                output_fields=["chunk_index"],
+                limit=10000,  # Adjust limit as needed
+            )
+            return {result["chunk_index"] for result in results}
+
+        except MilvusException as e:
+            logging.error(f"Failed to fetch existing chunk indexes for source '{source}': {e}")
+            raise
+        except Exception as e:
+            logging.error(f"Unexpected error fetching chunk indexes: {e}")
+            raise
+
     def check_duplicate(self, source: str, chunk_index: int) -> bool:
         """
         Check if a document chunk already exists.
@@ -161,7 +187,7 @@ class MilvusDB(DatabaseClient):
 
     def insert_data(self, data: List[DatabaseDocument]) -> None:
         """
-        Insert data into the collection with duplicate detection and progress tracking.
+        Insert data into the collection with optimized duplicate detection and progress tracking.
 
         Expected data format matches DatabaseDocument protocol:
         - text: str
@@ -184,88 +210,121 @@ class MilvusDB(DatabaseClient):
 
         logging.info(f"💾 Starting data insertion for {len(data)} items into collection '{self.config.collection}'")
 
+        # Group items by source for optimized duplicate detection
+        items_by_source: Dict[str, List[DatabaseDocument]] = {}
+        for item in data:
+            source = item.source
+            if source not in items_by_source:
+                items_by_source[source] = []
+            items_by_source[source].append(item)
+
+        logging.info(f"📊 Grouped {len(data)} items into {len(items_by_source)} sources")
+
         # Filter out duplicates and prepare data for insertion
         data_to_insert = []
         duplicates_found = 0
         processing_errors = 0
 
-        # Process items with progress tracking
+        # Process items by source with progress tracking
         with tqdm(total=len(data), desc="Processing items", unit="item") as pbar:
-            for item in data:
+            for source, source_items in items_by_source.items():
                 try:
-                    # Validate required fields exist (these should be guaranteed by protocol)
-                    source = item.source
-                    chunk_index = item.chunk_index
-                    text = item.text
-                    text_embedding = item.text_embedding
+                    # Fetch all existing chunk indexes for this source in one query
+                    existing_indexes = self._existing_chunk_indexes(source)
 
-                    # Check for duplicates
-                    if self.check_duplicate(source, chunk_index):
-                        duplicates_found += 1
-                        logging.debug(
-                            f"⏭️  Duplicate found for source: {source}, chunk_index: {chunk_index}. Skipping."
-                        )
-                        pbar.update(1)
-                        continue
+                    for item in source_items:
+                        try:
+                            # Validate required fields exist (these should be guaranteed by protocol)
+                            chunk_index = item.chunk_index
+                            text = item.text
+                            text_embedding = item.text_embedding
 
-                    # Prepare the data for insertion
-                    prepared_item = {
-                        "document_id": item.get("document_id", str(uuid.uuid4())),
-                        "text": text,
-                        "text_embedding": text_embedding,
-                        "chunk_index": chunk_index,
-                        "source": source,
-                        "minio": item.get("minio", ""),
-                    }
-
-                    # Extract additional metadata fields
-                    metadata = {}
-                    required_fields = {
-                        "text",
-                        "text_embedding",
-                        "chunk_index",
-                        "source",
-                        "document_id",
-                        "minio",
-                    }
-
-                    # For dict-like objects, iterate through all keys
-                    if hasattr(item, "keys"):
-                        for key in item.keys():
-                            if key not in required_fields:
-                                value = (
-                                    item[key]
-                                    if hasattr(item, "__getitem__")
-                                    else getattr(item, key)
+                            # Check for duplicates using the cached indexes
+                            if chunk_index in existing_indexes:
+                                duplicates_found += 1
+                                logging.debug(
+                                    f"⏭️  Duplicate found for source: {source}, chunk_index: {chunk_index}. Skipping."
                                 )
-                                metadata[key] = value
-                                prepared_item[key] = value
-                    else:
-                        # For objects with attributes, use dir() or __dict__
-                        if hasattr(item, "__dict__"):
-                            for key, value in item.__dict__.items():
-                                if key not in required_fields and not key.startswith("_"):
-                                    metadata[key] = value
-                                    prepared_item[key] = value
+                                pbar.update(1)
+                                continue
 
-                    # Add metadata as JSON string
-                    prepared_item["metadata"] = json.dumps(metadata, separators=(",", ":"))
+                            # Prepare the data for insertion
+                            prepared_item = {
+                                "document_id": item.get("document_id", str(uuid.uuid4())),
+                                "text": text,
+                                "text_embedding": text_embedding,
+                                "chunk_index": chunk_index,
+                                "source": source,
+                                "minio": item.get("minio", ""),
+                            }
 
-                    data_to_insert.append(prepared_item)
-                    pbar.set_postfix_str(f"Source: {source}")
-                    pbar.update(1)
+                            # Extract additional metadata fields
+                            metadata = {}
+                            required_fields = {
+                                "text",
+                                "text_embedding",
+                                "chunk_index",
+                                "source",
+                                "document_id",
+                                "minio",
+                            }
 
-                except AttributeError as e:
-                    processing_errors += 1
-                    logging.warning(
-                        f"⚠️  Skipping item that doesn't conform to DatabaseDocument protocol: {e}"
-                    )
-                    pbar.update(1)
-                    continue
+                            # Handle benchmark_questions specially - only include for chunk_index == 0
+                            benchmark_questions = None
+                            if chunk_index == 0:
+                                benchmark_questions = item.get("benchmark_questions")
+
+                            # For dict-like objects, iterate through all keys
+                            if hasattr(item, "keys"):
+                                for key in item.keys():
+                                    if key not in required_fields:
+                                        value = (
+                                            item[key]
+                                            if hasattr(item, "__getitem__")
+                                            else getattr(item, key)
+                                        )
+                                        metadata[key] = value
+                                        # Add as separate field (but only benchmark_questions for chunk_index 0)
+                                        if key == "benchmark_questions" and chunk_index == 0:
+                                            prepared_item[key] = json.dumps(value, separators=(",", ":"))
+                                        elif key != "benchmark_questions":
+                                            prepared_item[key] = value
+                            else:
+                                # For objects with attributes, use dir() or __dict__
+                                if hasattr(item, "__dict__"):
+                                    for key, value in item.__dict__.items():
+                                        if key not in required_fields and not key.startswith("_"):
+                                            metadata[key] = value
+                                            # Add as separate field (but only benchmark_questions for chunk_index 0)
+                                            if key == "benchmark_questions" and chunk_index == 0:
+                                                prepared_item[key] = json.dumps(value, separators=(",", ":"))
+                                            elif key != "benchmark_questions":
+                                                prepared_item[key] = value
+
+                            # Add metadata as JSON string (include benchmark_questions in all chunks)
+                            prepared_item["metadata"] = json.dumps(metadata, separators=(",", ":"))
+
+                            data_to_insert.append(prepared_item)
+                            pbar.set_postfix_str(f"Source: {source}")
+                            pbar.update(1)
+
+                        except AttributeError as e:
+                            processing_errors += 1
+                            logging.warning(
+                                f"⚠️  Skipping item that doesn't conform to DatabaseDocument protocol: {e}"
+                            )
+                            pbar.update(1)
+                            continue
+                        except Exception as e:
+                            processing_errors += 1
+                            logging.error(f"❌ Error processing item: {e}")
+                            pbar.update(1)
+                            continue
+
                 except Exception as e:
-                    processing_errors += 1
-                    logging.error(f"❌ Error processing item: {e}")
-                    pbar.update(1)
+                    processing_errors += len(source_items)
+                    logging.error(f"❌ Error processing source '{source}': {e}")
+                    pbar.update(len(source_items))
                     continue
 
         # Log processing statistics

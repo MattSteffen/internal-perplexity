@@ -17,6 +17,7 @@ class EmbedderConfig:
     base_url: str
     api_key: str = ""
     provider: str = "ollama"
+    dimension: int = None  # Optional: pre-configured embedding dimension
 
     @classmethod
     def from_dict(cls, config: Dict[str, any]):
@@ -33,6 +34,7 @@ class EmbedderConfig:
             base_url=base_url,
             api_key=config.get("api_key", ""),
             provider=config.get("provider", "ollama"),
+            dimension=config.get("dimension"),
         )
 
 
@@ -71,9 +73,8 @@ class OllamaEmbedder(Embedder):
         self.embedder = OllamaEmbeddings(model=config.model, base_url=config.base_url)
         self._dimension = None
 
-        # Setup logging
+        # Get logger (already configured by main crawler)
         self.logger = logging.getLogger('OllamaEmbedder')
-        self.logger.propagate = False  # Prevent duplicate messages
         self.logger.info(f"Initialized OllamaEmbedder with model: {config.model}")
         self.logger.debug(f"Base URL: {config.base_url}")
 
@@ -171,6 +172,14 @@ class OllamaEmbedder(Embedder):
 
     def get_dimension(self) -> int:
         """Returns the dimension of the embedding model with logging."""
+        # Use configured dimension if available
+        if self.config.dimension is not None:
+            if self._dimension is None or self._dimension != self.config.dimension:
+                self._dimension = self.config.dimension
+                self.logger.info(f"✅ Using configured embedding dimension: {self._dimension}")
+            return self._dimension
+
+        # Otherwise probe once and cache
         if self._dimension is None:
             self.logger.info("🔍 Determining embedding dimension...")
             try:
@@ -188,13 +197,26 @@ def test():
     """Test function for the OllamaEmbedder."""
     config = EmbedderConfig(model="all-minilm:v2", base_url="http://localhost:11434")
 
-    embedder = OllamaEmbedder()
-    embedder.init(config)
+    embedder = OllamaEmbedder(config)
 
     # Test single embedding
     result = embedder.embed("test")
     print(f"Embedding dimension: {len(result)}")
     print(f"First 5 values: {result[:5]}")
+
+    # Test dimension detection
+    dimension = embedder.get_dimension()
+    print(f"Reported dimension: {dimension}")
+
+    # Test with pre-configured dimension
+    config_with_dimension = EmbedderConfig(
+        model="all-minilm:v2",
+        base_url="http://localhost:11434",
+        dimension=384  # Known dimension for all-minilm:v2
+    )
+    embedder_with_dimension = OllamaEmbedder(config_with_dimension)
+    preconfigured_dimension = embedder_with_dimension.get_dimension()
+    print(f"Pre-configured dimension: {preconfigured_dimension}")
 
 
 if __name__ == "__main__":

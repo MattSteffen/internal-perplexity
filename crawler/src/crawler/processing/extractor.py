@@ -1,5 +1,6 @@
 import logging
 import time
+import json
 from typing import Dict, Any, List
 from abc import ABC, abstractmethod
 from .llm import LLM
@@ -78,15 +79,18 @@ class BasicExtractor(Extractor):
         metadata_schema: Dict[str, Any],
         llm: LLM,
         document_library_context: str = "",
+        generate_benchmark_questions: bool = False,
+        num_benchmark_questions: int = 3,
     ):
         super().__init__()
         self.metadata_schema = metadata_schema
         self.llm = llm
         self.document_library_context = document_library_context
+        self.generate_benchmark_questions = generate_benchmark_questions
+        self.num_benchmark_questions = num_benchmark_questions
 
-        # Setup logging
+        # Get logger (already configured by main crawler)
         self.logger = logging.getLogger('Extractor')
-        self.logger.propagate = False  # Prevent duplicate messages
         self.logger.info("Initialized BasicExtractor with schema and LLM")
 
     def extract_metadata(self, text: str) -> Dict[str, Any]:
@@ -136,6 +140,21 @@ class BasicExtractor(Extractor):
                 else:
                     self.logger.warning(f"⚠️  Unexpected result type: {type(result)}")
 
+                # Generate benchmark questions if enabled
+                if self.generate_benchmark_questions:
+                    self.logger.info(f"📝 Generating {self.num_benchmark_questions} benchmark questions...")
+                    try:
+                        questions = generate_benchmark_questions(
+                            self.llm, text, self.num_benchmark_questions
+                        )
+                        if questions:
+                            result["benchmark_questions"] = questions
+                            self.logger.info(f"✅ Generated {len(questions)} benchmark questions")
+                        else:
+                            self.logger.warning("⚠️  No benchmark questions generated")
+                    except Exception as e:
+                        self.logger.error(f"❌ Failed to generate benchmark questions: {e}")
+
                 return result
 
             except Exception as e:
@@ -147,10 +166,17 @@ class BasicExtractor(Extractor):
             return {}
 
     def _get_prompt(self, text: str) -> str:
-        # replace the document context and document text in the prompt template
+        # Serialize schema to JSON string
+        schema_json = json.dumps(self.metadata_schema, ensure_ascii=False, indent=2)
+
+        # Inject schema, context, and document into the prompt template
         return extract_metadata_prompt.replace(
-            "{{document_library_context}}", self.document_library_context
-        ).replace("{{document_text}}", text)
+            "{{json_schema}}", schema_json
+        ).replace(
+            "{{document_library_context}}", self.document_library_context or ""
+        ).replace(
+            "{{document_text}}", text
+        )
 
 
 class MultiSchemaExtractor(Extractor):
@@ -167,9 +193,8 @@ class MultiSchemaExtractor(Extractor):
         self.llm = llm
         self.library_description = library_description
 
-        # Setup logging
+        # Get logger (already configured by main crawler)
         self.logger = logging.getLogger('MultiSchemaExtractor')
-        self.logger.propagate = False  # Prevent duplicate messages
         self.logger.info(f"Initialized MultiSchemaExtractor with {len(schemas)} schemas")
 
         # Create extractors
@@ -236,81 +261,83 @@ class MultiSchemaExtractor(Extractor):
         return metadata
 
 
+def generate_benchmark_questions(llm: LLM, text: str, n: int) -> List[str]:
+    """
+    Generate benchmark questions for a document.
+
+    Args:
+        llm: LLM instance to use for generation
+        text: Document text to generate questions from
+        n: Number of questions to generate
+
+    Returns:
+        List of benchmark questions as strings
+    """
+    prompt = f"""You are an expert at creating benchmark questions for document retrieval systems.
+
+Given the following document text, generate exactly {n} diverse questions that could be answered by this document. Each question should:
+- Be answerable using information from the document
+- Cover different aspects of the document content
+- Be specific and unambiguous
+- Vary in complexity and topic coverage
+
+Respond with a JSON array of exactly {n} strings, containing only the questions.
+
+Document text:
+{text[:4000]}...  # Truncate for token limits
+
+Questions:"""
+
+    try:
+        response = llm.invoke(prompt)
+        if isinstance(response, str):
+            # Try to parse as JSON
+            import json
+            try:
+                questions = json.loads(response.strip())
+                if isinstance(questions, list) and len(questions) == n:
+                    return questions
+                else:
+                    logging.warning(f"Expected {n} questions, got {len(questions) if isinstance(questions, list) else 'non-list'}")
+                    return []
+            except json.JSONDecodeError:
+                # Fallback: extract questions from text response
+                lines = [line.strip() for line in response.split('\n') if line.strip()]
+                questions = [line for line in lines if line.endswith('?')]
+                return questions[:n]
+        else:
+            logging.warning("Unexpected response type from LLM")
+            return []
+    except Exception as e:
+        logging.error(f"Error generating benchmark questions: {e}")
+        return []
+
 extract_metadata_prompt = """
-You are an expert metadata extraction engine. Your job is to read a Markdown document (converted from PDF, so formatting may vary), identify the required metadata fields, and output a JSON object conforming exactly to the JSON schema provided at runtime.
+You are an expert metadata extraction engine. Read the document and output a
+single JSON object that conforms EXACTLY to the injected JSON Schema.
 
----
+STRICT RULES:
+- Use ONLY the keys defined in the injected schema's properties.
+- Include ALL fields required by the schema.
+- Do NOT invent or copy fields that are not in the schema.
+- Normalize values (e.g., convert dates to YYYY-MM-DD, strip markup/artifacts).
+- If a required field is missing or cannot be inferred, set its value to
+  "Unknown".
+- Validate each value against the schema types/formats.
+- Output must be ONLY a JSON object (no extra text, no markdown fences).
 
-## How It Works
+JSON Schema:
+[[SCHEMA_START]]
+{{json_schema}}
+[[SCHEMA_END]]
 
-1. **Schema Injection**  
-   Before processing, you will receive a JSON schema defining the exact fields, types, formats, and requirements.
-
-2. **Document Context**  
-   You may also receive background context about the document collection to help with ambiguous cases—but never output it. This describes the type of information present in the document.
-
-3. **Extraction Process**  
-   - **Scan the entire document** for metadata: author, title, dates, identifiers, etc.  
-   - **Normalize values** (e.g. convert dates to `YYYY-MM-DD`, strip extra markup or artifacts).  
-   - **Handle missing required fields** by setting their value to `"Unknown"`.  
-   - **Validate** every extracted value against the schema: correct type, format, and presence of all `required` fields.  
-
-4. **Output**  
-   Emit **only** a JSON object (no commentary, no Markdown fences), matching the schema exactly.
-
----
-
-## Example
-
-> **Injected Schema:**  
-> ```json
-> {
->   "type": "object",
->   "properties": {
->     "author":      { "type": "string" },
->     "title":       { "type": "string" },
->     "pub_date":    { "type": "string", "format": "date" }
->   },
->   "required": ["author","title","pub_date"]
-> }
-> ```
-
-> **Input Document:**  
-> ```
-> The Future of AI in Healthcare
-> By Dr. Sarah Chen
-> Published March 15, 2024
->
-> Artificial intelligence is transforming medical diagnosis and treatment...
-> ```
-
-> **Expected Output:**  
-> {
->   "author": "Dr. Sarah Chen",
->   "title":  "The Future of AI in Healthcare",
->   "pub_date": "2024-03-15"
-> }
-
----
-
-## Your Task
-
-1. You will be given:
-   - json_schema  
-   - (optional) document_library_context  
-   - document  
-
-2. Extract and normalize metadata exactly as the schema demands.  
-3. If any required field is missing, set it to `"Unknown"`.  
-4. Output **only** the JSON object.  
-
-Begin now.
-
-**Document Library Context:**
+Document Library Context (do not echo in output; use only for disambiguation):
+[[CONTEXT_START]]
 {{document_library_context}}
+[[CONTEXT_END]]
 
-
-**Document:**
+Document:
+[[DOCUMENT_START]]
 {{document_text}}
-
+[[DOCUMENT_END]]
 """

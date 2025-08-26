@@ -5,9 +5,14 @@ Test script to verify the new config system works correctly.
 
 import sys
 import os
+import logging
+from unittest.mock import Mock, MagicMock
 
 # Add the crawler src directory to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+# From crawler/src/tests/, we need to go up to crawler/ and then into src/
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(current_dir))
+sys.path.insert(0, project_root)
 
 from src import (
     CrawlerConfig,
@@ -16,8 +21,14 @@ from src import (
     DEFAULT_OLLAMA_LLM,
     DEFAULT_OLLAMA_VISION_LLM,
     DEFAULT_MILVUS_CONFIG,
-    DEFAULT_CONVERTER_CONFIG
+    DEFAULT_CONVERTER_CONFIG,
+    RESERVED,
+    sanitize_metadata
 )
+
+from src.crawler.processing import EmbedderConfig, BasicExtractor
+from src.crawler.storage import DatabaseDocument, DatabaseClientConfig
+from src.crawler.storage.milvus_client import MilvusDB
 
 def test_converter_config():
     """Test ConverterConfig creation and validation."""
@@ -40,7 +51,7 @@ def test_converter_config():
     }
     config = ConverterConfig.from_dict(config_dict)
     assert config.type == "docling"
-    assert config.vision_llm["model"] == "llava:latest"
+    assert config.vision_llm.model_name == "llava:latest"
     print("✓ ConverterConfig.from_dict works")
 
     # Test validation
@@ -90,7 +101,7 @@ def test_crawler_config():
     assert crawler_config.vision_llm.model_name == "llava:latest"  # Should work with 'model_name' key
     assert crawler_config.database.collection == "test_collection"
     assert crawler_config.converter.type == "markitdown"
-    assert crawler_config.converter.vision_llm["model"] == "llava:latest"
+    assert crawler_config.converter.vision_llm.model_name == "llava:latest"
 
     print("✓ CrawlerConfig with new converter structure works")
     print("✓ LLM config accepts both 'model' and 'model_name' keys")
@@ -101,7 +112,7 @@ def test_validation():
 
     # Test EmbedderConfig validation
     try:
-        from src.processing import EmbedderConfig
+        from src.crawler.processing import EmbedderConfig
         EmbedderConfig.from_dict({"model": "", "base_url": "http://localhost:11434"})
         assert False, "Should have raised ValueError"
     except ValueError as e:
@@ -110,7 +121,7 @@ def test_validation():
 
     # Test LLMConfig validation
     try:
-        from src.processing import LLMConfig
+        from src.crawler.processing import LLMConfig
         LLMConfig.from_dict({"model_name": "", "base_url": "http://localhost:11434"})
         assert False, "Should have raised ValueError"
     except ValueError as e:
@@ -119,7 +130,7 @@ def test_validation():
 
     # Test DatabaseClientConfig validation
     try:
-        from src.storage import DatabaseClientConfig
+        from src.crawler.storage import DatabaseClientConfig
         DatabaseClientConfig.from_dict({"provider": "", "collection": "test"})
         assert False, "Should have raised ValueError"
     except ValueError as e:
@@ -146,12 +157,181 @@ def test_defaults():
 
     print("✓ All default configurations are properly defined")
 
-if __name__ == "__main__":
-    print("Running config system tests...\n")
+def test_sanitize_metadata():
+    """Test the sanitize_metadata function."""
+    print("\nTesting sanitize_metadata...")
 
+    # Test basic sanitization
+    metadata = {
+        "title": "Test Document",
+        "author": "Test Author",
+        "text": "This should be removed",  # Reserved key
+        "chunk_index": 5,  # Reserved key
+        "source": "test.pdf",  # Reserved key
+        "custom_field": "should remain"
+    }
+
+    sanitized = sanitize_metadata(metadata)
+    assert "title" in sanitized
+    assert "author" in sanitized
+    assert "custom_field" in sanitized
+    assert "text" not in sanitized
+    assert "chunk_index" not in sanitized
+    assert "source" not in sanitized
+    print("✓ Basic sanitization works")
+
+    # Test with None input
+    assert sanitize_metadata(None) == {}
+    print("✓ None input handling works")
+
+    # Test with empty dict
+    assert sanitize_metadata({}) == {}
+    print("✓ Empty dict handling works")
+
+    # Test with all reserved keys
+    reserved_only = {key: f"value_{key}" for key in RESERVED}
+    assert sanitize_metadata(reserved_only) == {}
+    print("✓ All reserved keys removed")
+
+    # Test with logger
+    logger = Mock()
+    metadata_with_reserved = {"title": "Test", "document_id": "should_be_removed"}
+    sanitized = sanitize_metadata(metadata_with_reserved, logger=logger)
+    assert "title" in sanitized
+    assert "document_id" not in sanitized
+    print("✓ Logger integration works")
+
+def test_embedder_config_dimension():
+    """Test EmbedderConfig with dimension field."""
+    print("\nTesting EmbedderConfig dimension...")
+
+    # Test with dimension specified
+    config_dict = {
+        "model": "all-minilm:v2",
+        "base_url": "http://localhost:11434",
+        "dimension": 384
+    }
+    config = EmbedderConfig.from_dict(config_dict)
+    assert config.dimension == 384
+    print("✓ Dimension field works")
+
+    # Test without dimension (should be None)
+    config_dict_no_dim = {
+        "model": "all-minilm:v2",
+        "base_url": "http://localhost:11434"
+    }
+    config_no_dim = EmbedderConfig.from_dict(config_dict_no_dim)
+    assert config_no_dim.dimension is None
+    print("✓ Dimension defaults to None")
+
+def test_token_chunking_overlap():
+    """Test token-aware chunking behavior."""
+    print("\nTesting token chunking...")
+
+    # Create a mock LLM for the extractor
+    mock_llm = Mock()
+
+    # Create a BasicExtractor instance
+    extractor = BasicExtractor({}, mock_llm)
+
+    # Test basic chunking
+    text = "This is a test document with multiple words that should be chunked properly."
+    chunks = extractor.chunk_text(text, chunk_size=10)
+
+    assert len(chunks) > 0
+    assert all(len(chunk) <= 10 for chunk in chunks)
+    print("✓ Basic chunking works")
+
+    # Test with empty text
+    empty_chunks = extractor.chunk_text("", chunk_size=10)
+    assert empty_chunks == []  # Empty text produces no chunks
+    print("✓ Empty text handling works")
+
+    # Test with text shorter than chunk size
+    short_text = "Short text"
+    short_chunks = extractor.chunk_text(short_text, chunk_size=100)
+    assert len(short_chunks) == 1
+    assert short_chunks[0] == short_text
+    print("✓ Short text handling works")
+
+def test_milvus_duplicate_filtering():
+    """Test MilvusDB insert_data duplicate filtering with mock client."""
+    print("\nTesting MilvusDB duplicate filtering...")
+
+    # Create a mock client
+    mock_client = Mock()
+
+    # Create mock config and MilvusDB instance
+    config = DatabaseClientConfig(
+        provider="milvus",
+        collection="test_collection",
+        host="localhost",
+        port=19530
+    )
+
+    # Mock the MilvusDB to avoid actual connection
+    db = MilvusDB.__new__(MilvusDB)  # Create without calling __init__
+    db.config = config
+    db.client = mock_client
+    db.logger = logging.getLogger('TestMilvusDB')
+
+    # Create test data with duplicates
+    test_data = [
+        DatabaseDocument(
+            text="Chunk 1",
+            text_embedding=[0.1] * 384,
+            chunk_index=0,
+            source="doc1.pdf",
+            metadata={"title": "Test"}
+        ),
+        DatabaseDocument(
+            text="Chunk 2",
+            text_embedding=[0.2] * 384,
+            chunk_index=1,
+            source="doc1.pdf",
+            metadata={"title": "Test"}
+        ),
+        DatabaseDocument(
+            text="Chunk 1 duplicate",
+            text_embedding=[0.1] * 384,
+            chunk_index=0,  # Duplicate chunk_index for same source
+            source="doc1.pdf",
+            metadata={"title": "Test"}
+        )
+    ]
+
+    # Mock _existing_chunk_indexes to return some existing indexes
+    db._existing_chunk_indexes = Mock(return_value={0})  # chunk_index 0 already exists
+
+    # Mock insert and flush methods
+    mock_client.insert.return_value = {"insert_count": 1}
+    mock_client.flush = Mock()
+
+    # Test the insert_data method
+    db.insert_data(test_data)
+
+    # Verify that insert was called
+    mock_client.insert.assert_called_once()
+    mock_client.flush.assert_called_once()
+
+    # Verify _existing_chunk_indexes was called for the source
+    db._existing_chunk_indexes.assert_called_with("doc1.pdf")
+
+    print("✓ MilvusDB duplicate filtering works")
+
+if __name__ == "__main__":
+    print("Running comprehensive tests...\n")
+
+    # Existing tests
     test_converter_config()
     test_crawler_config()
     test_validation()
     test_defaults()
 
-    print("\n🎉 All config tests passed! The new config system is working correctly.")
+    # New tests
+    test_sanitize_metadata()
+    test_embedder_config_dimension()
+    test_token_chunking_overlap()
+    test_milvus_duplicate_filtering()
+
+    print("\n🎉 All tests passed! The system is working correctly.")

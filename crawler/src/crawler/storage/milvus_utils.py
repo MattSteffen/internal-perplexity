@@ -101,6 +101,13 @@ def _create_base_schema(embedding_size) -> CollectionSchema:
         dtype=DataType.SPARSE_FLOAT_VECTOR,
         description="The full-text-search embedding of the metadata",
     )
+    field_schema_benchmark_questions = FieldSchema(
+        name="benchmark_questions",
+        dtype=DataType.VARCHAR,
+        max_length=MAX_DOC_LENGTH,
+        description="Benchmark questions generated for the document as a JSON array string",
+        default_value="[]"
+    )
 
     function_full_text_search = Function(
         name="full_text_search_on_chunks",
@@ -124,6 +131,7 @@ def _create_base_schema(embedding_size) -> CollectionSchema:
         field_schema_text_sparse_embedding,
         field_schema_metadata,
         field_schema_metadata_sparse_embedding,
+        field_schema_benchmark_questions,
     ]
     functions=[function_full_text_search, function_full_text_search_metadata]
     return fields, functions

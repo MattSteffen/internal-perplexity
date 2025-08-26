@@ -6,14 +6,14 @@ into vector databases for retrieval-augmented generation (RAG) applications.
 """
 
 # Re-export main classes from submodules for convenience
-from .crawler.crawler import Crawler, CrawlerConfig
-from .processing import (
+from .crawler.main import Crawler, CrawlerConfig, RESERVED, sanitize_metadata
+from .crawler.processing import (
     Converter, ConverterConfig, create_converter,
     Extractor, BasicExtractor, MultiSchemaExtractor,
     LLM, LLMConfig, get_llm,
     Embedder, EmbedderConfig, get_embedder
 )
-from .storage import (
+from .crawler.storage import (
     DatabaseClient, DatabaseClientConfig, DatabaseDocument,
     MilvusDB, get_db, get_db_benchmark
 )
@@ -25,6 +25,8 @@ __all__ = [
     # Core classes
     "Crawler",
     "CrawlerConfig",
+    "RESERVED",
+    "sanitize_metadata",
 
     # Processing components
     "Converter",

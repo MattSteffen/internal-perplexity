@@ -1,4 +1,5 @@
 from crawler import Crawler, CrawlerConfig
+from crawler.processing import MultiSchemaExtractor, OllamaLLM
 
 schema1 = {
     "type": "object",
@@ -105,7 +106,7 @@ arxiv_config_dict = {
         "recreate": True,
     },
     "llm": {
-        "model_name": "gemma3:latest",
+        "model_name": "qwen3:latest",
         "provider": "ollama",
         "base_url": "http://localhost:11434",
     },
@@ -143,7 +144,8 @@ arxiv_dir_path = "/Users/mattsteffen/projects/llm/internal-perplexity/data/arxiv
 def main():
     config = CrawlerConfig.from_dict(arxiv_config_dict)
     config.log_level = "INFO"  # Set log level for testing
-    mycrawler = Crawler(config)
+    extractor = MultiSchemaExtractor(schemas=[schema1, schema2], llm=OllamaLLM(config.llm))
+    mycrawler = Crawler(config, extractor=extractor)
     mycrawler.crawl(short_options)
     # mycrawler.benchmark()  # Comment out benchmark for now
 

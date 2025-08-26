@@ -10,7 +10,7 @@ from tqdm import tqdm
 
 # Configure logging for the entire crawler system
 def setup_crawler_logging(log_level: str = "INFO", log_file: str = None) -> logging.Logger:
-    """Setup comprehensive logging for the crawler system.
+    """Setup comprehensive logging for the crawler system and all processing modules.
 
     Args:
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR)
@@ -19,34 +19,57 @@ def setup_crawler_logging(log_level: str = "INFO", log_file: str = None) -> logg
     Returns:
         Configured logger instance
     """
-    # Create logger
-    logger = logging.getLogger('Crawler')
-    logger.setLevel(getattr(logging, log_level.upper()))
-
-    # Prevent propagation to root logger to avoid duplicates
-    logger.propagate = False
-
-    # Clear any existing handlers and set up fresh ones
-    logger.handlers.clear()
+    # List of all logger names used in the crawler system
+    logger_names = [
+        'Crawler',
+        'OllamaLLM',
+        'Extractor',
+        'MultiSchemaExtractor',
+        'OllamaEmbedder',
+        'MarkItDownConverter',
+        'DoclingConverter',
+        'DoclingVLMConverter',
+        'PyMuPDFConverter',
+    ]
 
     # Create formatter
     formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
 
+    # Create handlers
+    handlers = []
+
     # Console handler
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
+    handlers.append(console_handler)
 
     # File handler if specified
     if log_file:
         file_handler = logging.FileHandler(log_file)
         file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
+        handlers.append(file_handler)
 
-    logger.debug("Crawler logging handlers initialized with propagation disabled")
-    return logger
+    # Configure all loggers
+    for logger_name in logger_names:
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(getattr(logging, log_level.upper()))
+
+        # Prevent propagation to root logger to avoid duplicates
+        logger.propagate = False
+
+        # Clear any existing handlers and set up fresh ones
+        logger.handlers.clear()
+
+        # Add all handlers to this logger
+        for handler in handlers:
+            logger.addHandler(handler)
+
+        logger.debug(f"{logger_name} logging handlers initialized")
+
+    # Return the main crawler logger
+    return logging.getLogger('Crawler')
 
 from .processing import (
     Embedder,
@@ -68,6 +91,56 @@ from .storage import (
     get_db,
     get_db_benchmark,
 )
+
+# Reserved keys that should not appear in metadata to avoid conflicts with database schema
+RESERVED = {
+    "document_id",
+    "chunk_index",
+    "source",
+    "text",
+    "text_embedding",
+    "text_sparse_embedding",
+    "metadata",
+    "metadata_sparse_embedding"
+}
+
+def sanitize_metadata(md: dict, schema: dict = None, logger: logging.Logger = None) -> dict:
+    """
+    Sanitize metadata by removing reserved keys that could conflict with database schema.
+    Optionally validate against a JSON schema.
+
+    Args:
+        md: Metadata dictionary to sanitize
+        schema: Optional JSON schema to validate against
+        logger: Optional logger for validation errors
+
+    Returns:
+        Sanitized metadata dictionary with reserved keys removed
+    """
+    if not isinstance(md, dict):
+        return {}
+
+    # Remove any reserved keys
+    sanitized = {k: v for k, v in md.items() if k not in RESERVED}
+
+    # Optional JSON schema validation
+    if schema:
+        try:
+            import jsonschema
+            print(sanitized)
+            jsonschema.validate(instance=sanitized, schema=schema)
+            if logger:
+                logger.debug("Metadata validation passed")
+        except jsonschema.ValidationError as e:
+            if logger:
+                logger.warning(f"Metadata validation failed: {e.message}, falling back to empty dict")
+            return {}  # Return empty dict on validation failure
+        except Exception as e:
+            if logger:
+                logger.warning(f"Error during metadata validation: {e}, falling back to empty dict")
+            return {}  # Return empty dict on any error
+
+    return sanitized
 
 
 """
@@ -150,6 +223,8 @@ class CrawlerConfig:
     metadata_schema: Dict[str, any] = field(default_factory=dict)
     temp_dir: str = "tmp/"
     benchmark: bool = False
+    generate_benchmark_questions: bool = False  # Generate benchmark questions during metadata extraction
+    num_benchmark_questions: int = 3  # Number of benchmark questions to generate
     log_level: str = "INFO"  # Logging level (DEBUG, INFO, WARNING, ERROR)
     log_file: str = None  # Optional log file path
 
@@ -166,6 +241,8 @@ class CrawlerConfig:
             chunk_size=config.get("utils", {}).get("chunk_size", 10000),
             temp_dir=config.get("utils", {}).get("temp_dir", "tmp/"),
             benchmark=config.get("utils", {}).get("benchmark", False),
+            generate_benchmark_questions=config.get("utils", {}).get("generate_benchmark_questions", False),
+            num_benchmark_questions=config.get("utils", {}).get("num_benchmark_questions", 3),
             log_level=config.get("log_level", "INFO"),
             log_file=config.get("log_file"),
         )
@@ -206,8 +283,12 @@ class Crawler:
             self.embedder = get_embedder(self.config.embeddings)
 
         if self.extractor is None:
-            # self.extractor = get_extractor(self.config.extractor, self.config.metadata_schema, self.llm)
-            self.extractor = BasicExtractor(self.config.metadata_schema, self.llm)
+            self.extractor = BasicExtractor(
+                self.config.metadata_schema,
+                self.llm,
+                generate_benchmark_questions=self.config.generate_benchmark_questions,
+                num_benchmark_questions=self.config.num_benchmark_questions
+            )
 
         if self.vector_db is None:
             self.vector_db = get_db(
@@ -404,6 +485,9 @@ class Crawler:
                             embeddings = self.embedder.embed(chunk)
                             chunk_embed_time = time.time() - chunk_embed_start
 
+                            # Sanitize metadata before creating database document
+                            sanitized_metadata = sanitize_metadata(metadata, self.config.metadata_schema, self.logger)
+
                             # Create entities for database
                             doc = DatabaseDocument.from_dict({
                                 "document_id": str(uuid.uuid4()),
@@ -411,7 +495,7 @@ class Crawler:
                                 "source": filepath,
                                 "text": chunk,
                                 "text_embedding": embeddings,
-                                **metadata,
+                                **sanitized_metadata,
                             })
                             entities.append(doc)
 

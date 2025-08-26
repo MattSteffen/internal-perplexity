@@ -104,9 +104,8 @@ class OllamaLLM(LLM):
         self.system_prompt = config.system_prompt
         self.ctx_length = config.ctx_length
 
-        # Setup logging
+        # Get logger (already configured by main crawler)
         self.logger = logging.getLogger('OllamaLLM')
-        self.logger.propagate = False  # Prevent duplicate messages
         self.logger.info(f"Initializing OllamaLLM with model: {config.model_name}")
         self.logger.debug(f"Base URL: {config.base_url}")
         self.logger.debug(f"Context length: {config.ctx_length}")
