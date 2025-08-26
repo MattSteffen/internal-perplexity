@@ -9,6 +9,7 @@ from .processing.embeddings import EmbedderConfig
 from .processing.llm import LLMConfig
 from .storage.database_client import DatabaseClientConfig
 from .processing.converter import ConverterConfig
+from .processing.extractor import ExtractorConfig
 
 # Ollama provider defaults
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
@@ -62,6 +63,13 @@ DEFAULT_CONVERTER_CONFIG = ConverterConfig(
     vision_llm=DEFAULT_OLLAMA_VISION_LLM
 )
 
+# Extractor defaults
+DEFAULT_EXTRACTOR_CONFIG = ExtractorConfig(
+    type="basic",
+    llm=DEFAULT_OLLAMA_LLM,
+    metadata_schema=None
+)
+
 # Crawler defaults
 DEFAULT_CHUNK_SIZE = 10000
 DEFAULT_TEMP_DIR = "tmp/"
@@ -78,9 +86,6 @@ DEFAULT_METADATA_SCHEMA = {
         "summary": {"type": "string", "maxLength": 2048},
     }
 }
-
-# Extractor defaults
-DEFAULT_EXTRACTOR_CONFIG = {}
 
 
 __all__ = [

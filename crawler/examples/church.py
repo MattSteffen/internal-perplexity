@@ -1,12 +1,5 @@
-import sys
-import os
-from typing import Any, Dict
-# Add the src directory to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
-
-from src import Crawler, CrawlerConfig
-from src.processing.llm import LLM
-from src.processing.extractor import Extractor, BasicExtractor
+from crawler import Crawler, CrawlerConfig
+from crawler.processing import MultiSchemaExtractor, OllamaLLM
 
 
 # https://user.xmission.com/~research/mormonpdf/index.htm
@@ -126,10 +119,30 @@ schema1 = {
   }
 }
 
-irad_library_description = ""
+# Combine schemas
+metadata_schema = {
+    "type": "object",
+    "required": schema1.get("required", []) + ["summary_item_1", "summary_item_2", "summary_item_3"],
+    "properties": {**schema1.get("properties", {}), **{
+        "summary_item_1": {
+            "type": "string",
+            "maxLength": 15000,
+            "description": "A concise summary of the primary topic or a unique, central argument discussed in the document. Focus on the most significant general idea or contribution."
+        },
+        "summary_item_2": {
+            "type": "string",
+            "maxLength": 15000,
+            "description": "If the document explores a second distinct topic or presents another significant unique aspect, describe it here. This should cover a different core idea than summary_item_1."
+        },
+        "summary_item_3": {
+            "type": "string",
+            "maxLength": 15000,
+            "description": "If the document addresses a third distinct major theme or offers an additional unique insight, provide that summary here. Ensure it highlights a separate concept from the previous summary items."
+        }
+    }},
+}
 
-
-irad_config = {
+church_config_dict = {
     "embeddings": {
         "provider": "ollama",
         "model": "all-minilm:v2",
@@ -147,13 +160,45 @@ irad_config = {
         "port": 19530,
         "username": "root",
         "password": "Milvus",
-        "collection": "test_arxiv2",
+        "collection": "church_documents",
         "recreate": True,
     },
     "llm": {
         "model_name": "gemma3",
         "provider": "ollama",
         "base_url": "http://localhost:11434",
+    },
+    "extractor": {
+        "type": "multi_schema",
+        "llm": {
+            "model_name": "gemma3",
+            "provider": "ollama",
+            "base_url": "http://localhost:11434",
+        },
+        "metadata_schema": [schema1, {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "title": "Document Summary Points",
+            "description": "Schema defining distinct summary aspects of a document.",
+            "type": "object",
+            "required": ["summary_item_1"],
+            "properties": {
+                "summary_item_1": {
+                    "type": "string",
+                    "maxLength": 15000,
+                    "description": "A concise summary of the primary topic or a unique, central argument discussed in the document. Focus on the most significant general idea or contribution."
+                },
+                "summary_item_2": {
+                    "type": "string",
+                    "maxLength": 15000,
+                    "description": "If the document explores a second distinct topic or presents another significant unique aspect, describe it here. This should cover a different core idea than summary_item_1."
+                },
+                "summary_item_3": {
+                    "type": "string",
+                    "maxLength": 15000,
+                    "description": "If the document addresses a third distinct major theme or offers an additional unique insight, provide that summary here. Ensure it highlights a separate concept from the previous summary items."
+                },
+            },
+        }],
     },
     "converter": {
         "type": "pymupdf",
@@ -164,7 +209,7 @@ irad_config = {
             "sort_reading_order": True,
             "extract_tables": True,
             "table_strategy": "lines_strict",
-            "image_description_prompt": "Describe this image in detail for a technical document.",
+            "image_description_prompt": "Describe this image in detail for a religious document.",
             "image_describer": {
                 "type": "ollama",
                 "model": "gemma3:latest",
@@ -174,42 +219,21 @@ irad_config = {
     },
     "utils": {
         "chunk_size": 1000,
-        "temp_dir": "/tmp/irads",
-    }
+        "temp_dir": "/tmp/church",
+    },
+    "metadata_schema": metadata_schema,
 }
 
 dir_path = "/home/ubuntu/irads-crawler/data/irads"
 short_options = ["/home/ubuntu/irads-crawler/data/irads/test.pdf"]
 
-class MyExtractor(Extractor):
-    """
-    Custom extractor class for processing documents with timeout capability.
-    """
-    def __init__(self, config: dict, schema1: dict, schema2: dict) -> None:
-        super().__init__(config)
-        self.config = config
-        llm_config = self.config.get("llm", {})
-        llm = LLM(
-                model_name=llm_config.get("model_name") or llm_config.get("model"),
-                base_url=llm_config.get("base_url"),
-                provider=llm_config.get("provider", "ollama")
-            )
-        self.extractor1 = BasicExtractor(schema1, llm, irad_library_description)
-        self.extractor2 = BasicExtractor(schema2, llm, irad_library_description)
-
-    def extract_metadata(self, text: str) -> Dict[str, Any]:
-        metadata1 = self.extractor1.extract_metadata(text)
-        metadata2 = self.extractor2.extract_metadata(text)
-        metadata = {**metadata1, **metadata2}
-        return metadata
-    
-    
 
 def main():
-    config = CrawlerConfig.from_dict(irad_config)
-    config.metadata_schema = full_schema
-    mycrawler = Crawler(config, extractor=MyExtractor(irad_config, schema1, schema2))
+    config = CrawlerConfig.from_dict(church_config_dict)
+    config.log_level = "INFO"  # Set log level for testing
+    mycrawler = Crawler(config)  # Extractor will be created from config
     mycrawler.crawl(short_options)
+    # mycrawler.benchmark()  # Comment out benchmark for now
 
 
 if __name__ == "__main__":

@@ -492,7 +492,6 @@ class DummyImageDescriber(ImageDescriptionInterface):
 
 
 class PyMuPDFConverter(Converter):
-    # TODO: Make the config dictionary correct
     """
     Document converter using PyMuPDF with comprehensive content extraction.
 

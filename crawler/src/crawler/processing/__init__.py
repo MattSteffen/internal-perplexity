@@ -8,7 +8,7 @@ from .converter import (
     PyMuPDFConverter,
     create_converter,
 )
-from .extractor import Extractor, BasicExtractor, MultiSchemaExtractor
+from .extractor import Extractor, BasicExtractor, MultiSchemaExtractor, ExtractorConfig
 from .llm import LLM, OllamaLLM, LLMConfig, get_llm
 from .embeddings import Embedder, OllamaEmbedder, EmbedderConfig, get_embedder
 
@@ -23,8 +23,10 @@ __all__ = [
     "create_converter",
     # extractor.py
     "Extractor",
+    "ExtractorConfig",
     "BasicExtractor",
     "MultiSchemaExtractor",
+    "create_extractor",
     # llm.py
     "LLM",
     "OllamaLLM",

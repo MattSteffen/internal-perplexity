@@ -110,6 +110,15 @@ arxiv_config_dict = {
         "provider": "ollama",
         "base_url": "http://localhost:11434",
     },
+    "extractor": {
+        "type": "multi_schema",
+        "llm": {
+            "model_name": "qwen3:latest",
+            "provider": "ollama",
+            "base_url": "http://localhost:11434",
+        },
+        "metadata_schema": [schema1, schema2],
+    },
     "converter": {
         "type": "pymupdf",
         "metadata": {
@@ -144,8 +153,7 @@ arxiv_dir_path = "/Users/mattsteffen/projects/llm/internal-perplexity/data/arxiv
 def main():
     config = CrawlerConfig.from_dict(arxiv_config_dict)
     config.log_level = "INFO"  # Set log level for testing
-    extractor = MultiSchemaExtractor(schemas=[schema1, schema2], llm=OllamaLLM(config.llm))
-    mycrawler = Crawler(config, extractor=extractor)
+    mycrawler = Crawler(config)  # Extractor will be created from config
     mycrawler.crawl(short_options)
     # mycrawler.benchmark()  # Comment out benchmark for now
 

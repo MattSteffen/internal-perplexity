@@ -1,44 +1,128 @@
 """
-X-Midas Data Crawler
+X-Midas Data Crawler Example
 
-This module provides functionality to crawl and index three types of X-Midas data:
-1. LearnXM data (learnxm.json) - Learning documentation with subjects, descriptions, tags, and URLs
-2. XM Docs data (xm_docs.json) - X-Midas documentation with subjects, descriptions, tags, and file paths
-3. Q&A data (processed_xm_qa.json) - Question and answer data with context and users
+This module demonstrates how to use the Crawler package to process and index X-Midas data sources.
+X-Midas is a specialized programming language and environment designed for signal processing applications.
+This crawler handles three types of X-Midas data sources:
 
-The crawler uses the current crawler architecture with:
-- CrawlerConfig for configuration management
-- BasicExtractor for metadata extraction using LLMs
-- Milvus for vector storage
-- Proper preprocessing to convert JSON data to crawler-compatible format
+1. LearnXM Data (learnxm.json)
+   - Learning documentation with subjects, descriptions, tags, and URLs
+   - Educational materials teaching X-Midas programming concepts
+   - Focuses on syntax, data flow paradigms, and signal processing techniques
 
-Usage:
-    python crawl_xmidas.py              # Crawl all data sources
-    python crawl_xmidas.py test         # Run basic tests
-    python -c "from crawler.crawl_xmidas import crawl_learnxm; crawl_learnxm()"  # Crawl specific data source
+2. XM Docs Data (xm_docs.json)
+   - X-Midas documentation with subjects, descriptions, tags, and file paths
+   - Technical reference documentation for X-Midas functionality
+   - Includes help files, documentation, and example code references
 
-Configuration:
-- Update DATA_PATHS dictionary to point to your data files
-- Modify xm_config for your specific environment (LLM endpoints, Milvus connection, etc.)
-- Adjust temp_dir paths as needed
+3. Q&A Data (processed_xm_qa.json)
+   - Question and answer data with context and user information
+   - Community discussions and technical support interactions
+   - Timestamped conversations about X-Midas usage and troubleshooting
+
+Architecture:
+The crawler leverages the Crawler package's modular architecture:
+- CrawlerConfig: Centralized configuration management
+- BasicExtractor: LLM-powered metadata extraction and enhancement
+- Milvus: Vector database for embeddings and semantic search
+- Custom preprocessing: Converts JSON data to crawler-compatible format
+- Batch processing: Handles large datasets efficiently
+
+Usage Examples:
+
+1. Crawl all data sources:
+   python xmidas.py
+
+2. Crawl specific data source:
+   from crawler.examples.xmidas import crawl_learnxm
+   crawl_learnxm()
+
+3. Programmatic usage:
+   from crawler.examples.xmidas import crawl_data_source
+   crawl_data_source("learnxm", learnxm_schema, "learnxm_partition")
+
+Configuration Requirements:
+
+1. Data Source Paths:
+   Update the DATA_PATHS dictionary to point to your local data files:
+   - "/data/Copilot/learnxm.json"
+   - "/data/Copilot/xm_docs.json"
+   - "/data/Copilot/processed_xm_qa.json"
+
+2. Environment Setup:
+   - Ollama server running with appropriate models (mistral-small3.2)
+   - Milvus vector database accessible
+   - Sufficient disk space for temporary files (temp_dir: /tmp/xm)
+
+3. Model Configuration:
+   - Embedding model: nomic-embed-text (4096 dimensions)
+   - LLM: mistral-small3.2 for metadata extraction
+   - Vision model: mistral-small3.2 for image descriptions
 
 Data Format Requirements:
-- All data files should be JSON arrays of objects
-- Each data source has its own schema defined in this module
-- The crawler will create individual JSON files for each item in the temp directory
+
+Input Files:
+- Must be JSON arrays of objects
+- Each data source has its own JSON schema defined in this module
+- Files are preprocessed into individual JSON documents for the crawler
+
+Output:
+- Processed documents stored in Milvus vector database
+- Metadata enhanced with LLM-extracted information
+- Embeddings generated for semantic search capabilities
+
+Available Functions:
+
+Core Functions:
+- crawl_data_source(data_type, schema, partition): Generic crawler for any data source
+- crawl_learnxm(): Crawl LearnXM learning documentation
+- crawl_xm_docs(): Crawl X-Midas technical documentation
+- crawl_qa(): Crawl Q&A data
+- crawl_all(): Process all data sources sequentially
+
+Preprocessing Functions:
+- preprocess_learnxm_data(): Convert LearnXM JSON to crawler format
+- preprocess_xm_docs_data(): Convert XM Docs JSON to crawler format
+- preprocess_qa_data(): Convert Q&A JSON to crawler format
+
+Configuration:
+- xm_config_dict: Complete crawler configuration
+- DATA_PATHS: Data source file paths
+- Schema definitions: JSON schemas for each data type
+
+Dependencies:
+- crawler package (main processing framework)
+- json, os, sys (standard library)
+- pathlib (standard library)
+- typing (standard library)
+
+Error Handling:
+- Graceful handling of missing data files
+- Continues processing other data sources if one fails
+- Comprehensive logging for debugging and monitoring
+
+Performance Considerations:
+- Batch processing for large datasets
+- Configurable chunk sizes for embedding
+- Temporary file cleanup
+- Memory-efficient processing for large JSON files
+
+Example Output:
+After successful crawling, the system provides:
+- Vector embeddings for semantic search
+- Enhanced metadata with LLM-extracted insights
+- Structured data ready for RAG applications
+- Benchmarking results for search performance evaluation
 """
 
 from typing import Any, Dict, List
 import json, copy, os, sys
 import uuid
 from pathlib import Path
-# Add the src directory to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from src import Crawler, CrawlerConfig
-from src.processing import BasicExtractor
-from src.processing.llm import LLM
-from src.storage import get_db
+from crawler import Crawler, CrawlerConfig
+from crawler.processing import BasicExtractor, OllamaLLM
+from crawler.storage import get_db
 
 
 # Schema for LearnXM data (learnxm.json)
@@ -156,7 +240,7 @@ These materials will guide you through both fundamental concepts and advanced te
 
 
 # Base configuration for X-Midas crawling
-xm_config = {
+xm_config_dict = {
     "embeddings": {
         "provider": "ollama",
         "model": "nomic-embed-text",
@@ -181,6 +265,14 @@ xm_config = {
         "model_name": "mistral-small3.2",
         "provider": "ollama",
         "base_url": "http://ollama.a1.autobahn.rinconres.com",
+    },
+    "extractor": {
+        "type": "basic",
+        "llm": {
+            "model_name": "mistral-small3.2",
+            "provider": "ollama",
+            "base_url": "http://ollama.a1.autobahn.rinconres.com",
+        },
     },
     "converter": {
         "type": "pymupdf",
@@ -290,7 +382,7 @@ def preprocess_qa_data(data: List[Dict[str, Any]], temp_dir: str) -> None:
 
 def crawl_data_source(data_type: str, schema: Dict[str, Any], partition: str):
     """Generic function to crawl a specific data source."""
-    config = xm_config.copy()
+    config = xm_config_dict.copy()
     config["database"]["partition"] = partition
     temp_dir = f"{config['utils']['temp_dir']}/{data_type}"
 
@@ -316,15 +408,10 @@ def crawl_data_source(data_type: str, schema: Dict[str, Any], partition: str):
     # Create crawler with proper configuration
     crawler_config = CrawlerConfig.from_dict(config)
     crawler_config.metadata_schema = schema
+    crawler_config.log_level = "INFO"  # Set log level for testing
 
-    # Initialize LLM for extraction
-    llm = LLM(crawler_config.llm)
-
-    # Create extractor
-    extractor = BasicExtractor(schema, llm, learnxm_description)
-
-    # Create crawler
-    mycrawler = Crawler(crawler_config, extractor=extractor)
+    # Create crawler (extractor will be created from config)
+    mycrawler = Crawler(crawler_config)
 
     # Crawl the data
     mycrawler.crawl(temp_dir)

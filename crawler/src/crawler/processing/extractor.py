@@ -3,8 +3,36 @@ import time
 import json
 from typing import Dict, Any, List
 from abc import ABC, abstractmethod
-from .llm import LLM
+from .llm import LLM, LLMConfig
+from dataclasses import dataclass
+from typing import Optional
 
+
+@dataclass
+class ExtractorConfig:
+    """Configuration for document converters."""
+
+    type: str = "basic"
+    llm: Optional[LLMConfig] = None
+    metadata_schema: Optional[Dict[str, Any]] = None # This is for the metadata that each type of converter should use in it's init.
+
+    @classmethod
+    def from_dict(cls, config: Dict[str, Any]) -> "ExtractorConfig":
+        """Create ExtractorConfig from dictionary with validation."""
+        extractor_type = config.get("type", "basic")
+        if not extractor_type:
+            raise ValueError("Extractor type cannot be empty")
+
+        llm_config = config.get("llm")
+        llm = None
+        if llm_config:
+            llm = LLMConfig.from_dict(llm_config)
+
+        return cls(
+            type=extractor_type,
+            llm=llm,
+            metadata_schema=config.get("metadata_schema"),
+        )
 
 class Extractor(ABC):
     """
@@ -259,6 +287,42 @@ class MultiSchemaExtractor(Extractor):
             self.logger.warning(f"⚠️  {stats['failed_extractions']} schema(s) failed to extract metadata")
 
         return metadata
+
+
+def create_extractor(config: ExtractorConfig, llm: LLM) -> Extractor:
+    """
+    Factory function to create an extractor based on the configuration type.
+
+    Args:
+        config: ExtractorConfig containing the configuration
+        llm: LLM instance to use for extraction
+
+    Returns:
+        Configured Extractor instance
+    """
+    extractor_type = config.type.lower()
+
+    if extractor_type == "basic":
+        return BasicExtractor(
+            metadata_schema=config.metadata_schema or {},
+            llm=llm,
+            document_library_context="",
+            generate_benchmark_questions=False,
+            num_benchmark_questions=3
+        )
+    elif extractor_type == "multi_schema":
+        # For multi-schema extractor, we need to handle the schemas list
+        schemas = config.metadata_schema
+        if not isinstance(schemas, list):
+            schemas = [config.metadata_schema] if config.metadata_schema else []
+
+        return MultiSchemaExtractor(
+            schemas=schemas,
+            llm=llm,
+            library_description=""
+        )
+    else:
+        raise ValueError(f"Unknown extractor type: {config.type}")
 
 
 def generate_benchmark_questions(llm: LLM, text: str, n: int) -> List[str]:

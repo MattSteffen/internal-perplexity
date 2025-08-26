@@ -73,8 +73,8 @@ config_dict = {
 }
 
 # How to instantiate
-# from src.crawler import CrawlerConfig
-# crawler_config = CrawlerConfig.from_dict(config_dict)
+from crawler import CrawlerConfig
+crawler_config = CrawlerConfig.from_dict(config_dict)
 ```
 
 ---
@@ -148,3 +148,115 @@ The crawler is built on a set of abstract base classes (interfaces) that allow f
 
 -   **Purpose**: A dataclass that defines the standard structure for documents being inserted into the database, ensuring consistency.
 -   **Fields**: `text`, `text_embedding`, `chunk_index`, `source`, `metadata`.
+
+---
+
+## Database Storage
+
+### Milvus Integration
+
+The crawler uses Milvus as its vector database for storing document embeddings and metadata. The system automatically creates collections with appropriate schemas based on your metadata configuration.
+
+#### Collection Schema
+
+The database schema is automatically generated from your `metadata_schema` configuration. For example:
+
+```python
+metadata_schema = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string"},
+        "author": {"type": "string"},
+        "keywords": {"type": "array", "items": {"type": "string"}},
+        "publication_date": {"type": "string"}
+    },
+    "required": ["title"]
+}
+```
+
+This creates a Milvus collection with:
+- `id`: Primary key (auto-generated)
+- `text`: The document chunk text
+- `text_embedding`: Vector embedding (384 dimensions for all-minilm:v2)
+- `chunk_index`: Index of the chunk within the document
+- `source`: File path of the original document
+- `title`: Extracted title
+- `author`: Extracted author
+- `keywords`: Array of keywords
+- `publication_date`: Publication date string
+
+#### Partitioning
+
+You can organize documents into partitions for better performance:
+
+```python
+config_dict = {
+    "database": {
+        "provider": "milvus",
+        "collection": "documents",
+        "partition": "research_papers",  # Documents will be stored in this partition
+        "recreate": False,
+    }
+}
+```
+
+#### Duplicate Handling
+
+The system automatically detects and skips duplicate chunks based on `source` and `chunk_index` to prevent redundant processing.
+
+---
+
+## Benchmarking and Evaluation
+
+### Built-in Benchmarking
+
+The crawler includes comprehensive benchmarking capabilities to evaluate search performance:
+
+```python
+# Enable benchmarking
+config = CrawlerConfig.from_dict({
+    "database": {"provider": "milvus", "collection": "benchmark_test"},
+    "embeddings": {"provider": "ollama", "model": "all-minilm:v2"},
+    "utils": {
+        "benchmark": True,
+        "generate_benchmark_questions": True,
+        "num_benchmark_questions": 5
+    }
+})
+
+crawler = Crawler(config)
+crawler.crawl("documents/")
+results = crawler.benchmark()
+
+# View results
+print(f"Top-1 Accuracy: {results.percent_in_top_k[1]:.2f}%")
+print(f"Average Search Time: {sum(results.search_time_distribution) / len(results.search_time_distribution):.3f}s")
+```
+
+### Benchmark Metrics
+
+- **Placement Distribution**: Shows where relevant results appear in search rankings
+- **Distance Distribution**: Analyzes similarity scores between queries and results
+- **Search Time Distribution**: Measures query response times
+- **Top-K Accuracy**: Percentage of queries with relevant results in top K positions
+
+### Custom Benchmarking
+
+You can also create custom benchmark queries:
+
+```python
+from crawler.storage.database_utils import get_db_benchmark
+
+# Create benchmark client
+benchmark_client = get_db_benchmark(db_config, embed_config)
+
+# Define custom queries
+queries = [
+    "What is the main topic of the document?",
+    "Who is the author of this paper?",
+    "What are the key findings?"
+]
+
+# Run custom benchmark
+results = benchmark_client.run_benchmark(queries)
+```

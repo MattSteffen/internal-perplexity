@@ -76,13 +76,16 @@ from .processing import (
     EmbedderConfig,
     get_embedder,
     Extractor,
+    ExtractorConfig,
     BasicExtractor,
+    MultiSchemaExtractor,
     LLM,
     LLMConfig,
     get_llm,
     Converter,
     ConverterConfig,
     create_converter,
+    create_extractor,
 )
 from .storage import (
     DatabaseClient,
@@ -217,7 +220,7 @@ class CrawlerConfig:
     vision_llm: LLMConfig
     database: DatabaseClientConfig
     converter: ConverterConfig = field(default_factory=lambda: ConverterConfig())
-    extractor: Dict[str, any] = field(default_factory=dict)
+    extractor: ExtractorConfig = field(default_factory=lambda: ExtractorConfig())
     chunk_size: int = 10000  # treated as maximum if using semantic chunking
     metadata_schema: Dict[str, any] = field(default_factory=dict)
     temp_dir: str = "tmp/"
@@ -235,7 +238,7 @@ class CrawlerConfig:
             vision_llm=LLMConfig.from_dict(config.get("vision_llm", {})),
             database=DatabaseClientConfig.from_dict(config.get("database", {})),
             converter=ConverterConfig.from_dict(config.get("converter", {})),
-            extractor=config.get("extractor", {}),
+            extractor=ExtractorConfig.from_dict(config.get("extractor", {})),
             metadata_schema=config.get("metadata_schema", {}),
             chunk_size=config.get("utils", {}).get("chunk_size", 10000),
             temp_dir=config.get("utils", {}).get("temp_dir", "tmp/"),
@@ -245,6 +248,7 @@ class CrawlerConfig:
             log_level=config.get("log_level", "INFO"),
             log_file=config.get("log_file"),
         )
+
 
 
 class Crawler:
@@ -282,12 +286,7 @@ class Crawler:
             self.embedder = get_embedder(self.config.embeddings)
 
         if self.extractor is None:
-            self.extractor = BasicExtractor(
-                self.config.metadata_schema,
-                self.llm,
-                generate_benchmark_questions=self.config.generate_benchmark_questions,
-                num_benchmark_questions=self.config.num_benchmark_questions
-            )
+            self.extractor = create_extractor(self.config.extractor, self.llm)
 
         if self.vector_db is None:
             self.vector_db = get_db(

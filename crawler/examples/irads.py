@@ -1,12 +1,5 @@
-import sys
-import os
-from typing import Any, Dict
-# Add the src directory to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
-
-from src import Crawler, CrawlerConfig
-from src.processing.llm import LLM
-from src.processing.extractor import Extractor, MultiSchemaExtractor
+from crawler import Crawler, CrawlerConfig
+from crawler.processing import MultiSchemaExtractor, OllamaLLM
 
 full_schema = {
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -158,13 +151,16 @@ schema2 = {
     }
   }
 }
-extra_fields = ["summary_item_1", "summary_item_2", "summary_item_3"]
-
+# Combine schemas
+metadata_schema = {
+    "type": "object",
+    "required": schema1.get("required", []) + schema2.get("required", []),
+    "properties": {**schema1.get("properties", {}), **schema2.get("properties", {})},
+}
 
 irad_library_description = "You are about to process a collection of internal company research documents focused on signal processing, machine learning, and development initiatives. These materials contain proprietary research findings, technical methodologies, experimental results, implementation strategies, and development protocols specific to our organization's projects and objectives. The documents span various aspects of signal processing algorithms, machine learning model architectures, data analysis techniques, software development practices, and applied research outcomes. Each document represents internal knowledge, technical insights, and research progress that may include confidential methodologies, performance metrics, and strategic technical directions relevant to our company's research and development efforts."
 
-
-irad_config = {
+irad_config_dict = {
     "embeddings": {
         "provider": "ollama",
         "model": "nomic-embed-text",
@@ -182,13 +178,22 @@ irad_config = {
         "port": 19530,
         "username": "root",
         "password": "Milvus",
-        "collection": "test_arxiv2",
+        "collection": "irad_documents",
         "recreate": True,
     },
     "llm": {
         "model_name": "gemma3",
         "provider": "ollama",
         "base_url": "http://localhost:11434",
+    },
+    "extractor": {
+        "type": "multi_schema",
+        "llm": {
+            "model_name": "gemma3",
+            "provider": "ollama",
+            "base_url": "http://localhost:11434",
+        },
+        "metadata_schema": [schema1, schema2],
     },
     "converter": {
         "type": "pymupdf",
@@ -210,7 +215,8 @@ irad_config = {
     "utils": {
         "chunk_size": 1000,
         "temp_dir": "/tmp/irads",
-    }
+    },
+    "metadata_schema": metadata_schema,
 }
 
 dir_path = "/home/ubuntu/irads-crawler/data/irads"
@@ -218,11 +224,11 @@ short_options = ["/home/ubuntu/irads-crawler/data/irads/test.pdf"]
 
 
 def main():
-    config = CrawlerConfig.from_dict(irad_config)
-    config.metadata_schema = full_schema
-    myExtractor = MultiSchemaExtractor(irad_config, [schema1, schema2], irad_library_description)
-    mycrawler = Crawler(config, extractor=myExtractor)
+    config = CrawlerConfig.from_dict(irad_config_dict)
+    config.log_level = "INFO"  # Set log level for testing
+    mycrawler = Crawler(config)  # Extractor will be created from config
     mycrawler.crawl(short_options)
+    # mycrawler.benchmark()  # Comment out benchmark for now
 
 
 if __name__ == "__main__":
