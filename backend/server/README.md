@@ -15,12 +15,16 @@ This server implements a comprehensive agent orchestration system with:
 
 ```
 server/
-├── llm/                    # Core LLM orchestration package
+├── main.go                # Simple entry point
+├── llm/                   # Core LLM orchestration package
 │   ├── models/            # Provider integrations & shared types
 │   ├── agents/            # Agent implementations
 │   ├── tools/             # Deterministic tools
 │   └── services/          # Orchestration frameworks
-├── api/                   # REST API endpoints
+├── api/                   # REST API layer
+│   ├── server/            # HTTP server implementation
+│   ├── handlers/          # HTTP request handlers
+│   └── types.go           # API types and DTOs
 ├── agents/                # Legacy agent implementations
 ├── handlers/              # HTTP request handlers
 ├── models/                # Data models & DTOs
@@ -28,6 +32,13 @@ server/
 ```
 
 ## Core Components
+
+### API Server (`api/server/`)
+The main HTTP server implementation with dependency injection and lifecycle management:
+- **Dependency Injection**: Wires together LLM providers, tools, and agents
+- **HTTP Setup**: Configures routes, middleware, and server settings
+- **Lifecycle Management**: Graceful start/stop with signal handling
+- **Configuration**: Flexible server configuration options
 
 ### LLM Package (`llm/`)
 
