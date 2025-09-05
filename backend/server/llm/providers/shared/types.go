@@ -2,6 +2,23 @@ package shared
 
 import "context"
 
+// ProviderType defines the type of LLM provider
+type ProviderType string
+
+const (
+	ProviderOpenAI    ProviderType = "openai"
+	ProviderAnthropic ProviderType = "anthropic"
+	ProviderOllama    ProviderType = "ollama"
+)
+
+// ModelInfo represents information about a specific model
+type ModelInfo struct {
+	Name        string       `json:"name"`
+	Provider    ProviderType `json:"provider"`
+	MaxTokens   int          `json:"max_tokens"`
+	Description string       `json:"description,omitempty"`
+}
+
 // Message represents a chat message for LLM providers
 type Message struct {
 	Role    string `json:"role"`    // system, user, assistant
@@ -31,10 +48,20 @@ type TokenUsage struct {
 	TotalTokens      int `json:"total_tokens"`
 }
 
+// CompletionRequest represents a request to complete with model and API key
+type CompletionRequest struct {
+	Messages []Message         `json:"messages"`
+	Options  CompletionOptions `json:"options,omitempty"`
+	Model    string            `json:"model"`
+	APIKey   string            `json:"-"` // Not serialized, passed separately
+}
+
 // LLMProvider defines the interface for LLM providers
 type LLMProvider interface {
-	Complete(ctx context.Context, messages []Message, opts CompletionOptions) (*CompletionResponse, error)
+	Complete(ctx context.Context, req *CompletionRequest) (*CompletionResponse, error)
 	CountTokens(messages []Message) (int, error)
+	GetSupportedModels() []ModelInfo
+	SupportsModel(model string) bool
 }
 
 // LLMConfig holds configuration for LLM providers

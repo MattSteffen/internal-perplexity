@@ -488,6 +488,15 @@ calculator/
 └── validation.go     # Expression validation logic
 ```
 
+### Retriever Tool Directory Structure
+```
+retriever/
+├── retriever.go         # Main retriever tool implementation
+├── retriever_test.go    # Unit tests for retriever functionality
+├── example_usage.go     # Example usage patterns
+└── README.md           # Tool-specific documentation
+```
+
 ### Calculator Tool Usage
 ```go
 // Register calculator tool
@@ -507,6 +516,107 @@ if result.Success {
     data := result.Data.(map[string]interface{})
     fmt.Printf("Result: %v\n", data["result"])
     // Output: Result: 96
+}
+```
+
+### API Usage with curl
+
+#### Calculator Tool
+```bash
+curl -X POST http://localhost:8080/tools/calculator \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": {
+      "expression": "15 + 27 * 3"
+    }
+  }'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "output": {
+    "expression": "15 + 27 * 3",
+    "result": 96
+  },
+  "stats": {
+    "execution_time": "0.001s"
+  }
+}
+```
+
+#### Document Summarizer Tool
+```bash
+curl -X POST http://localhost:8080/tools/document_summarizer \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": {
+      "content": "Your document text here...",
+      "max_length": 100
+    }
+  }'
+```
+
+#### Retriever Tool
+```bash
+curl -X POST http://localhost:8080/tools/retriever \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": {
+      "collection_name": "your_collection",
+      "texts": ["search query"],
+      "top_k": 5
+    }
+  }'
+```
+
+### Authentication
+Some endpoints may require API key authentication:
+```bash
+curl -X POST http://localhost:8080/agents/primary \
+  -H "Content-Type: application/json" \
+  -H "X-API-KEY: your-api-key-here" \
+  -d '{...}'
+```
+
+### Retriever Tool
+```go
+type RetrieverTool struct {
+    // Queries Milvus vector database
+}
+
+func (r *RetrieverTool) Name() string {
+    return "retriever"
+}
+
+func (r *RetrieverTool) Execute(ctx context.Context, input *ToolInput) (*ToolResult, error) {
+    // Execute hybrid search against Milvus
+    // Returns structured results with scores and metadata
+}
+```
+
+### Retriever Tool Usage
+```go
+// Register retriever tool
+registry := NewToolRegistry()
+retriever := NewMilvusQueryTool()
+registry.Register(retriever)
+
+// Execute semantic search
+result, err := registry.Execute(ctx, &ToolInput{
+    Name: "retriever",
+    Data: map[string]interface{}{
+        "collection_name": "xmidas",
+        "texts":           []interface{}{"artificial intelligence", "machine learning"},
+        "top_k":           10,
+    },
+})
+
+if result.Success {
+    data := result.Data.(map[string]interface{})
+    results := data["results"].([]interface{})
+    fmt.Printf("Found %d results\n", len(results))
 }
 ```
 

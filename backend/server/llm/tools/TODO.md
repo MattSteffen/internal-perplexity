@@ -53,6 +53,18 @@ func (r *ToolRegistry) Register(tool Tool) {
 - [ ] Add support for decimal numbers
 - [ ] Test edge cases and error conditions
 
+### 5. Retriever Tool
+- [x] Create `retriever/` directory
+- [x] Implement Milvus query interface
+- [x] Add hybrid search capabilities
+- [x] Implement input validation for queries
+- [x] Add partition support
+- [x] Integrate with tool registry
+- [x] Create comprehensive tests
+- [ ] Add actual Milvus client integration
+- [ ] Implement text embedding
+- [ ] Add vector search execution
+
 ```go
 type DocumentSummarizer struct {
     llmClient LLMProvider
@@ -219,9 +231,13 @@ tools:
 - [ ] Error handling is comprehensive
 
 ## Files to Create
-- `llm/tools/registry.go`
-- `llm/tools/types.go`
-- `llm/tools/document_summarizer/document_summarizer.go`
-- `llm/tools/web_search/web_search.go`
-- `llm/tools/registry_test.go`
-- `llm/tools/document_summarizer/document_summarizer_test.go`
+- [x] `llm/tools/registry.go`
+- [x] `llm/tools/types.go`
+- [x] `llm/tools/document_summarizer/document_summarizer.go`
+- [x] `llm/tools/retriever/retriever.go`
+- [x] `llm/tools/retriever/retriever_test.go`
+- [x] `llm/tools/retriever/README.md`
+- [x] `llm/tools/retriever/example_usage.go`
+- [ ] `llm/tools/web_search/web_search.go`
+- [ ] `llm/tools/registry_test.go`
+- [ ] `llm/tools/document_summarizer/document_summarizer_test.go`

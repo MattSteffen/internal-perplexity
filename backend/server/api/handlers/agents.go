@@ -54,9 +54,22 @@ func (h *AgentHandler) ExecuteAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Convert to AgentInput
+	// Extract API key from header
+	apiKey := r.Header.Get("X-API-KEY")
+
+	// Extract model from request body (with default)
+	model := req.Model
+	if model == "" {
+		model = "gpt-4" // default model
+	}
+
+	// Convert to AgentInput with context
 	agentInput := &agents.AgentInput{
 		Data: req.Input,
+		Context: map[string]interface{}{
+			"model":   model,
+			"api_key": apiKey,
+		},
 	}
 
 	// Execute agent directly

@@ -6,6 +6,7 @@ import "time"
 type ExecuteAgentRequest struct {
 	Input   map[string]interface{} `json:"input" binding:"required"`
 	Context map[string]interface{} `json:"context,omitempty"`
+	Model   string                 `json:"model,omitempty"`
 	Async   bool                   `json:"async,omitempty"`
 	Timeout time.Duration          `json:"timeout,omitempty"`
 }

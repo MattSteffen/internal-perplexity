@@ -7,7 +7,7 @@ import (
 
 	"internal-perplexity/server/llm/agents"
 	"internal-perplexity/server/llm/agents/sub-agents/summary"
-	"internal-perplexity/server/llm/models/shared"
+	"internal-perplexity/server/llm/providers/shared"
 )
 
 // PrimaryAgent is the main orchestrator agent
@@ -115,7 +115,7 @@ func (p *PrimaryAgent) executeGeneralQuery(ctx context.Context, input *agents.Ag
 	messages := []shared.Message{
 		{
 			Role:    "system",
-			Content: "You are a helpful AI assistant. Provide clear, accurate, and concise responses.",
+			Content: "You are a helpful AI assistant. Provide clear, accurate, and concise responses.", // TODO: Should be a good system prompt for the agent
 		},
 		{
 			Role:    "user",
@@ -123,10 +123,30 @@ func (p *PrimaryAgent) executeGeneralQuery(ctx context.Context, input *agents.Ag
 		},
 	}
 
-	resp, err := p.llmClient.Complete(ctx, messages, shared.CompletionOptions{
-		MaxTokens:   500,
-		Temperature: 0.7,
-	})
+	// Extract model and API key from input context
+	model := "gpt-4" // TODO: Should be from a list of providers, this is a default for now
+	apiKey := ""
+
+	if input.Context != nil {
+		if m, ok := input.Context["model"].(string); ok && m != "" {
+			model = m
+		}
+		if key, ok := input.Context["api_key"].(string); ok {
+			apiKey = key
+		}
+	}
+
+	req := &shared.CompletionRequest{
+		Messages: messages,
+		Options: shared.CompletionOptions{
+			MaxTokens:   10000,
+			Temperature: 0.7,
+		},
+		Model:  model,
+		APIKey: apiKey,
+	}
+
+	resp, err := p.llmClient.Complete(ctx, req)
 	if err != nil {
 		return &agents.AgentResult{
 			Success:  false,

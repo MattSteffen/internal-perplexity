@@ -1,246 +1,161 @@
-# Summary Sub-Agent
+# Researcher Agent
 
-Specialized agent for content summarization that takes a list of text contents and instructions to generate structured summaries.
+**NOT IMPLEMENTED** - This sub-agent is not part of the current MVP scope but is planned for future development.
 
 ## Purpose
-The summary agent handles:
-- Multi-document content summarization
-- Instruction-based summarization focus
-- Structured output generation
-- Configurable summary length and format
-- Single LLM call per summarization task
 
-## Implementation Structure
+The Researcher Agent will be a specialized sub-agent for comprehensive research and information gathering. When implemented, it will handle:
+- **Web Research**: Automated web searching and content discovery
+- **Information Synthesis**: Combining information from multiple sources
+- **Source Validation**: Assessing credibility and relevance of sources
+- **Research Planning**: Developing systematic research strategies
+- **Knowledge Integration**: Synthesizing findings into coherent reports
 
-### summary.go
+## Features (Planned)
+
+- **Multi-Source Research**: Gather information from diverse sources
+- **Web Search Integration**: Automated web searching capabilities
+- **Source Credibility Assessment**: Evaluate information quality and reliability
+- **Research Strategy Development**: Plan and execute systematic research approaches
+- **Knowledge Synthesis**: Combine and integrate findings from multiple sources
+- **Report Generation**: Create comprehensive research reports
+
+## Implementation Structure (Planned)
+
+### researcher.go
 **Contents:**
-- `SummaryAgent` struct implementing `Agent` interface
-- Content processing and instruction parsing
-- LLM-powered summarization with structured prompts
-- Result formatting with metadata
+- `ResearcherAgent` struct implementing `Agent` interface
+- Web search and content discovery orchestration
+- Source validation and credibility assessment
+- Research planning and strategy development
+- Knowledge synthesis and report generation
 
 **Key Methods:**
 ```go
-type SummaryAgent struct {
-    llmClient LLMProvider
+type ResearcherAgent struct {
+    llmClient    LLMProvider
+    searchTool   Tool
+    summaryAgent *SummaryAgent
+    webTools     []Tool
 }
 
-func (s *SummaryAgent) Execute(ctx context.Context, input *AgentInput) (*AgentResult, error) {
-    // 1. Parse input parameters
-    contents := input.Data["contents"].([]string)
-    instructions := input.Data["instructions"].(string)
-    focusAreas := input.Data["focus_areas"].([]string)
+func (r *ResearcherAgent) Execute(ctx context.Context, input *AgentInput) (*AgentResult, error) {
+    // 1. Parse research request and develop strategy
+    query := input.Data["query"].(string)
+    strategy := r.developResearchStrategy(query)
 
-    // 2. Combine contents for processing
-    combinedContent := strings.Join(contents, "\n\n")
+    // 2. Execute web searches and gather sources
+    sources, err := r.gatherSources(ctx, strategy)
 
-    // 3. Build structured summarization prompt
-    prompt := s.buildSummaryPrompt(combinedContent, instructions, focusAreas)
+    // 3. Validate and rank sources by credibility
+    validatedSources := r.validateSources(sources)
 
-    // 4. Execute LLM summarization
-    messages := []openai.ChatCompletionMessage{
-        {Role: "system", Content: "You are a professional summarizer."},
-        {Role: "user", Content: prompt},
-    }
+    // 4. Extract and process relevant content
+    content := r.extractContent(validatedSources)
 
-    resp, err := s.llmClient.Complete(ctx, messages, CompletionOptions{})
-    if err != nil {
-        return nil, err
-    }
-
-    // 5. Parse and structure response
-    summary := s.parseSummary(resp.Content)
+    // 5. Synthesize findings and generate report
+    report := r.synthesizeFindings(content, strategy)
 
     return &AgentResult{
-        Content: &SummaryResult{
-            Summary:     summary,
-            FocusAreas:  focusAreas,
-            ContentCount: len(contents),
+        Content: &ResearchResult{
+            Query:       query,
+            Sources:     validatedSources,
+            Findings:    report.Findings,
+            Summary:     report.Summary,
+            Confidence:  report.Confidence,
         },
         Success: true,
-        TokensUsed: resp.TokensUsed,
+        TokensUsed: TokenUsage{...},
         Duration: time.Since(start),
         Metadata: map[string]interface{}{
-            "input_length": len(combinedContent),
-            "focus_areas": focusAreas,
+            "sources_found": len(sources),
+            "sources_validated": len(validatedSources),
+            "research_strategy": strategy.Type,
         },
     }, nil
 }
 ```
 
-### Input/Output Structure
-**Input:**
+### Tool Integrations (Planned)
+**Required Tools:**
+- `web_search` - Web content discovery and retrieval
+- `content_summarizer` - Content processing and summarization
+- `source_validator` - Credibility assessment and ranking
+- `data_extractor` - Information extraction from web content
+
+### Result Format (Planned)
 ```go
-type AgentInput struct {
-    Data map[string]interface{}{
-        "contents": []string{
-            "First document content...",
-            "Second document content...",
-        },
-        "instructions": "Focus on key findings and recommendations",
-        "focus_areas": []string{"findings", "recommendations", "conclusions"},
-    }
+type ResearchResult struct {
+    Query       string      `json:"query"`
+    Sources     []Source    `json:"sources"`
+    Findings    []Finding   `json:"findings"`
+    Summary     string      `json:"summary"`
+    Confidence  float64     `json:"confidence"`
+}
+
+type Source struct {
+    URL         string  `json:"url"`
+    Title       string  `json:"title"`
+    Credibility float64 `json:"credibility"`
+    Content     string  `json:"content"`
+}
+
+type Finding struct {
+    Topic       string   `json:"topic"`
+    Summary     string   `json:"summary"`
+    Sources     []string `json:"sources"`
+    Confidence  float64  `json:"confidence"`
 }
 ```
 
-**Output:**
-```go
-type SummaryResult struct {
-    Summary      string   `json:"summary"`
-    FocusAreas   []string `json:"focus_areas"`
-    ContentCount int      `json:"content_count"`
-    Sections     []Section `json:"sections,omitempty"`
-}
+## Research Types Supported (Planned)
+- **Web Research**: Automated web searching and content discovery
+- **Source Evaluation**: Credibility assessment and ranking
+- **Information Synthesis**: Combining findings from multiple sources
+- **Topic Analysis**: Deep analysis of specific research topics
+- **Comparative Research**: Comparing information across sources
+- **Trend Analysis**: Identifying patterns and emerging trends
 
-type Section struct {
-    Title   string `json:"title"`
-    Content string `json:"content"`
-}
-```
-
-## Input Validation
-
-The summary agent performs comprehensive validation on all input parameters before processing.
-
-### Validation Rules
-
-**Required Fields:**
-- `contents`: Non-empty array of strings
-- `instructions`: Non-empty string with summarization guidance
-
-**Optional Fields:**
-- `focus_areas`: Array of strings (no duplicates allowed)
-- `max_length`: Positive integer (default: 500)
-- `format`: String enum: "concise", "detailed", "bullet_points"
-
-### Validation Examples
+## Usage Example (Planned)
 
 ```go
-// Valid input
-input := &AgentInput{
+researcher := NewResearcherAgent(llmClient, toolRegistry)
+
+result, err := researcher.Execute(ctx, &AgentInput{
     Data: map[string]interface{}{
-        "contents": []string{
-            "Go is a programming language...",
-            "It features concurrency...",
-        },
-        "instructions": "Summarize the key features",
-        "focus_areas": []string{"features", "benefits"},
-        "max_length": 300,
-    },
-}
-err := summaryAgent.Validate(input)
-// Returns: nil (valid)
-
-// Missing contents
-input := &AgentInput{
-    Data: map[string]interface{}{
-        "instructions": "Summarize this",
-    },
-}
-err := summaryAgent.Validate(input)
-// Returns: ValidationError{Code: "MISSING_REQUIRED_FIELD", Field: "contents"}
-
-// Empty contents array
-input := &AgentInput{
-    Data: map[string]interface{}{
-        "contents": []string{},
-        "instructions": "Summarize this",
-    },
-}
-err := summaryAgent.Validate(input)
-// Returns: ValidationError{Code: "EMPTY_CONTENTS", Field: "contents"}
-
-// Invalid content type
-input := &AgentInput{
-    Data: map[string]interface{}{
-        "contents": "not an array",
-        "instructions": "Summarize this",
-    },
-}
-err := summaryAgent.Validate(input)
-// Returns: ValidationError{Code: "INVALID_FIELD_TYPE", Field: "contents", Value: "string"}
-
-// Duplicate focus areas
-input := &AgentInput{
-    Data: map[string]interface{}{
-        "contents": []string{"content1", "content2"},
-        "instructions": "Summarize this",
-        "focus_areas": []string{"features", "features", "benefits"},
-    },
-}
-err := summaryAgent.Validate(input)
-// Returns: ValidationError{Code: "DUPLICATE_FOCUS_AREAS", Field: "focus_areas"}
-
-// Invalid max_length
-input := &AgentInput{
-    Data: map[string]interface{}{
-        "contents": []string{"content1", "content2"},
-        "instructions": "Summarize this",
-        "max_length": -100,
-    },
-}
-err := summaryAgent.Validate(input)
-// Returns: ValidationError{Code: "INVALID_FIELD_VALUE", Field: "max_length", Value: -100}
-```
-
-### Validation Error Types
-
-| Error Code | Description | Field |
-|------------|-------------|-------|
-| `MISSING_REQUIRED_FIELD` | Required field is missing | varies |
-| `EMPTY_CONTENTS` | Contents array is empty | `contents` |
-| `INVALID_FIELD_TYPE` | Field has wrong data type | varies |
-| `INVALID_FIELD_VALUE` | Field value is invalid | varies |
-| `DUPLICATE_FOCUS_AREAS` | Focus areas contain duplicates | `focus_areas` |
-| `CONTENT_TOO_LONG` | Individual content exceeds limit | `contents` |
-| `INSTRUCTION_TOO_LONG` | Instructions exceed character limit | `instructions` |
-
-### Content Size Limits
-- **Individual Content**: Maximum 50,000 characters
-- **Combined Contents**: Maximum 200,000 characters
-- **Instructions**: Maximum 2,000 characters
-- **Focus Areas**: Maximum 10 areas, each ≤ 50 characters
-
-## Usage Example
-
-```go
-summaryAgent := NewSummaryAgent(llmClient)
-
-result, err := summaryAgent.Execute(ctx, &AgentInput{
-    Data: map[string]interface{}{
-        "contents": []string{
-            "Go is a statically typed programming language...",
-            "It features garbage collection and concurrent execution...",
-        },
-        "instructions": "Summarize the key features and benefits",
-        "focus_areas": []string{"features", "benefits"},
+        "query": "artificial intelligence applications in healthcare",
+        "depth": "comprehensive",
+        "sources_required": 5,
     },
 })
 
 if result.Success {
-    summaryData := result.Content.(*SummaryResult)
-    fmt.Printf("Summary: %s\n", summaryData.Summary)
-    fmt.Printf("Processed %d content items\n", summaryData.ContentCount)
+    research := result.Content.(*ResearchResult)
+    fmt.Printf("Found %d credible sources\n", len(research.Sources))
+    fmt.Printf("Research summary: %s\n", research.Summary)
+    fmt.Printf("Overall confidence: %.2f\n", research.Confidence)
 }
 ```
 
-## Performance Characteristics
-- **Latency**: 1-5 seconds depending on content length
-- **Token Usage**: 200-800 tokens per summarization
-- **Success Rate**: >98% for well-formed inputs
-- **Deterministic**: Same input produces consistent results
+## Performance Characteristics (Planned)
+- **Latency**: 10-60 seconds depending on research complexity
+- **Token Usage**: 1000-8000 tokens per research task
+- **Sources Processed**: Up to 20 sources per research query
+- **Success Rate**: >95% for well-formed research queries
+- **Caching**: Query result caching for repeated research
 
-## Configuration Options
-- **Content Length**: Maximum combined content length
-- **Summary Length**: Target summary length
-- **Focus Areas**: Specific areas to emphasize
-- **Output Format**: Structured vs. free-form summaries
-- **Language**: Target language for summaries
+## Configuration Options (Planned)
+- **Research Depth**: "quick", "standard", "comprehensive"
+- **Source Requirements**: Minimum/maximum sources to process
+- **Credibility Threshold**: Minimum credibility score for sources
+- **Output Format**: Summary, detailed report, or structured findings
+- **Language**: Target language for research and reporting
 
-## Monitoring Stats
+## Monitoring Stats (Planned)
 Returns execution statistics:
-- Content items processed
-- Input text length
-- Token usage breakdown
-- Processing duration
-- Focus areas covered
+- Sources discovered and validated
+- Research strategy employed
+- Processing time breakdown
+- Credibility scores distribution
+- Token usage by component
+

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"internal-perplexity/server/llm/models/shared"
+	"internal-perplexity/server/llm/providers/shared"
 	"internal-perplexity/server/llm/tools"
 )
 
@@ -85,10 +85,17 @@ func (d *DocumentSummarizer) Execute(ctx context.Context, input *tools.ToolInput
 		},
 	}
 
-	resp, err := d.llmClient.Complete(ctx, messages, shared.CompletionOptions{
-		MaxTokens:   maxLength * 5, // Rough estimate: 5 tokens per word
-		Temperature: 0.3,           // Lower temperature for more focused summaries
-	})
+	req := &shared.CompletionRequest{
+		Messages: messages,
+		Options: shared.CompletionOptions{
+			MaxTokens:   maxLength * 5, // Rough estimate: 5 tokens per word
+			Temperature: 0.3,           // Lower temperature for more focused summaries
+		},
+		Model:  "gpt-4", // default model
+		APIKey: "",      // will be passed from context if available
+	}
+
+	resp, err := d.llmClient.Complete(ctx, req)
 	if err != nil {
 		return &tools.ToolResult{
 			Success: false,

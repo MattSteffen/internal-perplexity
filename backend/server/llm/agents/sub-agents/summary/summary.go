@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"internal-perplexity/server/llm/agents"
-	"internal-perplexity/server/llm/models/shared"
+	"internal-perplexity/server/llm/providers/shared"
 )
 
 // SummaryAgent handles document summarization tasks
@@ -84,10 +84,30 @@ func (s *SummaryAgent) Execute(ctx context.Context, input *agents.AgentInput) (*
 		},
 	}
 
-	resp, err := s.llmClient.Complete(ctx, messages, shared.CompletionOptions{
-		MaxTokens:   1000,
-		Temperature: 0.3,
-	})
+	// Extract model and API key from input context
+	model := "gpt-4" // default model
+	apiKey := ""
+
+	if input.Context != nil {
+		if m, ok := input.Context["model"].(string); ok && m != "" {
+			model = m
+		}
+		if key, ok := input.Context["api_key"].(string); ok {
+			apiKey = key
+		}
+	}
+
+	req := &shared.CompletionRequest{
+		Messages: messages,
+		Options: shared.CompletionOptions{
+			MaxTokens:   1000,
+			Temperature: 0.3,
+		},
+		Model:  model,
+		APIKey: apiKey,
+	}
+
+	resp, err := s.llmClient.Complete(ctx, req)
 	if err != nil {
 		return &agents.AgentResult{
 			Success:  false,

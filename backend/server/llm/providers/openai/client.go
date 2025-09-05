@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"internal-perplexity/server/llm/models/shared"
+	"internal-perplexity/server/llm/providers/shared"
 
 	"github.com/sashabaranov/go-openai"
 )
@@ -36,41 +36,43 @@ func NewClient(config *shared.LLMConfig) *Client {
 }
 
 // Complete sends a completion request, trying OpenAI first then falling back to Ollama
-func (c *Client) Complete(ctx context.Context, messages []shared.Message, opts shared.CompletionOptions) (*shared.CompletionResponse, error) {
+func (c *Client) Complete(ctx context.Context, req *shared.CompletionRequest) (*shared.CompletionResponse, error) {
 	// Convert messages to OpenAI format
-	openaiMessages := make([]openai.ChatCompletionMessage, len(messages))
-	for i, msg := range messages {
+	openaiMessages := make([]openai.ChatCompletionMessage, len(req.Messages))
+	for i, msg := range req.Messages {
 		openaiMessages[i] = openai.ChatCompletionMessage{
 			Role:    msg.Role,
 			Content: msg.Content,
 		}
 	}
 
-	// Set up request
-	req := openai.ChatCompletionRequest{
-		Model:    c.config.Model,
+	// Set up request with model from request
+	openaiReq := openai.ChatCompletionRequest{
+		Model:    req.Model,
 		Messages: openaiMessages,
 	}
 
-	if opts.MaxTokens > 0 {
-		req.MaxTokens = opts.MaxTokens
+	if req.Options.MaxTokens > 0 {
+		openaiReq.MaxTokens = req.Options.MaxTokens
 	}
-	if opts.Temperature > 0 {
-		req.Temperature = opts.Temperature
+	if req.Options.Temperature > 0 {
+		openaiReq.Temperature = req.Options.Temperature
 	}
-	if opts.TopP > 0 {
-		req.TopP = opts.TopP
+	if req.Options.TopP > 0 {
+		openaiReq.TopP = req.Options.TopP
 	}
-	if opts.Stream {
-		req.Stream = opts.Stream
+	if req.Options.Stream {
+		openaiReq.Stream = req.Options.Stream
 	}
 
-	// Try OpenAI first if available
+	// Try OpenAI first if available and API key provided
 	var resp openai.ChatCompletionResponse
 	var err error
 
-	if c.openaiClient != nil {
-		resp, err = c.openaiClient.CreateChatCompletion(ctx, req)
+	if c.openaiClient != nil && req.APIKey != "" {
+		// Create client with request-specific API key
+		clientWithKey := openai.NewClient(req.APIKey)
+		resp, err = clientWithKey.CreateChatCompletion(ctx, openaiReq)
 		if err == nil {
 			return c.convertResponse(resp), nil
 		}
@@ -78,8 +80,8 @@ func (c *Client) Complete(ctx context.Context, messages []shared.Message, opts s
 	}
 
 	// Fallback to Ollama
-	req.Model = "gpt-oss:20b" // Use gpt-oss:20b for Ollama
-	resp, err = c.ollamaClient.CreateChatCompletion(ctx, req)
+	openaiReq.Model = "gpt-oss:20b" // Use gpt-oss:20b for Ollama
+	resp, err = c.ollamaClient.CreateChatCompletion(ctx, openaiReq)
 	if err != nil {
 		return nil, fmt.Errorf("both OpenAI and Ollama failed: %w", err)
 	}
@@ -115,4 +117,45 @@ func (c *Client) convertResponse(resp openai.ChatCompletionResponse) *shared.Com
 			TotalTokens:      resp.Usage.TotalTokens,
 		},
 	}
+}
+
+// GetSupportedModels returns the list of supported models for this provider
+func (c *Client) GetSupportedModels() []shared.ModelInfo {
+	return []shared.ModelInfo{
+		{
+			Name:        "gpt-4",
+			Provider:    shared.ProviderOpenAI,
+			MaxTokens:   8192,
+			Description: "OpenAI GPT-4 model",
+		},
+		{
+			Name:        "gpt-4-turbo",
+			Provider:    shared.ProviderOpenAI,
+			MaxTokens:   128000,
+			Description: "OpenAI GPT-4 Turbo model",
+		},
+		{
+			Name:        "gpt-3.5-turbo",
+			Provider:    shared.ProviderOpenAI,
+			MaxTokens:   4096,
+			Description: "OpenAI GPT-3.5 Turbo model",
+		},
+		{
+			Name:        "gpt-oss:20b",
+			Provider:    shared.ProviderOllama,
+			MaxTokens:   4096,
+			Description: "Ollama GPT-OSS 20B model (fallback)",
+		},
+	}
+}
+
+// SupportsModel checks if the provider supports the given model
+func (c *Client) SupportsModel(model string) bool {
+	supportedModels := c.GetSupportedModels()
+	for _, m := range supportedModels {
+		if m.Name == model {
+			return true
+		}
+	}
+	return false
 }

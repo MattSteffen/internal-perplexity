@@ -1,19 +1,24 @@
-# Analyst Sub-Agent
+# Analyst Agent
 
-**NOT IMPLEMENTED** - This sub-agent is not part of the MVP scope.
-
-For future implementation, this would be a specialized agent for:
-- Data analysis and pattern recognition
-- Statistical processing and insight generation
-- Report generation with visualizations
+**NOT IMPLEMENTED** - This sub-agent is not part of the current MVP scope but is planned for future development.
 
 ## Purpose
-The analyst agent handles:
-- Statistical analysis of datasets
-- Pattern recognition and trend identification
-- Correlation analysis
-- Predictive modeling
-- Report generation with visualizations
+
+The Analyst Agent will be a specialized sub-agent for advanced data analysis and insight generation. When implemented, it will handle:
+- **Statistical Analysis**: Comprehensive statistical processing of datasets
+- **Pattern Recognition**: Automated identification of patterns and trends
+- **Correlation Analysis**: Relationship discovery between variables
+- **Predictive Modeling**: Forecasting and predictive analytics
+- **Report Generation**: Automated creation of analysis reports with visualizations
+
+## Features (Planned)
+
+- **Multi-Analysis Support**: Handle multiple analysis types in single execution
+- **Statistical Tool Integration**: Leverage statistical analysis tools
+- **Visualization Generation**: Create charts and graphs from analysis results
+- **Insight Extraction**: Automated generation of actionable insights
+- **Confidence Scoring**: Provide confidence levels for all findings
+- **Report Formatting**: Structured, professional analysis reports
 
 ## Implementation Structure
 

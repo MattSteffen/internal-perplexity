@@ -248,3 +248,79 @@ stats := agent.GetStats()
 log.Printf("Success: %v, Tokens: %d, Duration: %v",
     stats.Success, stats.TokensUsed.Total, stats.Duration)
 ```
+
+### API Usage with curl
+
+#### Primary Agent - Document Summarization
+```bash
+curl -X POST http://localhost:8080/agents/primary \
+  -H "Content-Type: application/json" \
+  -H "X-API-KEY: your-api-key-here" \
+  -d '{
+    "input": {
+      "task": "summarize_documents",
+      "contents": [
+        "First document content...",
+        "Second document content..."
+      ],
+      "instructions": "Focus on key findings",
+      "focus_areas": ["findings", "conclusions"]
+    },
+    "model": "gpt-4"
+  }'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "result": {
+    "task": "summarize_documents",
+    "result": {
+      "summary": "Generated summary...",
+      "metadata": {
+        "content_count": 2,
+        "combined_length": 500,
+        "focus_areas": ["findings", "conclusions"]
+      }
+    },
+    "orchestrator": "primary_agent"
+  }
+}
+```
+
+#### Primary Agent - General Query
+```bash
+curl -X POST http://localhost:8080/agents/primary \
+  -H "Content-Type: application/json" \
+  -H "X-API-KEY: your-api-key-here" \
+  -d '{
+    "input": {
+      "task": "general_query",
+      "query": "What are the benefits of microservices?"
+    },
+    "model": "gpt-4"
+  }'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "result": {
+    "task": "general_query",
+    "query": "What are the benefits of microservices?",
+    "answer": "Microservices offer improved scalability, fault isolation...",
+    "orchestrator": "primary_agent"
+  }
+}
+```
+
+### Authentication
+Agent endpoints require API key authentication:
+```bash
+curl -X POST http://localhost:8080/agents/primary \
+  -H "Content-Type: application/json" \
+  -H "X-API-KEY: your-api-key-here" \
+  -d '{...}'
+```
