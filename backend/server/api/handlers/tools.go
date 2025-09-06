@@ -70,7 +70,10 @@ func (h *ToolHandler) ExecuteTool(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		return
+	}
 }
 
 // ListTools handles GET /tools
@@ -92,9 +95,12 @@ func (h *ToolHandler) ListTools(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"tools": toolList,
-	})
+	}); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		return
+	}
 }
 
 // writeJSONError writes a JSON error response
@@ -110,5 +116,8 @@ func (h *ToolHandler) writeJSONError(w http.ResponseWriter, status int, message 
 		},
 	}
 
-	json.NewEncoder(w).Encode(errorResp)
+	if err := json.NewEncoder(w).Encode(errorResp); err != nil {
+		http.Error(w, "Failed to encode error response", http.StatusInternalServerError)
+		return
+	}
 }

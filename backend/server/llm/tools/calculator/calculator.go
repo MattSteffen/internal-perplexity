@@ -80,8 +80,8 @@ func (c *Calculator) Execute(ctx context.Context, input *tools.ToolInput) (*tool
 // isValidExpression checks if the expression contains only allowed characters
 func (c *Calculator) isValidExpression(expr string) bool {
 	for _, char := range expr {
-		if !(unicode.IsDigit(char) || char == '+' || char == '-' || char == '*' || char == '/' ||
-			char == '(' || char == ')' || char == '.' || char == ' ' || char == '\t') {
+		if !unicode.IsDigit(char) && char != '+' && char != '-' && char != '*' && char != '/' &&
+			char != '(' && char != ')' && char != '.' && char != ' ' && char != '\t' {
 			return false
 		}
 	}

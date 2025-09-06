@@ -7,18 +7,18 @@ import (
 
 // AgentInput represents input data for agent execution
 type AgentInput struct {
-	Data       map[string]interface{} `json:"data"`
-	Context    map[string]interface{} `json:"context,omitempty"`
-	Parameters map[string]interface{} `json:"parameters,omitempty"`
+	Data       map[string]any `json:"data"`
+	Context    map[string]any `json:"context,omitempty"`
+	Parameters map[string]any `json:"parameters,omitempty"`
 }
 
 // AgentResult represents the result of agent execution
 type AgentResult struct {
-	Content    interface{}            `json:"content"`
-	Success    bool                   `json:"success"`
-	TokensUsed interface{}            `json:"tokens_used,omitempty"`
-	Duration   time.Duration          `json:"duration"`
-	Metadata   map[string]interface{} `json:"metadata,omitempty"`
+	Content    any            `json:"content"`
+	Success    bool           `json:"success"`
+	TokensUsed any            `json:"tokens_used,omitempty"`
+	Duration   time.Duration  `json:"duration"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
 }
 
 // AgentStats tracks agent execution statistics

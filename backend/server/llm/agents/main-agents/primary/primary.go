@@ -12,7 +12,7 @@ import (
 
 // PrimaryAgent is the main orchestrator agent
 type PrimaryAgent struct {
-	llmClient    shared.LLMProvider
+	llmClient    shared.LLMProvider // TODO: This should be passed in when executing, is dynamic not static.
 	summaryAgent *summary.SummaryAgent
 	stats        agents.AgentStats
 }
@@ -46,6 +46,11 @@ func (p *PrimaryAgent) Execute(ctx context.Context, input *agents.AgentInput) (*
 	}
 
 	taskType := input.Data["task"].(string)
+
+	// TODO: Tasks are actually created by the agent. There is a big system prompt and the user's input is passed with the systme prompt.
+	// So the agent is actually creating the task and then executing it.
+	// The LLM might have a response format or a tool call to create the tasks and either a map reduce or sequential pipeline.
+	// It can call tools or it can call sub-agents, or it can respond to the user directly.
 
 	switch taskType {
 	case "summarize_documents":

@@ -11,7 +11,7 @@ GO := go
 # Binary name (can be overridden with environment variable)
 BINARY_NAME ?= agent-server
 # Build directory (can be overridden with environment variable)
-BUILD_DIR ?= server
+BUILD_DIR ?= target
 # Test directory (can be overridden with environment variable)
 TEST_DIR ?= ./...
 # Main go file (can be overridden with environment variable)
@@ -52,7 +52,6 @@ help:
 	@echo "  $(BOLD)$(GREEN)test-coverage$(RESET)    Run tests with coverage report"
 	@echo "  $(BOLD)$(GREEN)build$(RESET)            Build the binary"
 	@echo "  $(BOLD)$(GREEN)run$(RESET)              Run the application with go run"
-	@echo "  $(BOLD)$(GREEN)server$(RESET)           Build and start the server"
 	@echo "  $(BOLD)$(GREEN)deps$(RESET)             Download and install dependencies"
 	@echo "  $(BOLD)$(GREEN)tidy$(RESET)             Tidy up the go.mod file"
 	@echo "  $(BOLD)$(GREEN)download$(RESET)         Download modules to local cache"
@@ -120,25 +119,13 @@ test-coverage:
 build: $(GO_MOD_DEPS)
 	@echo "$(BOLD)$(YELLOW)🔨 Building application...$(RESET)"
 	mkdir -p $(BUILD_DIR)
+	codesign -s - -f $(BUILD_DIR)/$(BINARY_NAME)
 	$(GO) build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(MAIN_FILE)
 	@echo "$(BOLD)$(GREEN)✅ Build complete. Binary: $(BUILD_DIR)/$(BINARY_NAME)$(RESET)"
 
 run: deps
 	@echo "$(BOLD)$(YELLOW)🚀 Running application...$(RESET)"
 	$(GO) run $(MAIN_FILE)
-
-server: build
-	@echo "$(BOLD)$(YELLOW)🚀 Starting server...$(RESET)"
-	@echo "$(BOLD)$(BLUE)📡 Server will be available at http://localhost:8080$(RESET)"
-	@echo "$(BOLD)$(BLUE)🔧 Available endpoints:$(RESET)"
-	@echo "  POST /agents/primary        - Execute primary agent"
-	@echo "  POST /sub-agents/summary    - Execute summary sub-agent"
-	@echo "  POST /tools/calculator      - Execute calculator tool"
-	@echo "  POST /tools/document_summarizer - Execute document summarizer"
-	@echo "  GET  /tools                 - List available tools"
-	@echo "  GET  /health                - Health check"
-	@echo ""
-	$(BUILD_DIR)/$(BINARY_NAME)
 
 deps: $(GO_MOD_DEPS)
 	@echo "$(BOLD)$(YELLOW)📦 Installing dependencies...$(RESET)"
@@ -178,6 +165,7 @@ docs:
 
 dev:
 	@echo "$(BOLD)$(YELLOW)🔄 Starting development server with live reload...$(RESET)"
+	codesign -s - -f $(BUILD_DIR)/$(BINARY_NAME)
 	@if command -v air >/dev/null 2>&1; then \
 		air; \
 	else \
@@ -188,6 +176,7 @@ dev:
 
 dev-test:
 	@echo "$(BOLD)$(YELLOW)🔄 Running tests in watch mode...$(RESET)"
+	codesign -s - -f $(BUILD_DIR)/$(BINARY_NAME)
 	@if command -v gotestsum >/dev/null 2>&1; then \
 		gotestsum --watch; \
 	else \
@@ -198,6 +187,7 @@ dev-test:
 
 docker-build:
 	@echo "$(BOLD)$(YELLOW)🐳 Building Docker image...$(RESET)"
+	codesign -s - -f $(BUILD_DIR)/$(BINARY_NAME)
 	docker build -t $(BINARY_NAME):$(VERSION) .
 	@echo "$(BOLD)$(GREEN)✅ Docker image built: $(BINARY_NAME):$(VERSION)$(RESET)"
 
@@ -206,5 +196,8 @@ docker-run: docker-build
 	docker run -p 8080:8080 $(BINARY_NAME):$(VERSION)
 
 all: clean pre-commit test-coverage build
+	@echo "$(BOLD)$(YELLOW)🧹 Cleaning up...$(RESET)"
+	rm -rf $(BUILD_DIR)/
+	rm -f $(COVERAGE_OUT) $(COVERAGE_HTML)
 	@echo "$(BOLD)$(GREEN)✅ All checks and build complete.$(RESET)"
-	@echo "$(BOLD)$(BLUE)🎯 Ready to run with: make server$(RESET)"
+	@echo "$(BOLD)$(BLUE)🎯 Ready to run with: make run$(RESET)"
