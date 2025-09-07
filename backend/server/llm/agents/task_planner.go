@@ -82,10 +82,10 @@ func (tp *TaskPlanner) analyzeWithLLM(ctx context.Context, input *AgentInput, ll
 	req := &shared.CompletionRequest{
 		Messages: messages,
 		Options: shared.CompletionOptions{
+			Model:       "gpt-4",
 			MaxTokens:   1000,
 			Temperature: 0.3, // Lower temperature for more consistent task planning
 		},
-		Model: "gpt-4",
 	}
 
 	resp, err := llmProvider.Complete(ctx, req)

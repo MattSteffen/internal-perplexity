@@ -56,10 +56,10 @@ func (s *SynthesisAgent) Execute(ctx context.Context, input *agents.AgentInput, 
 	req := &shared.CompletionRequest{
 		Messages: messages,
 		Options: shared.CompletionOptions{
+			Model:       "gpt-4",
 			MaxTokens:   2000,
 			Temperature: 0.3,
 		},
-		Model: "gpt-4",
 	}
 
 	resp, err := llmProvider.Complete(ctx, req)

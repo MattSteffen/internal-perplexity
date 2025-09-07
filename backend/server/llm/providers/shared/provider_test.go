@@ -16,11 +16,11 @@ func TestProviderTypes(t *testing.T) {
 // TestMessageStruct tests the Message struct
 func TestMessageStruct(t *testing.T) {
 	msg := Message{
-		Role:    "user",
+		Role:    RoleUser,
 		Content: "Hello, World!",
 	}
 
-	assert.Equal(t, "user", msg.Role)
+	assert.Equal(t, RoleUser, msg.Role)
 	assert.Equal(t, "Hello, World!", msg.Content)
 }
 
@@ -30,13 +30,11 @@ func TestCompletionOptions(t *testing.T) {
 		MaxTokens:   100,
 		Temperature: 0.7,
 		TopP:        0.9,
-		Stream:      true,
 	}
 
 	assert.Equal(t, 100, opts.MaxTokens)
 	assert.Equal(t, float32(0.7), opts.Temperature)
 	assert.Equal(t, float32(0.9), opts.TopP)
-	assert.True(t, opts.Stream)
 }
 
 // TestCompletionRequest tests the CompletionRequest struct
@@ -50,12 +48,8 @@ func TestCompletionRequest(t *testing.T) {
 		Options: CompletionOptions{
 			MaxTokens: 50,
 		},
-		Model:  "gpt-4",
-		APIKey: "test-key",
 	}
 
 	assert.Len(t, req.Messages, 1)
-	assert.Equal(t, "gpt-4", req.Model)
-	assert.Equal(t, "test-key", req.APIKey)
 	assert.Equal(t, 50, req.Options.MaxTokens)
 }

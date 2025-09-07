@@ -92,10 +92,10 @@ func (p *PrimaryAgent) analyzeQuery(input *agents.AgentInput, llmProvider shared
 	req := &shared.CompletionRequest{
 		Messages: messages,
 		Options: shared.CompletionOptions{
+			Model:       "gpt-4",
 			MaxTokens:   1000,
 			Temperature: 0.2, // Low temperature for consistent analysis
 		},
-		Model: "gpt-4",
 	}
 
 	resp, err := llmProvider.Complete(context.Background(), req)

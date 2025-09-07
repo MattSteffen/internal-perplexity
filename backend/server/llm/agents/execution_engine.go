@@ -385,10 +385,10 @@ func (e *ExecutionEngine) executeResponseTask(ctx context.Context, task Task, ll
 	req := &shared.CompletionRequest{
 		Messages: messages,
 		Options: shared.CompletionOptions{
+			Model:       "gpt-4",
 			MaxTokens:   1000,
 			Temperature: 0.7,
 		},
-		Model: "gpt-4",
 	}
 
 	resp, err := llmProvider.Complete(ctx, req)
@@ -399,7 +399,7 @@ func (e *ExecutionEngine) executeResponseTask(ctx context.Context, task Task, ll
 	return map[string]interface{}{
 		"response": resp.Content,
 		"tokens":   resp.Usage.TotalTokens,
-		"model":    req.Model,
+		"model":    req.Options.Model,
 	}, nil
 }
 

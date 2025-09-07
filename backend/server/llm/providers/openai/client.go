@@ -5,95 +5,82 @@ import (
 	"fmt"
 
 	"internal-perplexity/server/llm/providers/shared"
+	"internal-perplexity/server/llm/providers/transport"
 
 	"github.com/sashabaranov/go-openai"
 )
 
-// Client wraps the OpenAI client with Ollama fallback
-type Client struct {
-	openaiClient *openai.Client
-	ollamaClient *openai.Client
-	config       *shared.LLMConfig
+// Config holds OpenAI provider configuration
+type Config struct {
+	APIKey  string
+	BaseURL string
+	OrgID   string
 }
 
-// NewClient creates a new OpenAI client with Ollama fallback
-func NewClient(config *shared.LLMConfig) *Client {
-	var openaiClient *openai.Client
-	if config.APIKey != "" {
-		openaiClient = openai.NewClient(config.APIKey)
+// Provider implements the unified LLMProvider interface for OpenAI
+type Provider struct {
+	client     *openai.Client
+	httpClient *transport.HTTPClient
+	config     Config
+}
+
+// NewProvider creates a new OpenAI provider
+func NewProvider(cfg Config) (*Provider, error) {
+	openaiConfig := openai.DefaultConfig(cfg.APIKey)
+	if cfg.BaseURL != "" {
+		openaiConfig.BaseURL = cfg.BaseURL
+	}
+	if cfg.OrgID != "" {
+		openaiConfig.OrgID = cfg.OrgID
 	}
 
-	// Create Ollama client with custom config
-	ollamaConfig := openai.DefaultConfig("ollama")
-	ollamaConfig.BaseURL = "http://localhost:11434/v1"
-	ollamaClient := openai.NewClientWithConfig(ollamaConfig)
+	client := openai.NewClientWithConfig(openaiConfig)
 
-	return &Client{
-		openaiClient: openaiClient,
-		ollamaClient: ollamaClient,
-		config:       config,
+	httpOpts := shared.ClientOptions{
+		BaseURL:      cfg.BaseURL,
+		APIKey:       cfg.APIKey,
+		OrgID:        cfg.OrgID,
+		Timeout:      0, // Use defaults
+		RetryMax:     3,
+		RetryBackoff: 0, // Use defaults
+	}
+
+	httpClient := transport.NewHTTPClient(httpOpts)
+
+	return &Provider{
+		client:     client,
+		httpClient: httpClient,
+		config:     cfg,
+	}, nil
+}
+
+// Name returns the provider name
+func (p *Provider) Name() string { return "openai" }
+
+// GetModelCapabilities returns capabilities for the specified model
+func (p *Provider) GetModelCapabilities(model string) shared.ModelCapabilities {
+	// Conservative defaults; could be refined per model name.
+	return shared.ModelCapabilities{
+		Streaming:           true,
+		Tools:               true,
+		ParallelToolCalls:   true,
+		JSONMode:            true,
+		SystemMessage:       true,
+		Vision:              false,
+		SupportsTopK:        false,
+		SupportsPresencePen: true,
+		SupportsFreqPen:     true,
+		MaxContextTokens:    128000,
 	}
 }
 
-// Complete sends a completion request, trying OpenAI first then falling back to Ollama
-func (c *Client) Complete(ctx context.Context, req *shared.CompletionRequest) (*shared.CompletionResponse, error) {
-	// Convert messages to OpenAI format
-	openaiMessages := make([]openai.ChatCompletionMessage, len(req.Messages))
-	for i, msg := range req.Messages {
-		openaiMessages[i] = openai.ChatCompletionMessage{
-			Role:    msg.Role,
-			Content: msg.Content,
-		}
-	}
-
-	// Set up request with model from request
-	openaiReq := openai.ChatCompletionRequest{
-		Model:    req.Model,
-		Messages: openaiMessages,
-	}
-
-	if req.Options.MaxTokens > 0 {
-		openaiReq.MaxTokens = req.Options.MaxTokens
-	}
-	if req.Options.Temperature > 0 {
-		openaiReq.Temperature = req.Options.Temperature
-	}
-	if req.Options.TopP > 0 {
-		openaiReq.TopP = req.Options.TopP
-	}
-	if req.Options.Stream {
-		openaiReq.Stream = req.Options.Stream
-	}
-
-	// Try OpenAI first if available and API key provided
-	var resp openai.ChatCompletionResponse
-	var err error
-
-	if c.openaiClient != nil && req.APIKey != "" {
-		// Create client with request-specific API key
-		clientWithKey := openai.NewClient(req.APIKey)
-		resp, err = clientWithKey.CreateChatCompletion(ctx, openaiReq)
-		if err == nil {
-			return c.convertResponse(resp), nil
-		}
-		fmt.Printf("OpenAI request failed, falling back to Ollama: %v\n", err)
-	}
-
-	// Fallback to Ollama
-	openaiReq.Model = "gpt-oss:20b" // Use gpt-oss:20b for Ollama
-	resp, err = c.ollamaClient.CreateChatCompletion(ctx, openaiReq)
-	if err != nil {
-		return nil, fmt.Errorf("both OpenAI and Ollama failed: %w", err)
-	}
-
-	return c.convertResponse(resp), nil
-}
-
-// CountTokens estimates token count (simplified implementation)
-func (c *Client) CountTokens(messages []shared.Message) (int, error) {
+// CountTokens estimates token count for the given messages and model
+func (p *Provider) CountTokens(messages []shared.Message, model string) (int, error) {
+	// TODO: Implement proper token counting using tiktoken-go
+	// For now, return a rough estimate
 	totalTokens := 0
 	for _, msg := range messages {
-		// Rough estimation: 1 token per 4 characters
+		// Rough estimation: ~4 characters per token
 		totalTokens += len(msg.Content) / 4
 		// Add tokens for role and formatting
 		totalTokens += 4
@@ -101,61 +88,87 @@ func (c *Client) CountTokens(messages []shared.Message) (int, error) {
 	return totalTokens, nil
 }
 
-// convertResponse converts OpenAI response to shared format
-func (c *Client) convertResponse(resp openai.ChatCompletionResponse) *shared.CompletionResponse {
-	var content string
-	if len(resp.Choices) > 0 {
-		content = resp.Choices[0].Message.Content
+// Complete performs a completion request
+func (p *Provider) Complete(ctx context.Context, req *shared.CompletionRequest) (*shared.CompletionResponse, error) {
+	if err := shared.ValidateCompletionRequest(req); err != nil {
+		return nil, err
 	}
 
-	return &shared.CompletionResponse{
-		Content: content,
-		Role:    "assistant",
-		Usage: shared.TokenUsage{
-			PromptTokens:     resp.Usage.PromptTokens,
-			CompletionTokens: resp.Usage.CompletionTokens,
-			TotalTokens:      resp.Usage.TotalTokens,
-		},
+	openaiReq, err := ToOpenAIRequest(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert request: %w", err)
 	}
+
+	resp, err := p.client.CreateChatCompletion(ctx, *openaiReq)
+	if err != nil {
+		return nil, NormalizeOpenAIError(err)
+	}
+
+	return FromOpenAIResponse(resp), nil
 }
 
-// GetSupportedModels returns the list of supported models for this provider
-func (c *Client) GetSupportedModels() []shared.ModelInfo {
-	return []shared.ModelInfo{
-		{
-			Name:        "gpt-4",
-			Provider:    shared.ProviderOpenAI,
-			MaxTokens:   8192,
-			Description: "OpenAI GPT-4 model",
-		},
-		{
-			Name:        "gpt-4-turbo",
-			Provider:    shared.ProviderOpenAI,
-			MaxTokens:   128000,
-			Description: "OpenAI GPT-4 Turbo model",
-		},
-		{
-			Name:        "gpt-3.5-turbo",
-			Provider:    shared.ProviderOpenAI,
-			MaxTokens:   4096,
-			Description: "OpenAI GPT-3.5 Turbo model",
-		},
-		{
-			Name:        "gpt-oss:20b",
-			Provider:    shared.ProviderOllama,
-			MaxTokens:   4096,
-			Description: "Ollama GPT-OSS 20B model (fallback)",
-		},
+// StreamComplete performs a streaming completion request
+func (p *Provider) StreamComplete(ctx context.Context, req *shared.CompletionRequest) (<-chan *shared.StreamChunk, func(), error) {
+	if err := shared.ValidateCompletionRequest(req); err != nil {
+		return nil, nil, err
 	}
-}
 
-// SupportsModel checks if the provider supports the given model
-func (c *Client) SupportsModel(model string) bool {
-	supportedModels := c.GetSupportedModels()
-	for _, m := range supportedModels {
-		if m.Name == model {
-			return true
+	openaiReq, err := ToOpenAIStreamRequest(req)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to convert stream request: %w", err)
+	}
+
+	stream, err := p.client.CreateChatCompletionStream(ctx, *openaiReq)
+	if err != nil {
+		return nil, nil, NormalizeOpenAIError(err)
+	}
+
+	ch := make(chan *shared.StreamChunk, 32)
+	cancel := func() { _ = stream.Close() }
+
+	go func() {
+		defer close(ch)
+		defer cancel()
+
+		for {
+			resp, err := stream.Recv()
+			if err != nil {
+				if IsStreamEOF(err) {
+					ch <- &shared.StreamChunk{Done: true}
+					return
+				}
+				// Surface as a final chunk with Done for consumers.
+				ch <- &shared.StreamChunk{
+					Done:        true,
+					RawProvider: map[string]any{"error": err.Error()},
+				}
+				return
+			}
+			ch <- FromOpenAIStream(resp)
 		}
+	}()
+
+	return ch, cancel, nil
+}
+
+// IsStreamEOF checks if the error indicates end of stream
+func IsStreamEOF(err error) bool {
+	if err == nil {
+		return false
 	}
-	return false
+	return err.Error() == "EOF" || err.Error() == "stream closed"
+}
+
+// NormalizeOpenAIError converts OpenAI errors to normalized ProviderError
+func NormalizeOpenAIError(err error) *shared.ProviderError {
+	if err == nil {
+		return nil
+	}
+
+	// Handle OpenAI-specific errors
+	// This is a simplified version - in practice you'd check error types
+	return &shared.ProviderError{
+		Code:    shared.ErrUnknown,
+		Message: err.Error(),
+	}
 }

@@ -5,6 +5,7 @@ go 1.24.3
 require (
 	github.com/sashabaranov/go-openai v1.25.0
 	github.com/stretchr/testify v1.9.0
+	golang.org/x/time v0.12.0
 )
 
 require (

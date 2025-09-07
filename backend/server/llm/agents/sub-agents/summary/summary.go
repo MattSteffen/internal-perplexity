@@ -70,27 +70,22 @@ func (s *SummaryAgent) Execute(ctx context.Context, input *agents.AgentInput, ll
 		},
 	}
 
-	// Extract model and API key from input context
+	// Extract model from input context
 	model := "gpt-4" // default model
-	apiKey := ""
 
 	if input.Context != nil {
 		if m, ok := input.Context["model"].(string); ok && m != "" {
 			model = m
-		}
-		if key, ok := input.Context["api_key"].(string); ok {
-			apiKey = key
 		}
 	}
 
 	req := &shared.CompletionRequest{
 		Messages: messages,
 		Options: shared.CompletionOptions{
+			Model:       model,
 			MaxTokens:   1000,
 			Temperature: 0.3,
 		},
-		Model:  model,
-		APIKey: apiKey,
 	}
 
 	resp, err := llmProvider.Complete(ctx, req)

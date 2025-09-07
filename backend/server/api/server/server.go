@@ -36,6 +36,7 @@ type Server struct {
 type Config struct {
 	Port         string
 	LLMBaseURL   string
+	LLMAPIKey    string
 	LLMModel     string
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
@@ -48,6 +49,7 @@ func NewServer(config *Config) (*Server, error) {
 		config = &Config{
 			Port:         ":8080",
 			LLMBaseURL:   "http://localhost:11434/v1",
+			LLMAPIKey:    "",
 			LLMModel:     "gpt-oss:20b",
 			ReadTimeout:  30 * time.Second,
 			WriteTimeout: 30 * time.Second,
@@ -58,12 +60,15 @@ func NewServer(config *Config) (*Server, error) {
 	server := &Server{}
 
 	// Initialize LLM provider
-	llmConfig := &shared.LLMConfig{
+	llmProvider, err := openai.NewProvider(openai.Config{
 		BaseURL: config.LLMBaseURL,
-		Model:   config.LLMModel,
+		APIKey:  config.LLMAPIKey,
+	})
+	if err != nil {
+		log.Fatalf("Failed to initialize LLM provider: %v", err)
 	}
 	log.Println("Initializing LLM provider...")
-	server.llmProvider = openai.NewClient(llmConfig)
+	server.llmProvider = llmProvider
 
 	// Initialize tool registry and register tools
 	server.toolRegistry = tools.NewRegistry()

@@ -8,7 +8,6 @@ import (
 	"internal-perplexity/server/api"
 	"internal-perplexity/server/llm/agents"
 	"internal-perplexity/server/llm/providers/openai"
-	"internal-perplexity/server/llm/providers/shared"
 )
 
 // SubAgentHandler handles sub-agent-related HTTP requests
@@ -64,12 +63,14 @@ func (h *SubAgentHandler) ExecuteSubAgent(w http.ResponseWriter, r *http.Request
 	}
 
 	// Create LLM provider dynamically
-	llmConfig := &shared.LLMConfig{
+	llmProvider, err := openai.NewProvider(openai.Config{
 		BaseURL: "https://api.openai.com/v1",
 		APIKey:  apiKey,
-		Model:   model,
+	})
+	if err != nil {
+		h.writeJSONError(w, http.StatusInternalServerError, "Failed to create LLM provider", err.Error())
+		return
 	}
-	llmProvider := openai.NewClient(llmConfig)
 
 	// Find the requested sub-agent
 	subAgent, exists := h.subAgents[subAgentName]

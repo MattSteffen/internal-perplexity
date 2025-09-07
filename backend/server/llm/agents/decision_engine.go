@@ -181,10 +181,10 @@ func (de *DecisionEngine) makeLLMDecision(ctx context.Context, query string, ava
 	req := &shared.CompletionRequest{
 		Messages: messages,
 		Options: shared.CompletionOptions{
+			Model:       "gpt-4",
 			MaxTokens:   800,
 			Temperature: 0.2, // Low temperature for consistent decisions
 		},
-		Model: "gpt-4",
 	}
 
 	resp, err := llmProvider.Complete(ctx, req)

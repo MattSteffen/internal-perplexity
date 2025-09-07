@@ -27,11 +27,10 @@ func (d *DocumentSummarizer) summarizeContent(ctx context.Context, content strin
 	req := &shared.CompletionRequest{
 		Messages: messages,
 		Options: shared.CompletionOptions{
+			Model:       "gpt-4",       // default model
 			MaxTokens:   maxLength * 5, // Rough estimate: 5 tokens per word
 			Temperature: 0.3,           // Lower temperature for more focused summaries
 		},
-		Model:  "gpt-4", // default model
-		APIKey: "",      // will be passed from context if available
 	}
 
 	resp, err := llmProvider.Complete(ctx, req)
@@ -40,7 +39,7 @@ func (d *DocumentSummarizer) summarizeContent(ctx context.Context, content strin
 	}
 
 	// Count tokens used
-	tokensUsed, _ := llmProvider.CountTokens(messages)
+	tokensUsed, _ := llmProvider.CountTokens(messages, req.Options.Model)
 
 	return &tools.ToolResult{
 		Success: true,

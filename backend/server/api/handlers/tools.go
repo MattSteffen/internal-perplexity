@@ -7,7 +7,6 @@ import (
 
 	"internal-perplexity/server/api"
 	"internal-perplexity/server/llm/providers/openai"
-	"internal-perplexity/server/llm/providers/shared"
 	"internal-perplexity/server/llm/tools"
 )
 
@@ -58,18 +57,15 @@ func (h *ToolHandler) ExecuteTool(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	model := req.Model
-	if model == "" {
-		model = "gpt-4" // default model
-	}
-
 	// Create LLM provider dynamically
-	llmConfig := &shared.LLMConfig{
+	llmProvider, err := openai.NewProvider(openai.Config{
 		BaseURL: "https://api.openai.com/v1",
 		APIKey:  apiKey,
-		Model:   model,
+	})
+	if err != nil {
+		h.writeJSONError(w, http.StatusInternalServerError, "Failed to create LLM provider", err.Error())
+		return
 	}
-	llmProvider := openai.NewClient(llmConfig)
 
 	// Execute tool with dynamic provider
 	input := &tools.ToolInput{

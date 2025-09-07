@@ -200,8 +200,33 @@ func (m *MockLLMProvider) Complete(ctx context.Context, req *shared.CompletionRe
 	}, nil
 }
 
-func (m *MockLLMProvider) CountTokens(messages []shared.Message) (int, error) {
+func (m *MockLLMProvider) StreamComplete(ctx context.Context, req *shared.CompletionRequest) (<-chan *shared.StreamChunk, func(), error) {
+	ch := make(chan *shared.StreamChunk, 1)
+	ch <- &shared.StreamChunk{
+		DeltaText: m.responseContent,
+		Done:      true,
+		Usage: &shared.TokenUsage{
+			TotalTokens: 150,
+		},
+	}
+	close(ch)
+	return ch, func() {}, nil
+}
+
+func (m *MockLLMProvider) CountTokens(messages []shared.Message, model string) (int, error) {
 	return 100, nil
+}
+
+func (m *MockLLMProvider) GetModelCapabilities(model string) shared.ModelCapabilities {
+	return shared.ModelCapabilities{
+		Streaming:         true,
+		Tools:             false,
+		ParallelToolCalls: false,
+		JSONMode:          false,
+		SystemMessage:     true,
+		Vision:            false,
+		MaxContextTokens:  128000,
+	}
 }
 
 func (m *MockLLMProvider) GetSupportedModels() []shared.ModelInfo {
@@ -210,6 +235,10 @@ func (m *MockLLMProvider) GetSupportedModels() []shared.ModelInfo {
 
 func (m *MockLLMProvider) SupportsModel(model string) bool {
 	return true
+}
+
+func (m *MockLLMProvider) Name() string {
+	return "mock"
 }
 
 func TestSynthesisAgent_Execute(t *testing.T) {
