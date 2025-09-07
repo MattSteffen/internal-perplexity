@@ -1,50 +1,90 @@
 # Agents Package
 
-Agent implementations following specialization patterns and orchestration best practices.
+Intelligent agent framework with tool-like sub-agent calling, comprehensive validation, and modular architecture.
 
 ## Architecture
 
 ### Agent Types
-- **Main Agents**: Primary orchestrators with sub-agent and tool access
-- **Sub-Agents**: Specialized agents with tool access, no sub-agents
+- **Primary Agent**: Main orchestrator that handles user interactions and coordinates both sub-agents and tools using unified calling patterns
+- **Sub-Agents**: Specialized agents (Summary, Analyst, Researcher, Synthesis) with predefined I/O schemas
+- **Synthesis Agent**: Aggregation agent that combines outputs from multiple sub-agents
 
 ### Design Patterns
-- **Specialization**: Capability, domain, and model-based specialization
-- **Composition**: Main agents compose sub-agents
-- **Stateless**: All agents except main agent are stateless
-- **Monitoring**: All agents return execution stats
+- **Unified Tool-Like Calling**: Both sub-agents and tools are called using structured specifications in unified execution patterns
+- **Parallel/Sequential Execution**: Support for complex execution patterns [agent1, agent2] for parallel, [agent1], [agent2] for sequential
+- **Schema-Based Validation**: Comprehensive input/output validation using predefined schemas
+- **Modular Architecture**: Each agent has separate definition.go, agent_name.go, and test files
+- **Aggregation Pattern**: Synthesis agent combines and resolves conflicts between sub-agent outputs
 
 ## Directory Structure
 
-### main-agents/
-#### primary/
+### Core Files
+- `definition.go`: Core types, interfaces, and schemas
+- `types.go`: Legacy compatibility (deprecated)
+- `system_prompts.go`: System prompt management
+- `task_planner.go`: Task decomposition and planning
+- `decision_engine.go`: Decision-making for tool/agent selection
+- `execution_engine.go`: Task execution orchestration
+
+### main-agents/primary/
 **Contents:**
-- `primary.go` - Main orchestrator agent
-- Access to all sub-agents and general tools
-- State management for complex workflows
-- Task decomposition and distribution
-- Result aggregation and synthesis
+- `definition.go`: Primary agent schema and construction
+- `primary.go`: User interaction handling and sub-agent orchestration
+- `primary_test.go`: Comprehensive test coverage
+- `OVERVIEW.md`: Detailed documentation and examples
 
 **Key Features:**
-- Sequential pipeline execution
-- MapReduce pattern support
-- Parallel sub-agent execution
-- Caching integration
-- Monitoring and metrics collection
+- Intelligent query analysis using LLM
+- Tool-like sub-agent calling with execution patterns
+- Parallel and sequential sub-agent coordination
+- Input/output validation with detailed error messages
+- Comprehensive statistics and monitoring
 
-### sub-agents/
-#### summary/
+### sub-agents/summary/
 **Contents:**
-- `summary.go` - Content summarization agent
-- Takes list of text contents and instructions
-- Returns structured summary based on focus areas
-- Single LLM call for summarization
+- `definition.go`: Summary agent schema and validation
+- `summary.go`: Content summarization logic
+- `summary_test.go`: Unit tests and validation testing
+- `OVERVIEW.md`: Documentation and usage examples
 
 **Key Features:**
-- Configurable focus areas and instructions
-- Structured output with key points
-- Length control and formatting options
-- Metadata about summarization process
+- Multi-document summarization
+- Instruction-based summarization
+- Focus area support
+- Comprehensive input/output validation
+- Structured summary results
+
+### sub-agents/synthesis/
+**Contents:**
+- `definition.go`: Synthesis agent schema and validation
+- `synthesis.go`: Multi-source synthesis and aggregation
+- `synthesis_test.go`: Comprehensive test coverage
+- `OVERVIEW.md`: Documentation and usage examples
+
+**Key Features:**
+- Multi-source information integration
+- Conflict resolution and validation
+- Structured synthesis output
+- Confidence scoring and assessment
+- Metadata preservation and tracking
+
+### sub-agents/analyst/ (NOT IMPLEMENTED)
+**Contents:**
+- `definition.go`: Analyst agent schema (placeholder)
+- `analyst.go`: Returns "not implemented" error
+- `analyst_test.go`: Test coverage for future implementation
+- `OVERVIEW.md`: Detailed future feature documentation
+
+**Status:** Placeholder with comprehensive documentation for future implementation
+
+### sub-agents/researcher/ (NOT IMPLEMENTED)
+**Contents:**
+- `definition.go`: Researcher agent schema (placeholder)
+- `researcher.go`: Returns "not implemented" error
+- `researcher_test.go`: Test coverage for future implementation
+- `OVERVIEW.md`: Detailed future feature documentation
+
+**Status:** Placeholder with comprehensive documentation for future implementation
 
 ## Agent Interface
 
@@ -204,123 +244,305 @@ func (s *SummaryAgent) Validate(input *AgentInput) error {
 }
 ```
 
-## Usage Patterns
+## Tool-Like Sub-Agent Calling
 
-### Primary Agent Orchestration
-```go
-// Main agent orchestrates sub-agent execution
-primary := agents.NewPrimary()
-summary := agents.NewSummary()
+The Primary Agent uses a structured specification system for calling sub-agents, similar to OpenAI tool calling:
 
-input := &AgentInput{
-    Data: map[string]interface{}{
-        "task": "summarize_documents",
-        "documents": []string{"doc1 content", "doc2 content"},
-        "instructions": "Focus on key findings and recommendations",
+```json
+{
+  "groups": [
+    {
+      "calls": [
+        {
+          "name": "summary",
+          "input": {"contents": ["doc1", "doc2"], "instructions": "Summarize key points"},
+          "output_key": "summary_result",
+          "description": "Summarize the provided documents"
+        },
+        {
+          "name": "analyst",
+          "input": {"data": "analysis_data", "analysis_type": "statistical"},
+          "output_key": "analysis_result",
+          "description": "Analyze the summarized content"
+        }
+      ],
+      "description": "Parallel execution of summary and analysis"
     },
+    {
+      "calls": [
+        {
+          "name": "synthesis",
+          "input": {"inputs": ["summary_result", "analysis_result"]},
+          "output_key": "final_result",
+          "description": "Synthesize all results into final response"
+        }
+      ],
+      "description": "Sequential synthesis of parallel results"
+    }
+  ]
 }
-
-result, _ := primary.Execute(ctx, input)
 ```
 
-### Summary Agent Usage
-```go
-// Direct summary agent usage
-summary := agents.NewSummary()
+## Usage Patterns
 
-input := &AgentInput{
+### Primary Agent with Sub-Agent Orchestration
+```go
+// Initialize agents
+primaryAgent := primary.NewPrimaryAgent(map[string]agents.Agent{
+    "summary":   summary.NewSummaryAgent(),
+    "synthesis": synthesis.NewSynthesisAgent(),
+})
+
+// User query triggers intelligent analysis and sub-agent calling
+result, err := primaryAgent.Execute(ctx, &agents.AgentInput{
+    Query: "Summarize these documents and provide insights",
     Data: map[string]interface{}{
-        "contents": []string{
+        "documents": []string{"doc1 content", "doc2 content"},
+    },
+}, llmProvider)
+
+if result.Success {
+    data := result.Content.(map[string]interface{})
+    results := data["results"].(map[string]interface{})
+    fmt.Printf("Orchestrated %d sub-agents\n", len(data["sub_agents_used"].([]string)))
+}
+```
+
+### Direct Sub-Agent Usage
+```go
+// Direct summary agent usage with validation
+summaryAgent := summary.NewSummaryAgent()
+
+input := &agents.AgentInput{
+    Data: map[string]interface{}{
+        "contents": []interface{}{
             "First document content...",
             "Second document content...",
         },
         "instructions": "Extract key points and main conclusions",
-        "focus_areas": []string{"findings", "recommendations"},
+        "focus_areas": []interface{}{"findings", "recommendations"},
     },
 }
 
-result, _ := summary.Execute(ctx, input)
+// Validate input
+if err := summaryAgent.ValidateInput(input); err != nil {
+    log.Printf("Input validation failed: %v", err)
+    return
+}
+
+result, err := summaryAgent.Execute(ctx, input, llmProvider)
+if result.Success {
+    content := result.Content.(map[string]interface{})
+    fmt.Printf("Summary: %s\n", content["summary"])
+}
 ```
 
-### Monitoring
+### Synthesis Agent for Aggregation
+```go
+synthesisAgent := synthesis.NewSynthesisAgent()
+
+result, err := synthesisAgent.Execute(ctx, &agents.AgentInput{
+    Data: map[string]interface{}{
+        "inputs": map[string]interface{}{
+            "summary_result":  "Document summary...",
+            "analysis_result": "Data analysis...",
+            "research_result": "Research findings...",
+        },
+        "instructions": "Create a comprehensive report combining all findings",
+        "format": "structured_report",
+    },
+}, llmProvider)
+
+if result.Success {
+    synthesis := result.Content.(map[string]interface{})
+    fmt.Printf("Synthesis confidence: %.2f\n", synthesis["confidence"])
+}
+```
+
+## Execution Patterns
+
+### Parallel Execution
+Multiple sub-agents execute simultaneously:
+```go
+// [agent1, agent2] - Parallel execution
+groups: [{
+    calls: [
+        {name: "summary", input: {...}, output_key: "summary"},
+        {name: "analyst", input: {...}, output_key: "analysis"}
+    ],
+    description: "Parallel processing"
+}]
+```
+
+### Sequential Execution
+Sub-agents execute in sequence:
+```go
+// [agent1], [agent2] - Sequential execution
+groups: [
+    {calls: [{name: "summary", input: {...}, output_key: "summary"}], description: "First step"},
+    {calls: [{name: "synthesis", input: {inputs: ["summary"]}, output_key: "final"}], description: "Second step"}
+]
+```
+
+### Map-Reduce Pattern
+Parallel processing followed by aggregation:
+```go
+// Parallel map phase + sequential reduce phase
+groups: [
+    {calls: [{name: "summary1"}, {name: "summary2"}], description: "Map phase"},
+    {calls: [{name: "synthesis", input: {inputs: ["summary1", "summary2"]}}], description: "Reduce phase"}
+]
+```
+
+## Monitoring and Statistics
+
+### Agent Statistics
 ```go
 stats := agent.GetStats()
-log.Printf("Success: %v, Tokens: %d, Duration: %v",
-    stats.Success, stats.TokensUsed.Total, stats.Duration)
+fmt.Printf("Executions: %d, Success Rate: %.2f, Avg Duration: %v\n",
+    stats.TotalExecutions, stats.SuccessRate, stats.AverageDuration)
 ```
 
-### API Usage with curl
+### Execution Logging
+```go
+result, err := agent.Execute(ctx, input, llmProvider)
+if result.ExecutionLog != nil {
+    for _, step := range result.ExecutionLog {
+        fmt.Printf("[%s] %s\n", step.Type, step.Description)
+    }
+}
+```
 
-#### Primary Agent - Document Summarization
+## Error Handling
+
+### Validation Errors
+```json
+{
+  "success": false,
+  "error": "contents field is required",
+  "duration": "0.001s",
+  "metadata": {
+    "error_type": "MISSING_REQUIRED_FIELD",
+    "field": "contents"
+  }
+}
+```
+
+### Execution Errors
+```json
+{
+  "success": false,
+  "error": "sub-agent 'analyst' not found",
+  "duration": "0.5s",
+  "metadata": {
+    "error_type": "SUB_AGENT_NOT_FOUND",
+    "requested_agent": "analyst"
+  }
+}
+```
+
+### Not Implemented Errors
+```json
+{
+  "success": false,
+  "error": "analyst agent is not yet implemented - please use summary and researcher agents for current analysis needs",
+  "metadata": {
+    "error_type": "NOT_IMPLEMENTED",
+    "recommended_agents": ["summary"],
+    "agent_status": "not_implemented"
+  }
+}
+```
+
+## API Integration
+
+### Primary Agent Endpoint
 ```bash
 curl -X POST http://localhost:8080/agents/primary \
   -H "Content-Type: application/json" \
   -H "X-API-KEY: your-api-key-here" \
   -d '{
     "input": {
-      "task": "summarize_documents",
-      "contents": [
-        "First document content...",
-        "Second document content..."
-      ],
-      "instructions": "Focus on key findings",
-      "focus_areas": ["findings", "conclusions"]
+      "query": "Analyze these documents and provide insights",
+      "documents": ["Document 1 content...", "Document 2 content..."]
     },
     "model": "gpt-4"
   }'
 ```
 
-**Response:**
+### Response Format
 ```json
 {
   "success": true,
-  "result": {
-    "task": "summarize_documents",
-    "result": {
-      "summary": "Generated summary...",
-      "metadata": {
-        "content_count": 2,
-        "combined_length": 500,
-        "focus_areas": ["findings", "conclusions"]
+  "content": {
+    "results": {
+      "group_0": {
+        "summary_result": {
+          "summary": "Generated summary...",
+          "content_count": 2,
+          "combined_length": 1500
+        },
+        "analysis_result": {
+          "insights": ["Key insight 1", "Key insight 2"],
+          "confidence": 0.87
+        }
       }
     },
-    "orchestrator": "primary_agent"
+    "sub_agents_used": ["summary", "analyst"],
+    "execution_spec": {...}
+  },
+  "tokens_used": 650,
+  "duration": "4.1s",
+  "metadata": {
+    "execution_groups": 1,
+    "total_sub_agents": 2
   }
 }
 ```
 
-#### Primary Agent - General Query
+## Testing
+
+### Unit Tests
 ```bash
-curl -X POST http://localhost:8080/agents/primary \
-  -H "Content-Type: application/json" \
-  -H "X-API-KEY: your-api-key-here" \
-  -d '{
-    "input": {
-      "task": "general_query",
-      "query": "What are the benefits of microservices?"
-    },
-    "model": "gpt-4"
-  }'
+# Run all agent tests
+go test ./llm/agents/...
+
+# Run specific agent tests
+go test ./llm/agents/sub-agents/summary/
+go test ./llm/agents/main-agents/primary/
+
+# Run with coverage
+go test -cover ./llm/agents/...
 ```
 
-**Response:**
-```json
-{
-  "success": true,
-  "result": {
-    "task": "general_query",
-    "query": "What are the benefits of microservices?",
-    "answer": "Microservices offer improved scalability, fault isolation...",
-    "orchestrator": "primary_agent"
-  }
+### Integration Tests
+```go
+func TestPrimaryAgentIntegration(t *testing.T) {
+    // Initialize all agents
+    subAgents := map[string]agents.Agent{
+        "summary": summary.NewSummaryAgent(),
+        "synthesis": synthesis.NewSynthesisAgent(),
+    }
+    primaryAgent := primary.NewPrimaryAgent(subAgents)
+
+    // Test full orchestration
+    result, err := primaryAgent.Execute(ctx, testInput, llmProvider)
+    assert.NoError(t, err)
+    assert.True(t, result.Success)
 }
 ```
 
-### Authentication
-Agent endpoints require API key authentication:
-```bash
-curl -X POST http://localhost:8080/agents/primary \
-  -H "Content-Type: application/json" \
-  -H "X-API-KEY: your-api-key-here" \
-  -d '{...}'
-```
+## Future Extensions
+
+### Planned Enhancements
+- **Advanced Execution Patterns**: Complex workflow patterns with conditionals
+- **Dynamic Agent Loading**: Load sub-agents on demand
+- **Result Caching**: Intelligent caching of execution results
+- **Real-time Monitoring**: Live execution monitoring and metrics
+- **Agent Marketplace**: Pluggable agent ecosystem
+
+### Integration Points
+- **Tool Registry**: Integration with broader tool ecosystem
+- **External APIs**: Integration with external services
+- **Workflow Templates**: Predefined execution templates
+- **Performance Analytics**: Advanced performance monitoring

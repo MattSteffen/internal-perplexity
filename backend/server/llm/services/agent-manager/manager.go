@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"internal-perplexity/server/llm/agents"
+	"internal-perplexity/server/llm/providers/shared"
 )
 
 // Task represents a task to be executed
@@ -62,7 +63,7 @@ func (am *AgentManager) ListAgents(ctx context.Context) (map[string]agents.Agent
 }
 
 // ExecuteTask executes a task using the specified agent
-func (am *AgentManager) ExecuteTask(ctx context.Context, task *Task) (*TaskResult, error) {
+func (am *AgentManager) ExecuteTask(ctx context.Context, task *Task, llmProvider shared.LLMProvider) (*TaskResult, error) {
 	agent, exists := am.agents[task.AgentName]
 	if !exists {
 		return &TaskResult{
@@ -78,7 +79,7 @@ func (am *AgentManager) ExecuteTask(ctx context.Context, task *Task) (*TaskResul
 		Parameters: task.Parameters,
 	}
 
-	result, err := agent.Execute(ctx, input)
+	result, err := agent.Execute(ctx, input, llmProvider)
 	if err != nil {
 		return &TaskResult{
 			TaskID:     task.ID,

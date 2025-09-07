@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"internal-perplexity/server/api"
+	"internal-perplexity/server/llm/providers/openai"
+	"internal-perplexity/server/llm/providers/shared"
 	"internal-perplexity/server/llm/tools"
 )
 
@@ -43,17 +45,39 @@ func (h *ToolHandler) ExecuteTool(w http.ResponseWriter, r *http.Request) {
 
 	// Validate request
 	if req.Input == nil {
-		h.writeJSONError(w, http.StatusBadRequest, "Invalid request", "input field is required")
+		h.writeJSONError(w, http.StatusBadRequest, "MISSING_REQUIRED_FIELD", "input field is required")
 		return
 	}
 
-	// Execute tool
+	// Extract API key and model from request
+	apiKey := r.Header.Get("X-API-KEY")
+	if apiKey == "" {
+		apiKey = r.Header.Get("Authorization") // fallback to Authorization header
+		if after, ok := strings.CutPrefix(apiKey, "Bearer "); ok {
+			apiKey = after
+		}
+	}
+
+	model := req.Model
+	if model == "" {
+		model = "gpt-4" // default model
+	}
+
+	// Create LLM provider dynamically
+	llmConfig := &shared.LLMConfig{
+		BaseURL: "https://api.openai.com/v1",
+		APIKey:  apiKey,
+		Model:   model,
+	}
+	llmProvider := openai.NewClient(llmConfig)
+
+	// Execute tool with dynamic provider
 	input := &tools.ToolInput{
 		Name: toolName,
 		Data: req.Input,
 	}
 
-	result, err := h.toolRegistry.Execute(r.Context(), input)
+	result, err := h.toolRegistry.Execute(r.Context(), input, llmProvider)
 	if err != nil {
 		h.writeJSONError(w, http.StatusInternalServerError, "Tool execution failed", err.Error())
 		return
@@ -70,8 +94,9 @@ func (h *ToolHandler) ExecuteTool(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		h.writeJSONError(w, http.StatusInternalServerError, "Failed to encode response", err.Error())
 		return
 	}
 }
@@ -91,14 +116,16 @@ func (h *ToolHandler) ListTools(w http.ResponseWriter, r *http.Request) {
 			"name":        tool.Name(),
 			"description": tool.Description(),
 			"schema":      tool.Schema(),
+			"definition":  tool.Definition(),
 		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"tools": toolList,
 	}); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		h.writeJSONError(w, http.StatusInternalServerError, "Failed to encode response", err.Error())
 		return
 	}
 }

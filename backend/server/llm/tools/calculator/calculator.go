@@ -1,81 +1,11 @@
 package calculator
 
 import (
-	"context"
 	"fmt"
 	"strconv"
 	"strings"
 	"unicode"
-
-	"internal-perplexity/server/llm/tools"
 )
-
-// Calculator provides mathematical calculation capabilities
-type Calculator struct{}
-
-// NewCalculator creates a new calculator tool
-func NewCalculator() *Calculator {
-	return &Calculator{}
-}
-
-// Name returns the tool name
-func (c *Calculator) Name() string {
-	return "calculator"
-}
-
-// Description returns the tool description
-func (c *Calculator) Description() string {
-	return "Performs mathematical calculations with support for basic arithmetic operations"
-}
-
-// Schema returns the JSON schema for input validation
-func (c *Calculator) Schema() *tools.ToolSchema {
-	return &tools.ToolSchema{
-		Type: "object",
-		Properties: map[string]interface{}{
-			"expression": map[string]interface{}{
-				"type":        "string",
-				"description": "Mathematical expression to evaluate (e.g., '15 + 27 * 3', '2.5 * (10 - 3)')",
-			},
-		},
-		Required: []string{"expression"},
-	}
-}
-
-// Execute performs mathematical calculation
-func (c *Calculator) Execute(ctx context.Context, input *tools.ToolInput) (*tools.ToolResult, error) {
-	expression, ok := input.Data["expression"].(string)
-	if !ok {
-		return &tools.ToolResult{
-			Success: false,
-			Error:   "expression field is required and must be a string",
-		}, nil
-	}
-
-	// Validate expression contains only allowed characters
-	if !c.isValidExpression(expression) {
-		return &tools.ToolResult{
-			Success: false,
-			Error:   "expression contains invalid characters. Only numbers, +, -, *, /, (, ), and spaces are allowed",
-		}, nil
-	}
-
-	result, err := c.evaluateExpression(expression)
-	if err != nil {
-		return &tools.ToolResult{
-			Success: false,
-			Error:   fmt.Sprintf("calculation failed: %v", err),
-		}, nil
-	}
-
-	return &tools.ToolResult{
-		Success: true,
-		Data: map[string]interface{}{
-			"expression": expression,
-			"result":     result,
-		},
-	}, nil
-}
 
 // isValidExpression checks if the expression contains only allowed characters
 func (c *Calculator) isValidExpression(expr string) bool {

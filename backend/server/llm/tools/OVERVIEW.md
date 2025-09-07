@@ -6,8 +6,8 @@ Deterministic tools with predictable input/output and minimal LLM calls.
 
 ### Tool Characteristics
 - **Predictable I/O**: Strict input/output schemas
-- **Deterministic**: Same input → same output
-- **Efficient**: ≤1 LLM call per execution
+- **Nearly Deterministic**: Same input → same output (sometimes LLMs are called for a single task)
+- **Minimal LLM Reliance**: ≤1 LLM call per execution
 - **Workflow**: Strict execution patterns
 - **Stateless**: No internal state persistence
 

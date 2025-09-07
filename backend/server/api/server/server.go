@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"internal-perplexity/server/api/handlers"
+	"internal-perplexity/server/llm/agents"
 	"internal-perplexity/server/llm/agents/main-agents/primary"
 	subagentsummary "internal-perplexity/server/llm/agents/sub-agents/summary"
 	"internal-perplexity/server/llm/providers/openai"
@@ -25,8 +27,9 @@ type Server struct {
 	httpServer   *http.Server
 	llmProvider  shared.LLMProvider
 	toolRegistry *tools.Registry
-	primaryAgent *primary.PrimaryAgent
+	primaryAgent agents.IntelligentAgent
 	summaryAgent *subagentsummary.SummaryAgent
+	subAgents    map[string]agents.Agent
 }
 
 // Config holds server configuration
@@ -64,12 +67,17 @@ func NewServer(config *Config) (*Server, error) {
 
 	// Initialize tool registry and register tools
 	server.toolRegistry = tools.NewRegistry()
-	server.toolRegistry.Register(document_summarizer.NewDocumentSummarizer(server.llmProvider))
+	server.toolRegistry.Register(document_summarizer.NewDocumentSummarizer())
 	server.toolRegistry.Register(calculator.NewCalculator())
 
 	// Initialize agents
-	server.summaryAgent = subagentsummary.NewSummaryAgent(server.llmProvider)
-	server.primaryAgent = primary.NewPrimaryAgent(server.llmProvider, server.summaryAgent)
+	server.summaryAgent = subagentsummary.NewSummaryAgent()
+
+	// Create sub-agents map for both primary agent and sub-agent handler
+	server.subAgents = map[string]agents.Agent{
+		"summary": server.summaryAgent,
+	}
+	server.primaryAgent = primary.NewPrimaryAgent(server.subAgents, server.toolRegistry)
 
 	// Setup HTTP server
 	if err := server.setupHTTPServer(config); err != nil {
@@ -83,17 +91,34 @@ func NewServer(config *Config) (*Server, error) {
 func (s *Server) setupHTTPServer(config *Config) error {
 	// Initialize handlers
 	agentHandler := handlers.NewAgentHandler(s.primaryAgent)
-	subAgentHandler := handlers.NewSubAgentHandler(s.summaryAgent)
+	subAgentHandler := handlers.NewSubAgentHandler(s.subAgents)
 	toolHandler := handlers.NewToolHandler(s.toolRegistry)
 
 	// Set up HTTP routes
 	mux := http.NewServeMux()
 
 	// Agent routes
-	mux.HandleFunc("/agents/", agentHandler.ExecuteAgent)
+	mux.HandleFunc("/agents/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/capabilities") {
+			agentHandler.GetAgentCapabilities(w, r)
+		} else if strings.Contains(r.URL.Path, "/stats") {
+			agentHandler.GetAgentStats(w, r)
+		} else {
+			agentHandler.ExecuteAgent(w, r)
+		}
+	})
 
 	// Sub-agent routes
-	mux.HandleFunc("/sub-agents/", subAgentHandler.ExecuteSubAgent)
+	mux.HandleFunc("/sub-agents/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/capabilities") {
+			subAgentHandler.GetSubAgentCapabilities(w, r)
+		} else if strings.Contains(r.URL.Path, "/stats") {
+			subAgentHandler.GetSubAgentStats(w, r)
+		} else {
+			subAgentHandler.ExecuteSubAgent(w, r)
+		}
+	})
+	mux.HandleFunc("/sub-agents", subAgentHandler.ListSubAgents)
 
 	// Tool routes
 	mux.HandleFunc("/tools/", toolHandler.ExecuteTool)
@@ -154,7 +179,12 @@ func (s *Server) Start() error {
 	log.Printf("Starting agent server on %s", s.httpServer.Addr)
 	log.Println("Available endpoints:")
 	log.Println("  POST /agents/{name} - Execute main agents")
+	log.Println("  GET /agents/{name}/capabilities - Get agent capabilities")
+	log.Println("  GET /agents/{name}/stats - Get agent statistics")
 	log.Println("  POST /sub-agents/{name} - Execute sub-agents")
+	log.Println("  GET /sub-agents - List available sub-agents")
+	log.Println("  GET /sub-agents/{name}/capabilities - Get sub-agent capabilities")
+	log.Println("  GET /sub-agents/{name}/stats - Get sub-agent statistics")
 	log.Println("  POST /tools/{name} - Execute tools")
 	log.Println("  GET /tools - List available tools")
 	log.Println("  GET /health - Health check")
@@ -205,6 +235,6 @@ func (s *Server) GetToolRegistry() *tools.Registry {
 }
 
 // GetPrimaryAgent returns the primary agent (for testing or external access)
-func (s *Server) GetPrimaryAgent() *primary.PrimaryAgent {
+func (s *Server) GetPrimaryAgent() agents.IntelligentAgent {
 	return s.primaryAgent
 }

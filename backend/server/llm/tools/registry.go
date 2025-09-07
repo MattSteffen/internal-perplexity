@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"internal-perplexity/server/llm/providers/shared"
 )
 
 // Registry manages tool registration and execution
@@ -38,14 +40,14 @@ func (r *Registry) List() map[string]Tool {
 }
 
 // Execute runs a tool by name with the given input
-func (r *Registry) Execute(ctx context.Context, input *ToolInput) (*ToolResult, error) {
+func (r *Registry) Execute(ctx context.Context, input *ToolInput, llmProvider shared.LLMProvider) (*ToolResult, error) {
 	tool, err := r.Get(input.Name)
 	if err != nil {
 		return nil, err
 	}
 
 	start := time.Now()
-	result, err := tool.Execute(ctx, input)
+	result, err := tool.Execute(ctx, input, llmProvider)
 	if err != nil {
 		return nil, err
 	}

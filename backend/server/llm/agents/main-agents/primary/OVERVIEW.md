@@ -1,50 +1,87 @@
 # Primary Agent
 
-The Primary Agent is the main orchestrator agent that coordinates complex workflows, manages sub-agents, and handles high-level task decomposition and execution. It serves as the central intelligence for multi-step processes and agent orchestration.
+The Primary Agent is the main orchestrator agent that handles user interactions, analyzes queries, and coordinates sub-agent execution using a tool-like calling system. It serves as the central chatbot interface that decomposes complex user requests into sub-agent calls with parallel and sequential execution patterns.
 
 ## Purpose
 
-The Primary Agent acts as the main orchestrator in the agent system, responsible for:
-- **Task Decomposition**: Breaking down complex tasks into manageable sub-tasks
-- **Agent Orchestration**: Coordinating multiple sub-agents for complex workflows
-- **Workflow Management**: Managing execution flow and result aggregation
-- **Decision Making**: Determining which agents and tools to use for specific tasks
-- **Result Synthesis**: Combining outputs from multiple agents into coherent responses
+The Primary Agent acts as the main user interface in the agent system, responsible for:
+- **User Interaction**: Handling natural language queries from users
+- **Query Analysis**: Using LLM to analyze and decompose user requests
+- **Hybrid Orchestration**: Coordinating both sub-agents and tools using unified calling patterns
+- **Execution Planning**: Determining optimal combinations of agents and tools
+- **Result Synthesis**: Combining outputs from multiple agents and tools into coherent responses
 
 ## Features
 
-- **Multi-Agent Orchestration**: Coordinates sub-agents for complex tasks
-- **Task Routing**: Automatically routes tasks to appropriate specialized agents
-- **State Management**: Maintains context across multi-step workflows
-- **Error Handling**: Robust error handling and recovery mechanisms
-- **Statistics Tracking**: Comprehensive execution statistics and monitoring
-- **Extensible Architecture**: Easy to add new task types and agent integrations
+- **Intelligent Query Analysis**: Uses LLM to analyze user queries and determine execution strategy
+- **Hybrid Tool Integration**: Seamlessly combines sub-agents and tools in unified execution patterns
+- **Tool-Like Calling System**: Supports both sub-agent and tool calls with structured specifications
+- **Parallel & Sequential Execution**: Complex execution patterns [agent1, agent2] for parallel, [agent1], [agent2] for sequential
+- **Dynamic Task Decomposition**: Automatically decomposes queries into optimal agent/tool combinations
+- **Input/Output Validation**: Comprehensive validation for all agent and tool inputs/outputs
+- **Comprehensive Statistics**: Tracks execution metrics for both agents and tools
 
-## Task Types Supported
+## Architecture
 
-### Document Summarization
-**Task Type**: `"summarize_documents"`
-**Description**: Orchestrates document summarization using the summary sub-agent
-**Required Fields**:
-- `contents`: Array of document strings to summarize
-- `instructions`: Summarization instructions (optional)
-- `focus_areas`: Areas to focus on (optional)
+### File Structure
+- `definition.go`: Agent schema, types, and construction
+- `primary.go`: Core execution logic and sub-agent orchestration
+- `primary_test.go`: Unit tests for deterministic functionality
+- `OVERVIEW.md`: Documentation and usage examples
 
-### General Queries
-**Task Type**: `"general_query"`
-**Description**: Handles general questions and requests using direct LLM calls
-**Required Fields**:
-- `query`: The question or request text
+### Execution Flow
+1. **Query Analysis**: LLM analyzes user query to determine required sub-agents
+2. **Execution Planning**: Creates specification for parallel/sequential execution
+3. **Sub-Agent Calling**: Executes sub-agents using tool-like calling pattern
+4. **Result Aggregation**: Combines outputs from multiple agents
+5. **Response Generation**: Returns structured response to user
+
+### Sub-Agent Calling Pattern
+The Primary Agent uses a structured specification system:
+
+```json
+{
+  "groups": [
+    {
+      "calls": [
+        {
+          "name": "calculator",
+          "type": "tool",
+          "input": {"expression": "15 + 27 * 3"},
+          "output_key": "calculation_result",
+          "description": "Calculate the mathematical expression"
+        },
+        {
+          "name": "summary",
+          "type": "subagent",
+          "input": {"contents": ["doc1", "doc2"]},
+          "output_key": "summary_result",
+          "description": "Summarize the documents"
+        }
+      ],
+      "description": "Parallel execution of calculation and summarization"
+    },
+    {
+      "calls": [
+        {
+          "name": "synthesis",
+          "type": "subagent",
+          "input": {"inputs": ["calculation_result", "summary_result"]},
+          "output_key": "final_result",
+          "description": "Synthesize calculation and summary results"
+        }
+      ],
+      "description": "Sequential synthesis of parallel results"
+    }
+  ]
+}
+```
 
 ## Input Schema
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `task` | string | Yes | Task type identifier (e.g., "summarize_documents", "general_query") |
-| `contents` | array | For summarization | Array of document strings |
-| `instructions` | string | No | Instructions for summarization |
-| `query` | string | For queries | The query text |
-| `focus_areas` | array | No | Focus areas for summarization |
+| `query` | string | Yes | Natural language user query |
 
 ### Context Parameters
 Additional parameters can be passed via `input.Context`:
@@ -58,77 +95,67 @@ Additional parameters can be passed via `input.Context`:
 {
   "success": true,
   "content": {
-    "task": "summarize_documents",
-    "result": {
-      "summary": "Generated summary text...",
-      "metadata": {
-        "content_count": 2,
-        "combined_length": 1500,
-        "focus_areas": ["key_points"],
-        "instructions": "Focus on main conclusions"
+    "results": {
+      "group_0": {
+        "summary_result": {...},
+        "analysis_result": {...}
+      },
+      "group_1": {
+        "final_result": {...}
       }
     },
-    "orchestrator": "primary_agent"
+    "sub_agents_used": ["summary", "analyst", "synthesis"],
+    "execution_spec": {...}
   },
-  "tokens_used": 450,
-  "duration": "2.5s",
+  "tokens_used": 850,
+  "duration": "3.2s",
   "metadata": {
-    "sub_agent": "summary",
-    "execution_path": "primary -> summary"
+    "execution_groups": 2,
+    "total_sub_agents": 3,
+    "sub_agents_used": ["summary", "analyst", "synthesis"]
   }
 }
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `task` | string | The executed task type |
-| `result` | object | Task-specific result data |
-| `orchestrator` | string | Identifier for the orchestrating agent |
-| `sub_agent` | string | Name of the sub-agent used (if applicable) |
-| `execution_path` | string | Path of agent execution (e.g., "primary -> summary") |
-
 ## Usage Examples
 
-### Document Summarization
+### Basic Query Handling
 
 ```go
-primaryAgent := primary.NewPrimaryAgent(llmClient, summaryAgent)
+// Initialize with both sub-agents and tools
+toolRegistry := tools.NewRegistry()
+// Register available tools...
+primaryAgent := primary.NewPrimaryAgent(subAgents, toolRegistry)
 
 result, err := primaryAgent.Execute(ctx, &agents.AgentInput{
+    Query: "Calculate 15 + 27 * 3 and summarize these documents",
     Data: map[string]interface{}{
-        "task": "summarize_documents",
-        "contents": []interface{}{
-            "First document content about AI...",
-            "Second document content about ML...",
-        },
-        "instructions": "Focus on key technological advances",
-        "focus_areas": []interface{}{"advances", "applications"},
+        "documents": []string{"doc1 content", "doc2 content"},
     },
-})
+}, llmProvider)
 
 if result.Success {
     data := result.Content.(map[string]interface{})
-    summary := data["result"].(map[string]interface{})
-    fmt.Printf("Summary: %s\n", summary["summary"])
+    results := data["results"].(map[string]interface{})
+    fmt.Printf("Orchestrated %d sub-agents and %d tools\n",
+        len(data["sub_agents_used"].([]string)),
+        len(data["tools_used"].([]string)))
 }
 ```
 
 ### API Usage with curl
 
-#### Document Summarization Task
 ```bash
 curl -X POST http://localhost:8080/agents/primary \
   -H "Content-Type: application/json" \
   -H "X-API-KEY: your-api-key-here" \
   -d '{
     "input": {
-      "task": "summarize_documents",
-      "contents": [
-        "Go is a programming language developed by Google.",
-        "It features garbage collection and concurrent execution."
-      ],
-      "instructions": "Focus on key features and benefits",
-      "focus_areas": ["features", "benefits"]
+      "query": "Summarize these documents and find related research",
+      "documents": [
+        "Document content about AI...",
+        "Document content about ML..."
+      ]
     },
     "model": "gpt-4"
   }'
@@ -138,226 +165,189 @@ curl -X POST http://localhost:8080/agents/primary \
 ```json
 {
   "success": true,
-  "result": {
-    "task": "summarize_documents",
-    "result": {
-      "summary": "Go is a programming language created by Google that features garbage collection and concurrent execution, offering significant benefits for modern software development.",
-      "metadata": {
-        "content_count": 2,
-        "combined_length": 89,
-        "focus_areas": ["features", "benefits"],
-        "instructions": "Focus on key features and benefits"
+  "content": {
+    "results": {
+      "group_0": {
+        "summary_result": {
+          "summary": "Generated summary...",
+          "metadata": {"content_count": 2}
+        },
+        "research_result": {
+          "sources": ["source1", "source2"],
+          "findings": "Research findings..."
+        }
       }
     },
-    "orchestrator": "primary_agent"
-  }
+    "sub_agents_used": ["summary", "researcher"],
+    "execution_spec": {...}
+  },
+  "tokens_used": 650,
+  "duration": "4.1s"
 }
 ```
 
-#### General Query Task
-```bash
-curl -X POST http://localhost:8080/agents/primary \
-  -H "Content-Type: application/json" \
-  -H "X-API-KEY: your-api-key-here" \
-  -d '{
-    "input": {
-      "task": "general_query",
-      "query": "What are the benefits of microservices architecture?"
-    },
-    "model": "gpt-4"
-  }'
-```
+## Sub-Agent Integration
 
-**Response:**
-```json
-{
-  "success": true,
-  "result": {
-    "task": "general_query",
-    "query": "What are the benefits of microservices architecture?",
-    "answer": "Microservices architecture offers several key benefits including improved scalability, better fault isolation, technology diversity, and easier deployment and maintenance compared to monolithic architectures.",
-    "orchestrator": "primary_agent"
-  }
-}
-```
+### Available Sub-Agents
+- **Summary**: Document summarization and content analysis
+- **Analyst**: Data analysis and statistical processing
+- **Researcher**: Web research and information gathering
+- **Synthesis**: Result aggregation and synthesis
 
-### General Query
+### Execution Patterns
+- **Sequential**: `[agent1], [agent2]` - Execute agents one after another
+- **Parallel**: `[agent1, agent2]` - Execute agents simultaneously
+- **Map-Reduce**: Parallel processing followed by aggregation
 
+## Input/Output Validation
+
+### Input Validation
 ```go
-result, err := primaryAgent.Execute(ctx, &agents.AgentInput{
-    Data: map[string]interface{}{
-        "task": "general_query",
-        "query": "What are the benefits of microservices architecture?",
-    },
-    Context: map[string]interface{}{
-        "model": "gpt-4",
-        "api_key": "your-api-key",
-    },
-})
-
-if result.Success {
-    data := result.Content.(map[string]interface{})
-    fmt.Printf("Answer: %s\n", data["answer"])
+err := primaryAgent.ValidateInput(input)
+if err != nil {
+    // Handle validation error
+    log.Printf("Input validation failed: %v", err)
 }
 ```
+
+### Output Validation
+```go
+err := primaryAgent.ValidateOutput(result)
+if err != nil {
+    // Handle output validation error
+    log.Printf("Output validation failed: %v", err)
+}
+```
+
+### Validation Error Types
+- `MISSING_REQUIRED_FIELD`: Required field is missing
+- `INVALID_FIELD_TYPE`: Field has wrong data type
+- `INVALID_OUTPUT`: Output doesn't match expected schema
 
 ## Capabilities
 
-The Primary Agent provides the following capabilities:
+The Primary Agent provides these capabilities:
 
 ```go
 capabilities := primaryAgent.GetCapabilities()
 // Returns:
 [
     {
-        "name": "document_summarization",
-        "description": "Orchestrate document summarization using specialized sub-agents"
+        "name": "intelligent_orchestration",
+        "description": "Intelligent task decomposition and execution planning"
     },
     {
-        "name": "general_queries",
-        "description": "Handle general queries and provide helpful responses"
+        "name": "multi_agent_coordination",
+        "description": "Coordinate multiple agents using tool-like calling patterns"
     },
     {
-        "name": "task_orchestration",
-        "description": "Coordinate multiple agents and tools for complex tasks"
+        "name": "adaptive_execution",
+        "description": "Adapt execution patterns based on query requirements"
+    },
+    {
+        "name": "tool_integration",
+        "description": "Seamlessly integrate with sub-agents and tools"
     }
 ]
 ```
 
-## Architecture
-
-### Execution Flow
-1. **Input Validation**: Validate task type and required fields
-2. **Task Routing**: Route to appropriate handler based on task type
-3. **Agent Orchestration**: Coordinate sub-agents as needed
-4. **Result Processing**: Process and format results
-5. **Statistics Update**: Update execution statistics
-6. **Response Packaging**: Return structured response
-
-### Sub-Agent Integration
-The Primary Agent integrates with specialized sub-agents:
-- **Summary Agent**: For document summarization tasks
-- **Future Agents**: Analyst, Researcher, etc.
-
-### State Management
-- Maintains execution statistics across runs
-- Tracks success rates and performance metrics
-- Manages agent lifecycle and resource usage
-
-## Configuration
-
-### Dependencies
-- **LLM Provider**: Required for general queries and orchestration
-- **Summary Agent**: Required for document summarization tasks
-- **Context Providers**: Optional for enhanced functionality
-
-### Performance Settings
-- **Default Model**: GPT-4 (configurable via context)
-- **Token Limits**: 10,000 tokens for general queries
-- **Timeout Handling**: Configurable execution timeouts
-
-## Error Handling
-
-### Validation Errors
-**Input:** Missing required task field
-```json
-{
-  "success": false,
-  "error": "task field is required",
-  "duration": "0.001s"
-}
-```
-
-### Task Execution Errors
-**Input:** Invalid task type
-```json
-{
-  "success": false,
-  "error": "unsupported task type: invalid_task",
-  "duration": "0.002s"
-}
-```
-
-### Sub-Agent Errors
-**Input:** Summary agent failure
-```json
-{
-  "success": false,
-  "error": "summary agent failed: content validation error",
-  "duration": "1.5s"
-}
-```
-
 ## Statistics and Monitoring
-
-The Primary Agent tracks comprehensive statistics:
 
 ```go
 stats := primaryAgent.GetStats()
 // Returns:
 {
-    "total_executions": 150,
-    "average_duration": "2.3s",
-    "success_rate": 0.96,
-    "total_tokens": 45000
+    "total_executions": 250,
+    "average_duration": "3.5s",
+    "success_rate": 0.94,
+    "total_tokens": 125000,
+    "tasks_created": 450,
+    "sub_agents_used": 380
 }
 ```
 
 ### Metrics Tracked
-- **Total Executions**: Number of tasks processed
-- **Average Duration**: Mean execution time per task
+- **Total Executions**: Number of queries processed
+- **Average Duration**: Mean execution time per query
 - **Success Rate**: Percentage of successful executions
-- **Token Usage**: Total tokens consumed across all executions
+- **Token Usage**: Total tokens consumed
+- **Tasks Created**: Number of sub-agent calls created
+- **Sub-Agents Used**: Number of sub-agent executions
 
-## Best Practices
+## Configuration
 
-### Task Design
-1. **Clear Task Types**: Use descriptive, specific task identifiers
-2. **Complete Input Data**: Provide all required fields for the task type
-3. **Appropriate Context**: Include relevant context parameters when needed
-
-### Error Handling
-1. **Validate Inputs**: Always validate input data before processing
-2. **Graceful Degradation**: Handle sub-agent failures gracefully
-3. **Informative Errors**: Provide clear error messages for debugging
-
-### Performance Optimization
-1. **Resource Management**: Monitor and manage resource usage
-2. **Caching**: Implement result caching for repeated tasks
-3. **Async Processing**: Use asynchronous execution for long-running tasks
-
-## Implementation Details
-
-### Task Handler Pattern
+### Schema Definition
 ```go
-func (p *PrimaryAgent) executeDocumentSummary(ctx context.Context, input *agents.AgentInput, start time.Time) (*agents.AgentResult, error) {
-    // 1. Prepare sub-agent input
-    // 2. Execute sub-agent
-    // 3. Process results
-    // 4. Update statistics
-    // 5. Return formatted response
+schema := primaryAgent.GetSchema()
+// Provides complete I/O specifications
+```
+
+### System Prompts
+```go
+prompt := primaryAgent.GetSystemPrompt()
+// Returns context-aware system prompt
+```
+
+## Error Handling
+
+### Common Errors
+- **Query Analysis Failure**: LLM fails to analyze query
+- **Sub-Agent Not Found**: Requested sub-agent doesn't exist
+- **Execution Timeout**: Query execution exceeds time limits
+- **Validation Errors**: Input/output validation failures
+
+### Error Response Format
+```json
+{
+  "success": false,
+  "error": "sub-agent 'nonexistent' not found",
+  "duration": "0.5s",
+  "metadata": {
+    "error_type": "SUB_AGENT_NOT_FOUND",
+    "requested_agent": "nonexistent"
+  }
 }
 ```
 
-### Validation Strategy
-- **Early Validation**: Validate inputs before processing
-- **Type Checking**: Ensure correct data types for all fields
-- **Business Logic**: Validate business rules and constraints
+## Best Practices
 
-### Result Aggregation
-- **Structured Output**: Consistent result format across all tasks
-- **Metadata Preservation**: Maintain execution context and metadata
-- **Error Propagation**: Properly propagate errors with context
+### Query Design
+1. **Clear Intent**: Write queries with clear, specific intent
+2. **Context Provision**: Include relevant context and data
+3. **Expectation Setting**: Be clear about desired output format
+
+### Performance Optimization
+1. **Query Complexity**: Balance query complexity with execution time
+2. **Caching**: Cache frequently used analysis results
+3. **Resource Monitoring**: Monitor token usage and execution times
+
+### Error Handling
+1. **Graceful Degradation**: Handle sub-agent failures gracefully
+2. **Informative Errors**: Provide clear error messages
+3. **Fallback Strategies**: Implement fallback execution patterns
+
+## Implementation Details
+
+### Core Components
+- **Query Analyzer**: LLM-based query analysis and decomposition
+- **Execution Planner**: Creates structured execution specifications
+- **Sub-Agent Executor**: Manages parallel and sequential execution
+- **Result Aggregator**: Combines and synthesizes results
+
+### Validation Strategy
+- **Schema-Based**: Validates against predefined I/O schemas
+- **Type Checking**: Ensures correct data types for all fields
+- **Business Logic**: Validates business rules and constraints
 
 ## Future Extensions
 
 ### Planned Features
-- **Additional Task Types**: More specialized task handlers
-- **Advanced Orchestration**: Complex multi-agent workflows
-- **Caching Layer**: Result caching and optimization
-- **Monitoring Dashboard**: Real-time performance monitoring
+- **Advanced Execution Patterns**: More complex workflow patterns
+- **Dynamic Sub-Agent Loading**: Load sub-agents on demand
+- **Result Caching**: Intelligent caching of execution results
+- **Real-time Monitoring**: Live execution monitoring and metrics
 
 ### Integration Points
-- **Tool Registry**: Integration with tool ecosystem
-- **External Services**: API integrations and external data sources
-- **Workflow Engine**: Advanced workflow orchestration capabilities
+- **Tool Registry**: Integration with broader tool ecosystem
+- **External APIs**: Integration with external services
+- **Workflow Templates**: Predefined execution templates

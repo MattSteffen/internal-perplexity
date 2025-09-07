@@ -11,28 +11,14 @@ import (
 )
 
 // SummaryAgent handles document summarization tasks
-type SummaryAgent struct {
-	llmClient shared.LLMProvider
-	stats     agents.AgentStats
-}
-
-// NewSummaryAgent creates a new summary agent
-func NewSummaryAgent(llmClient shared.LLMProvider) *SummaryAgent {
-	return &SummaryAgent{
-		llmClient: llmClient,
-		stats: agents.AgentStats{
-			TotalExecutions: 0,
-			SuccessRate:     1.0,
-		},
-	}
-}
+// The struct and construction methods are defined in definition.go
 
 // Execute processes a list of content items and generates a summary
-func (s *SummaryAgent) Execute(ctx context.Context, input *agents.AgentInput) (*agents.AgentResult, error) {
+func (s *SummaryAgent) Execute(ctx context.Context, input *agents.AgentInput, llmProvider shared.LLMProvider) (*agents.AgentResult, error) {
 	start := time.Now()
 
 	// Validate input
-	if err := s.validateInput(input); err != nil {
+	if err := s.ValidateInput(input); err != nil {
 		return &agents.AgentResult{
 			Success:  false,
 			Content:  nil,
@@ -107,7 +93,7 @@ func (s *SummaryAgent) Execute(ctx context.Context, input *agents.AgentInput) (*
 		APIKey: apiKey,
 	}
 
-	resp, err := s.llmClient.Complete(ctx, req)
+	resp, err := llmProvider.Complete(ctx, req)
 	if err != nil {
 		return &agents.AgentResult{
 			Success:  false,
@@ -147,29 +133,6 @@ func (s *SummaryAgent) Execute(ctx context.Context, input *agents.AgentInput) (*
 	}, nil
 }
 
-// validateInput validates the agent input
-func (s *SummaryAgent) validateInput(input *agents.AgentInput) error {
-	if input.Data == nil {
-		return fmt.Errorf("input data is required")
-	}
-
-	contents, exists := input.Data["contents"]
-	if !exists {
-		return fmt.Errorf("contents field is required")
-	}
-
-	contentsSlice, ok := contents.([]interface{})
-	if !ok {
-		return fmt.Errorf("contents must be an array")
-	}
-
-	if len(contentsSlice) == 0 {
-		return fmt.Errorf("at least one content item is required")
-	}
-
-	return nil
-}
-
 // buildPrompt constructs the summarization prompt
 func (s *SummaryAgent) buildPrompt(contents []string, instructions string, focusAreas []string) string {
 	var prompt strings.Builder
@@ -204,12 +167,20 @@ func (s *SummaryAgent) buildPrompt(contents []string, instructions string, focus
 func (s *SummaryAgent) GetCapabilities() []agents.Capability {
 	return []agents.Capability{
 		{
-			Name:        "content_summarization",
-			Description: "Summarize multiple documents or text contents into coherent summaries",
+			Name:        "document_summarization",
+			Description: "Summarize multiple documents into coherent overviews",
 		},
 		{
-			Name:        "focused_summarization",
-			Description: "Generate summaries with specific focus areas and instructions",
+			Name:        "content_analysis",
+			Description: "Analyze content and extract key insights and themes",
+		},
+		{
+			Name:        "structured_summaries",
+			Description: "Create structured summaries with focus areas and metadata",
+		},
+		{
+			Name:        "instruction_based_summarization",
+			Description: "Summarize content according to specific user instructions",
 		},
 	}
 }
@@ -217,4 +188,9 @@ func (s *SummaryAgent) GetCapabilities() []agents.Capability {
 // GetStats returns the agent's statistics
 func (s *SummaryAgent) GetStats() agents.AgentStats {
 	return s.stats
+}
+
+// GetSystemPrompt returns the agent's system prompt
+func (s *SummaryAgent) GetSystemPrompt() *agents.SystemPrompt {
+	return s.systemPrompt
 }

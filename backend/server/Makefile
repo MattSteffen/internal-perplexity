@@ -119,8 +119,8 @@ test-coverage:
 build: $(GO_MOD_DEPS)
 	@echo "$(BOLD)$(YELLOW)🔨 Building application...$(RESET)"
 	mkdir -p $(BUILD_DIR)
-	codesign -s - -f $(BUILD_DIR)/$(BINARY_NAME)
 	$(GO) build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(MAIN_FILE)
+	codesign -s - -f $(BUILD_DIR)/$(BINARY_NAME)
 	@echo "$(BOLD)$(GREEN)✅ Build complete. Binary: $(BUILD_DIR)/$(BINARY_NAME)$(RESET)"
 
 run: deps
@@ -187,7 +187,6 @@ dev-test:
 
 docker-build:
 	@echo "$(BOLD)$(YELLOW)🐳 Building Docker image...$(RESET)"
-	codesign -s - -f $(BUILD_DIR)/$(BINARY_NAME)
 	docker build -t $(BINARY_NAME):$(VERSION) .
 	@echo "$(BOLD)$(GREEN)✅ Docker image built: $(BINARY_NAME):$(VERSION)$(RESET)"
 

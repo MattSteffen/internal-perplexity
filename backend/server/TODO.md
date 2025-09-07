@@ -13,18 +13,32 @@ Build a minimal viable product (MVP) for the agent orchestration server with Ope
 - [ ] Test connection to localhost:11434 with gpt-oss:20b
 
 ### 2. Tool System (`llm/tools/`)
-- [ ] Document summarizer tool (deterministic, ≤1 LLM call)
-- [ ] Calculator tool for basic mathematical operations
-- [ ] Web search tool (mock implementation)
-- [ ] JSON schema validation for tool inputs
-- [ ] Tool registry with discovery
-- [ ] Tool execution framework
+- [x] **COMPLETED: Tools Overhaul** - Enhanced schema system with 3-part structure:
+  - JSON schema for input validation
+  - JSON schema for output structure
+  - OpenAI function definition for LLM integration
+- [x] Document summarizer tool (deterministic, ≤1 LLM call)
+- [x] Calculator tool for basic mathematical operations with expression parsing
+- [x] Retriever tool for Milvus vector database queries
+- [x] Enhanced JSON schema validation for tool inputs
+- [x] Tool registry with discovery and definition support
+- [x] Tool execution framework with LLM provider integration
+- [ ] Web search tool (mock implementation) - Next priority
 
 ### 3. Agent Framework (`llm/agents/`)
-- [ ] Summary sub-agent that takes list of text contents and instructions
-- [ ] Primary main-agent orchestrator
-- [ ] Agent execution pipeline
-- [ ] Agent result formatting with stats
+- [x] **COMPLETED: Agent Framework Overhaul** - New modular architecture:
+  - Tool-like sub-agent calling system with parallel/sequential execution
+  - Schema-based input/output validation for all agents
+  - Primary agent as main orchestrator with intelligent query analysis
+  - Synthesis agent for multi-source aggregation
+  - Comprehensive validation and error handling
+- [x] Summary sub-agent with predefined I/O schemas and validation
+- [x] Synthesis sub-agent for aggregating multiple agent outputs
+- [x] Primary main-agent orchestrator with tool-like calling patterns
+- [x] Agent execution pipeline with execution logging
+- [x] Agent result formatting with comprehensive stats
+- [x] Analyst and Researcher agents (boilerplate with NOT_IMPLEMENTED errors)
+- [x] 4-file structure for each agent: definition.go, agent_name.go, agent_name_test.go, OVERVIEW.md
 
 ### 4. Services Layer (`llm/services/`)
 - [ ] Basic agent manager for agent lifecycle
@@ -34,9 +48,9 @@ Build a minimal viable product (MVP) for the agent orchestration server with Ope
 ### 5. API Layer (`api/`)
 - [ ] POST /agents/{name} endpoint
 - [ ] POST /sub-agents/{name} endpoint
-- [ ] POST /tools/{name} endpoint
+- [x] POST /tools/{name} endpoint - Enhanced with tool definitions
 - [ ] GET /tasks/{id} endpoint
-- [ ] Basic error handling and validation
+- [x] Basic error handling and validation - Updated for tool definitions
 
 ### 6. HTTP Handlers (`handlers/`)
 - [ ] Agent execution handlers
@@ -60,18 +74,23 @@ Build a minimal viable product (MVP) for the agent orchestration server with Ope
 ## Development Phases
 
 ### Phase 1: Foundation (Week 1)
-- [ ] Set up Go project structure
+- [x] Set up Go project structure
 - [ ] Implement OpenAI client with Ollama fallback
-- [ ] Create basic tool framework
-- [ ] Build simple document summarizer tool
-- [ ] Build calculator tool with expression evaluation
-- [ ] Write unit tests for tools
+- [x] **COMPLETED: Enhanced Tool Framework** with 3-part schema system
+- [x] Build document summarizer tool with LLM integration
+- [x] Build calculator tool with expression evaluation and parsing
+- [x] Write comprehensive unit tests for tools
+- [x] Implement tool registry with definition support
 
 ### Phase 2: Agent Core (Week 2)
-- [ ] Implement summary sub-agent
-- [ ] Create primary main-agent
-- [ ] Build agent manager service
-- [ ] Test agent execution pipeline
+- [x] **COMPLETED: Agent Framework Implementation**
+- [x] Implement summary sub-agent with schema validation
+- [x] Create synthesis sub-agent for aggregation
+- [x] Create primary main-agent with tool-like calling
+- [x] Build comprehensive test suites for all agents
+- [x] Test agent execution pipeline with validation
+- [x] Implement analyst/researcher boilerplate (NOT_IMPLEMENTED)
+- [x] Complete 4-file structure for all agents
 
 ### Phase 3: API Integration (Week 3)
 - [ ] Create HTTP handlers
@@ -118,14 +137,23 @@ curl -X POST http://localhost:8080/tools/calculator \
 ```
 
 ## Success Criteria
-- [ ] All tools execute deterministically
-- [ ] Calculator tool performs accurate mathematical calculations
-- [ ] Agents return results with proper stats
-- [ ] API endpoints respond correctly
-- [ ] Tests pass with localhost:11434
-- [ ] Basic agent orchestration works
-- [ ] Error handling is robust
-- [ ] Code is well-documented
+- [x] All tools execute deterministically
+- [x] Calculator tool performs accurate mathematical calculations
+- [x] **COMPLETED: Tools have 3-part schema system** (input, output, function definition)
+- [x] Tool registry provides proper discovery with definitions
+- [x] Enhanced API endpoints with tool definitions
+- [x] **COMPLETED: Agents return results with comprehensive stats and validation**
+- [x] **COMPLETED: Schema-based input/output validation for all agents**
+- [x] **COMPLETED: Tool-like sub-agent calling system implemented**
+- [x] **COMPLETED: Primary agent orchestration with intelligent query analysis**
+- [x] **COMPLETED: Synthesis agent for multi-source aggregation**
+- [x] **COMPLETED: Analyst/Researcher boilerplate with NOT_IMPLEMENTED errors**
+- [x] **COMPLETED: 4-file structure for all agents (definition.go, agent_name.go, test, OVERVIEW.md)**
+- [x] **COMPLETED: Comprehensive test suites for all agent components**
+- [ ] API endpoints respond correctly (Next priority)
+- [ ] Tests pass with localhost:11434 (Next priority)
+- [ ] Error handling is robust across all agents
+- [x] Code is well-documented with comprehensive OVERVIEW.md files
 
 ## Dependencies
 - [ ] Go 1.24.3
@@ -139,3 +167,9 @@ curl -X POST http://localhost:8080/tools/calculator \
 - [ ] Use Ollama for local testing to avoid API costs
 - [ ] Implement proper error handling early
 - [ ] Keep interfaces simple and extensible
+
+
+
+
+---
+

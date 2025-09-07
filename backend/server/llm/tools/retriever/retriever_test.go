@@ -34,6 +34,19 @@ func TestMilvusQueryTool_Schema(t *testing.T) {
 	assert.Contains(t, schema.Required, "texts")
 }
 
+func TestMilvusQueryTool_Definition(t *testing.T) {
+	tool := NewMilvusQueryTool()
+	definition := tool.Definition()
+
+	assert.NotNil(t, definition)
+	assert.Equal(t, "function", definition.Type)
+	assert.NotNil(t, definition.Function)
+	assert.Equal(t, "retriever", definition.Function.Name)
+	assert.Contains(t, definition.Function.Description, "semantic search")
+	assert.Contains(t, definition.Function.Description, "Milvus")
+	assert.NotNil(t, definition.Function.Parameters)
+}
+
 func TestMilvusQueryTool_Execute_ValidInput(t *testing.T) {
 	tool := NewMilvusQueryTool()
 

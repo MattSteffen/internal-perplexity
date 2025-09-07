@@ -33,93 +33,28 @@ type QueryTool interface {
 	HybridQuery(ctx context.Context, req QueryRequest) (QueryResponse, error)
 }
 
-// MilvusQueryTool is a concrete implementation
-type MilvusQueryTool struct {
-	// TODO: Add Milvus client, embedding model, etc.
-}
-
-// NewMilvusQueryTool initializes the tool
-func NewMilvusQueryTool( /* client config */ ) *MilvusQueryTool {
-	return &MilvusQueryTool{
-		// TODO: init client
-	}
-}
-
-// Name returns the tool name
-func (m *MilvusQueryTool) Name() string {
-	return "retriever"
-}
-
-// Description returns the tool description
-func (m *MilvusQueryTool) Description() string {
-	return "Queries Milvus vector database for semantic search and retrieval"
-}
-
-// Schema returns the JSON schema for input validation
-func (m *MilvusQueryTool) Schema() *tools.ToolSchema {
-	return &tools.ToolSchema{
-		Type: "object",
-		Properties: map[string]interface{}{
-			"collection_name": map[string]interface{}{
-				"type":        "string",
-				"description": "Name of the Milvus collection to query",
-			},
-			"partition_name": map[string]interface{}{
-				"type":        "string",
-				"description": "Name of the partition to query (optional)",
-			},
-			"texts": map[string]interface{}{
-				"type":        "array",
-				"items":       map[string]interface{}{"type": "string"},
-				"description": "List of text queries to embed and search",
-			},
-			"top_k": map[string]interface{}{
-				"type":        "integer",
-				"description": "Number of top results to return",
-				"default":     10,
-				"minimum":     1,
-				"maximum":     100,
-			},
-		},
-		Required: []string{"collection_name", "texts"},
-	}
-}
-
-// Execute performs the Milvus query using the tool interface
-func (m *MilvusQueryTool) Execute(ctx context.Context, input *tools.ToolInput) (*tools.ToolResult, error) {
-	// Parse input data
+// parseInput validates and parses the tool input
+func (m *MilvusQueryTool) parseInput(input *tools.ToolInput) (QueryRequest, error) {
 	collectionName, ok := input.Data["collection_name"].(string)
 	if !ok {
-		return &tools.ToolResult{
-			Success: false,
-			Error:   "collection_name field is required and must be a string",
-		}, nil
+		return QueryRequest{}, fmt.Errorf("collection_name field is required and must be a string")
 	}
 
 	textsRaw, ok := input.Data["texts"]
 	if !ok {
-		return &tools.ToolResult{
-			Success: false,
-			Error:   "texts field is required",
-		}, nil
+		return QueryRequest{}, fmt.Errorf("texts field is required")
 	}
 
 	textsInterface, ok := textsRaw.([]interface{})
 	if !ok {
-		return &tools.ToolResult{
-			Success: false,
-			Error:   "texts field must be an array of strings",
-		}, nil
+		return QueryRequest{}, fmt.Errorf("texts field must be an array of strings")
 	}
 
 	texts := make([]string, len(textsInterface))
 	for i, textInterface := range textsInterface {
 		text, ok := textInterface.(string)
 		if !ok {
-			return &tools.ToolResult{
-				Success: false,
-				Error:   fmt.Sprintf("texts[%d] must be a string", i),
-			}, nil
+			return QueryRequest{}, fmt.Errorf("texts[%d] must be a string", i)
 		}
 		texts[i] = text
 	}
@@ -138,24 +73,16 @@ func (m *MilvusQueryTool) Execute(ctx context.Context, input *tools.ToolInput) (
 		}
 	}
 
-	// Build query request
-	req := QueryRequest{
+	return QueryRequest{
 		CollectionName: collectionName,
 		PartitionName:  partitionName,
 		Texts:          texts,
 		TopK:           topK,
-	}
+	}, nil
+}
 
-	// Execute query
-	response, err := m.HybridQuery(ctx, req)
-	if err != nil {
-		return &tools.ToolResult{
-			Success: false,
-			Error:   fmt.Sprintf("query failed: %v", err),
-		}, nil
-	}
-
-	// Convert results to tool result format
+// convertResults converts query response to tool result format
+func (m *MilvusQueryTool) convertResults(response QueryResponse) []map[string]interface{} {
 	results := make([]map[string]interface{}, len(response.Results))
 	for i, doc := range response.Results {
 		results[i] = map[string]interface{}{
@@ -165,14 +92,7 @@ func (m *MilvusQueryTool) Execute(ctx context.Context, input *tools.ToolInput) (
 			"metadata": doc.Metadata,
 		}
 	}
-
-	return &tools.ToolResult{
-		Success: true,
-		Data: map[string]interface{}{
-			"results": results,
-			"count":   len(results),
-		},
-	}, nil
+	return results
 }
 
 // HybridQuery executes a hybrid search against Milvus
