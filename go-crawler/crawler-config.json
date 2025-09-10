@@ -1,0 +1,65 @@
+{
+  "embeddings": {
+    "provider": "ollama",
+    "model": "all-minilm:v2",
+    "base_url": "http://localhost:11434"
+  },
+  "llm": {
+    "model_name": "llama3.2",
+    "provider": "ollama",
+    "base_url": "http://localhost:11434",
+    "ctx_length": 32000,
+    "default_timeout": 300.0
+  },
+  "database": {
+    "provider": "milvus",
+    "host": "localhost",
+    "port": 19530,
+    "collection": "documents"
+  },
+  "converter": {
+    "type": "pymupdf",
+    "metadata": {}
+  },
+  "extractor": {
+    "type": "basic"
+  },
+  "chunk_size": 10000,
+  "temp_dir": "tmp/",
+  "benchmark": false,
+  "generate_benchmark_questions": false,
+  "num_benchmark_questions": 3,
+  "log_level": "INFO",
+  "max_concurrency": 4,
+  "batch_size": 100,
+  "metadata_schema": {
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string"
+      },
+      "author": {
+        "type": "string"
+      },
+      "summary": {
+        "type": "string"
+      },
+      "keywords": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "document_type": {
+        "type": "string"
+      },
+      "page_count": {
+        "type": "integer"
+      },
+      "created_date": {
+        "type": "string"
+      }
+    },
+    "required": ["title"]
+  }
+}
