@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"internal-perplexity/server/llm/agents"
+	"internal-perplexity/server/llm/api"
 	"internal-perplexity/server/llm/providers/shared"
 	"internal-perplexity/server/llm/tools"
 )
@@ -194,16 +195,16 @@ func (m *MockTool) Description() string {
 	return m.description
 }
 
-func (m *MockTool) Schema() *tools.ToolSchema {
-	return &tools.ToolSchema{
-		Type: "object",
+func (m *MockTool) Schema() map[string]any {
+	return map[string]any{
+		"type": "object",
 	}
 }
 
-func (m *MockTool) Definition() *tools.ToolDefinition {
-	return &tools.ToolDefinition{
+func (m *MockTool) Definition() *api.ToolDefinition {
+	return &api.ToolDefinition{
 		Type: "function",
-		Function: &tools.FunctionDefinition{
+		Function: api.FunctionDefinition{
 			Name:        m.name,
 			Description: m.description,
 		},

@@ -3,7 +3,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from langchain_ollama import OllamaEmbeddings
-from typing import List, Dict
+from typing import List, Dict, Optional
 from tqdm import tqdm
 
 from pymilvus.client import abstract
@@ -17,24 +17,44 @@ class EmbedderConfig:
     base_url: str
     api_key: str = ""
     provider: str = "ollama"
-    dimension: int = None  # Optional: pre-configured embedding dimension
+    dimension: Optional[int] = None  # Optional: pre-configured embedding dimension
+
+    def __post_init__(self):
+        """Validate configuration after initialization."""
+        if not self.model:
+            raise ValueError("Embedder model cannot be empty")
+        if not self.base_url:
+            raise ValueError("Embedder base_url cannot be empty")
+        if self.dimension is not None and self.dimension <= 0:
+            raise ValueError("Embedding dimension must be positive")
 
     @classmethod
-    def from_dict(cls, config: Dict[str, any]):
-        model = config.get("model")
-        if not model:
-            raise ValueError("Embedder model cannot be empty")
+    def ollama(
+        cls,
+        model: str,
+        base_url: str = "http://localhost:11434",
+        dimension: Optional[int] = None,
+    ) -> "EmbedderConfig":
+        """Create Ollama embedder configuration."""
+        return cls(
+            model=model, base_url=base_url, provider="ollama", dimension=dimension
+        )
 
-        base_url = config.get("base_url")
-        if not base_url:
-            raise ValueError("Embedder base_url cannot be empty")
-
+    @classmethod
+    def openai(
+        cls,
+        model: str,
+        api_key: str,
+        base_url: str = "https://api.openai.com/v1",
+        dimension: Optional[int] = None,
+    ) -> "EmbedderConfig":
+        """Create OpenAI embedder configuration."""
         return cls(
             model=model,
             base_url=base_url,
-            api_key=config.get("api_key", ""),
-            provider=config.get("provider", "ollama"),
-            dimension=config.get("dimension"),
+            api_key=api_key,
+            provider="openai",
+            dimension=dimension,
         )
 
 
@@ -74,7 +94,7 @@ class OllamaEmbedder(Embedder):
         self._dimension = None
 
         # Get logger (already configured by main crawler)
-        self.logger = logging.getLogger('OllamaEmbedder')
+        self.logger = logging.getLogger("OllamaEmbedder")
         self.logger.info(f"Initialized OllamaEmbedder with model: {config.model}")
         self.logger.debug(f"Base URL: {config.base_url}")
 
@@ -102,13 +122,17 @@ class OllamaEmbedder(Embedder):
             self.logger.debug("📊 Embedding Statistics:")
             self.logger.debug(f"   • Processing time: {embed_time:.3f}s")
             self.logger.debug(f"   • Embedding dimension: {embedding_dimension}")
-            self.logger.debug(f"   • Processing rate: {len(query)/embed_time:.0f} chars/sec")
+            self.logger.debug(
+                f"   • Processing rate: {len(query)/embed_time:.0f} chars/sec"
+            )
 
             return embedding
 
         except Exception as e:
             embed_time = time.time() - embed_start_time
-            self.logger.error(f"❌ Embedding generation failed after {embed_time:.3f}s: {e}")
+            self.logger.error(
+                f"❌ Embedding generation failed after {embed_time:.3f}s: {e}"
+            )
             raise
 
     def embed_batch(self, queries: List[str]) -> List[List[float]]:
@@ -122,14 +146,16 @@ class OllamaEmbedder(Embedder):
         """
         batch_start_time = time.time()
 
-        self.logger.info(f"🧮 Starting batch embedding generation for {len(queries)} queries...")
+        self.logger.info(
+            f"🧮 Starting batch embedding generation for {len(queries)} queries..."
+        )
 
         embeddings = []
         stats = {
-            'total_queries': len(queries),
-            'successful_embeddings': 0,
-            'failed_embeddings': 0,
-            'total_chars': sum(len(query) for query in queries)
+            "total_queries": len(queries),
+            "successful_embeddings": 0,
+            "failed_embeddings": 0,
+            "total_chars": sum(len(query) for query in queries),
         }
 
         # Process with progress bar
@@ -140,14 +166,16 @@ class OllamaEmbedder(Embedder):
                 try:
                     embedding = self.embedder.embed_query(query)
                     embeddings.append(embedding)
-                    stats['successful_embeddings'] += 1
+                    stats["successful_embeddings"] += 1
 
                     query_time = time.time() - query_start_time
-                    pbar.set_postfix_str(f"Query {i+1}/{len(queries)} ({query_time:.3f}s)")
+                    pbar.set_postfix_str(
+                        f"Query {i+1}/{len(queries)} ({query_time:.3f}s)"
+                    )
                     pbar.update(1)
 
                 except Exception as e:
-                    stats['failed_embeddings'] += 1
+                    stats["failed_embeddings"] += 1
                     self.logger.error(f"❌ Failed to embed query {i+1}: {e}")
                     pbar.update(1)
                     continue
@@ -158,15 +186,23 @@ class OllamaEmbedder(Embedder):
         self.logger.info("=== Batch embedding completed ===")
         self.logger.info("📊 Batch Embedding Statistics:")
         self.logger.info(f"   • Total queries: {stats['total_queries']}")
-        self.logger.info(f"   • Successful embeddings: {stats['successful_embeddings']}")
+        self.logger.info(
+            f"   • Successful embeddings: {stats['successful_embeddings']}"
+        )
         self.logger.info(f"   • Failed embeddings: {stats['failed_embeddings']}")
         self.logger.info(f"   • Total characters processed: {stats['total_chars']}")
         self.logger.info(f"   • Total processing time: {batch_time:.2f}s")
-        self.logger.info(f"   • Average time per query: {batch_time/stats['total_queries']:.3f}s")
-        self.logger.info(f"   • Queries per second: {stats['successful_embeddings']/batch_time:.1f}")
+        self.logger.info(
+            f"   • Average time per query: {batch_time/stats['total_queries']:.3f}s"
+        )
+        self.logger.info(
+            f"   • Queries per second: {stats['successful_embeddings']/batch_time:.1f}"
+        )
 
-        if stats['failed_embeddings'] > 0:
-            self.logger.warning(f"⚠️  {stats['failed_embeddings']} queries failed to embed")
+        if stats["failed_embeddings"] > 0:
+            self.logger.warning(
+                f"⚠️  {stats['failed_embeddings']} queries failed to embed"
+            )
 
         return embeddings
 
@@ -176,7 +212,9 @@ class OllamaEmbedder(Embedder):
         if self.config.dimension is not None:
             if self._dimension is None or self._dimension != self.config.dimension:
                 self._dimension = self.config.dimension
-                self.logger.info(f"✅ Using configured embedding dimension: {self._dimension}")
+                self.logger.info(
+                    f"✅ Using configured embedding dimension: {self._dimension}"
+                )
             return self._dimension
 
         # Otherwise probe once and cache
@@ -186,7 +224,9 @@ class OllamaEmbedder(Embedder):
                 # Calculate dimension on first request
                 test_embedding = self.embedder.embed_query("test")
                 self._dimension = len(test_embedding)
-                self.logger.info(f"✅ Embedding dimension determined: {self._dimension}")
+                self.logger.info(
+                    f"✅ Embedding dimension determined: {self._dimension}"
+                )
             except Exception as e:
                 self.logger.error(f"❌ Failed to determine embedding dimension: {e}")
                 raise
@@ -212,7 +252,7 @@ def test():
     config_with_dimension = EmbedderConfig(
         model="all-minilm:v2",
         base_url="http://localhost:11434",
-        dimension=384  # Known dimension for all-minilm:v2
+        dimension=384,  # Known dimension for all-minilm:v2
     )
     embedder_with_dimension = OllamaEmbedder(config_with_dimension)
     preconfigured_dimension = embedder_with_dimension.get_dimension()

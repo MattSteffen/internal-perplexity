@@ -1,21 +1,17 @@
 # TODO
 
-## General
+- [ ] Load real data into milvus
+  - [ ] Test tool calling or structured output for gpt-oss
+  - [ ] Get real data and test queries via script
+- [ ] OI
+  - [x] Update
+  - [x] Create script to update
+  - [ ] Load real radchat.py into oi
+  - [ ] Load query tool into oi
+- [ ] Agent-backend
 
-- Test the tools
+  - [ ] Go types for openai requests/responses
+  - [ ] Tool server implementation
 
-## Deployment
-
-## Other
-
-- use cloudflared tunnel --url http://localhost:<desired-port> to expose the service to the internet
-- maybe can do ingresses exposing http://ollama.localhost:5000 and similarly for the other services.
-
-https://github.com/PatrickJS/awesome-cursorrules/blob/main/rules/htmx-go-basic-cursorrules-prompt-file/.cursorrules
-
-## Crawler
-
-- Documentation and samples
-- Tests
-- Architecture to support personalized crawlers and pre-parsed inputs
-- Update READMEs and examples
+- Notes:
+  - gpt-oss streaming doesn't work with tool calls, structured output still doesn't work

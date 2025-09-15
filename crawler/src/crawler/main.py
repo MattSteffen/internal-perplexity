@@ -3,13 +3,16 @@ import os
 import uuid
 import time
 import logging
-from typing import Dict, Union, List
+from typing import Dict, Union, List, Any, Optional
 import json
 from pathlib import Path
 from tqdm import tqdm
 
+
 # Configure logging for the entire crawler system
-def setup_crawler_logging(log_level: str = "INFO", log_file: str = None) -> logging.Logger:
+def setup_crawler_logging(
+    log_level: str = "INFO", log_file: str = None
+) -> logging.Logger:
     """Setup comprehensive logging for the crawler system and all processing modules.
 
     Args:
@@ -21,20 +24,20 @@ def setup_crawler_logging(log_level: str = "INFO", log_file: str = None) -> logg
     """
     # List of all logger names used in the crawler system
     logger_names = [
-        'Crawler',
-        'OllamaLLM',
-        'Extractor',
-        'MultiSchemaExtractor',
-        'OllamaEmbedder',
-        'MarkItDownConverter',
-        'DoclingConverter',
-        'DoclingVLMConverter',
-        'PyMuPDFConverter',
+        "Crawler",
+        "OllamaLLM",
+        "Extractor",
+        "MultiSchemaExtractor",
+        "OllamaEmbedder",
+        "MarkItDownConverter",
+        "DoclingConverter",
+        "DoclingVLMConverter",
+        "PyMuPDFConverter",
     ]
 
     # Create formatter
     formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
 
     # Create handlers
@@ -69,7 +72,8 @@ def setup_crawler_logging(log_level: str = "INFO", log_file: str = None) -> logg
         logger.debug(f"{logger_name} logging handlers initialized")
 
     # Return the main crawler logger
-    return logging.getLogger('Crawler')
+    return logging.getLogger("Crawler")
+
 
 from .processing import (
     Embedder,
@@ -97,20 +101,28 @@ from .storage import (
 
 # Reserved keys that should not appear in metadata to avoid conflicts with database schema
 RESERVED = {
-    "document_id",
-    "chunk_index",
-    "source",
-    "text",
-    "text_embedding",
-    "text_sparse_embedding",
-    "metadata",
-    "metadata_sparse_embedding"
+    "default_document_id",
+    "default_chunk_index",
+    "default_source",
+    "default_text",
+    "default_text_embedding",
+    "default_text_sparse_embedding",
+    "default_metadata",
+    "default_metadata_sparse_embedding",
 }
 
-def sanitize_metadata(md: dict, schema: dict = None, logger: logging.Logger = None) -> dict:
+
+def sanitize_metadata(
+    md: dict, schema: dict = None, logger: logging.Logger = None
+) -> dict:
     """
-    Sanitize metadata by removing reserved keys that could conflict with database schema.
-    Optionally validate against a JSON schema.
+    Sanitize metadata by validating against a JSON schema.
+
+    With the new prefixed field naming strategy, reserved key conflicts are no longer possible,
+    so we only perform schema validation if provided.
+
+    When validation fails, missing required fields are filled with default values instead
+    of returning an empty dict.
 
     Args:
         md: Metadata dictionary to sanitize
@@ -118,46 +130,109 @@ def sanitize_metadata(md: dict, schema: dict = None, logger: logging.Logger = No
         logger: Optional logger for validation errors
 
     Returns:
-        Sanitized metadata dictionary with reserved keys removed
+        Sanitized metadata dictionary with defaults for missing required fields
     """
     if not isinstance(md, dict):
         return {}
 
-    # Remove any reserved keys
-    sanitized = {k: v for k, v in md.items() if k not in RESERVED}
+    # With prefixed fields, no need to remove reserved keys - conflicts are impossible
+    sanitized = md.copy()
 
     # Optional JSON schema validation
     if schema:
         try:
             import jsonschema
+
             jsonschema.validate(instance=sanitized, schema=schema)
             if logger:
                 logger.debug("Metadata validation passed")
         except jsonschema.ValidationError as e:
             if logger:
-                logger.warning(f"Metadata validation failed: {e.message}, falling back to empty dict")
-            return {}  # Return empty dict on validation failure
+                logger.warning(
+                    f"Metadata validation failed: {e.message}, adding defaults for missing required fields"
+                )
+
+            # Fill in missing required fields with defaults
+            sanitized = _add_default_values_for_required_fields(
+                sanitized, schema, logger
+            )
         except Exception as e:
             if logger:
-                logger.warning(f"Error during metadata validation: {e}, falling back to empty dict")
-            return {}  # Return empty dict on any error
+                logger.warning(
+                    f"Error during metadata validation: {e}, adding defaults for missing required fields"
+                )
+            # Fill in missing required fields with defaults
+            sanitized = _add_default_values_for_required_fields(
+                sanitized, schema, logger
+            )
 
     return sanitized
+
+
+def _add_default_values_for_required_fields(
+    md: dict, schema: dict, logger: logging.Logger = None
+) -> dict:
+    """
+    Add default values for missing required fields in metadata based on JSON schema.
+
+    Args:
+        md: Metadata dictionary
+        schema: JSON schema with required fields
+        logger: Optional logger for debug messages
+
+    Returns:
+        Metadata dictionary with defaults filled in
+    """
+    if not isinstance(md, dict):
+        md = {}
+
+    if not schema or "required" not in schema or "properties" not in schema:
+        return md
+
+    required_fields = schema.get("required", [])
+    properties = schema.get("properties", {})
+
+    for field_name in required_fields:
+        if field_name not in md:
+            field_schema = properties.get(field_name, {})
+            field_type = field_schema.get("type")
+
+            # Set default value based on field type
+            if field_type == "string":
+                default_value = ""
+            elif field_type == "integer" or field_type == "number":
+                default_value = 0
+            elif field_type == "boolean":
+                default_value = False
+            elif field_type == "array":
+                default_value = []
+            elif field_type == "object":
+                default_value = {}
+            else:
+                default_value = None
+
+            md[field_name] = default_value
+            if logger:
+                logger.debug(
+                    f"Added default value for missing required field '{field_name}': {default_value}"
+                )
+
+    return md
 
 
 """
 Crawler takes a directory or list of filepaths, extracts the markdown and metadata from each, chunks them, and stores them in a vector database.
 The crawler class is a base class.
 
-# TODO: Invlidate metadata that contains any of the following:
-    - "document_id"
-    - "chunk_index"
-    - "source"
-    - "text"
-    - "text_embedding"
-    - "text_sparse_embedding"
-    - "metadata"
-    - "metadata_sparse_embedding"
+# TODO: With new prefixed field naming, these system fields no longer conflict with user metadata:
+    - "default_document_id"
+    - "default_chunk_index"
+    - "default_source"
+    - "default_text"
+    - "default_text_embedding"
+    - "default_text_sparse_embedding"
+    - "default_metadata"
+    - "default_metadata_sparse_embedding"
 
 # TODO: Make a backend server for OI and have radchat model available.
 
@@ -215,6 +290,8 @@ Example config:
 
 @dataclass
 class CrawlerConfig:
+    """Configuration for the document crawler."""
+
     embeddings: EmbedderConfig
     llm: LLMConfig
     vision_llm: LLMConfig
@@ -222,33 +299,88 @@ class CrawlerConfig:
     converter: ConverterConfig = field(default_factory=lambda: ConverterConfig())
     extractor: ExtractorConfig = field(default_factory=lambda: ExtractorConfig())
     chunk_size: int = 10000  # treated as maximum if using semantic chunking
-    metadata_schema: Dict[str, any] = field(default_factory=dict)
+    metadata_schema: Dict[str, Any] = field(default_factory=dict)
     temp_dir: str = "tmp/"
     benchmark: bool = False
-    generate_benchmark_questions: bool = False  # Generate benchmark questions during metadata extraction
+    generate_benchmark_questions: bool = (
+        False  # Generate benchmark questions during metadata extraction
+    )
     num_benchmark_questions: int = 3  # Number of benchmark questions to generate
     log_level: str = "INFO"  # Logging level (DEBUG, INFO, WARNING, ERROR)
-    log_file: str = None  # Optional log file path
+    log_file: Optional[str] = None  # Optional log file path
+
+    def __post_init__(self):
+        """Validate configuration after initialization."""
+        if self.chunk_size <= 0:
+            raise ValueError("Chunk size must be positive")
+        if self.num_benchmark_questions <= 0:
+            raise ValueError("Number of benchmark questions must be positive")
+        if self.log_level not in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
+            raise ValueError("Invalid log level")
 
     @classmethod
-    def from_dict(cls, config: Dict[str, any]):
+    def create(
+        cls,
+        embeddings: EmbedderConfig,
+        llm: LLMConfig,
+        vision_llm: LLMConfig,
+        database: DatabaseClientConfig,
+        converter: Optional[ConverterConfig] = None,
+        extractor: Optional[ExtractorConfig] = None,
+        chunk_size: int = 10000,
+        metadata_schema: Optional[Dict[str, Any]] = None,
+        temp_dir: str = "tmp/",
+        benchmark: bool = False,
+        generate_benchmark_questions: bool = False,
+        num_benchmark_questions: int = 3,
+        log_level: str = "INFO",
+        log_file: Optional[str] = None,
+    ) -> "CrawlerConfig":
+        """Create a CrawlerConfig with type-safe parameters."""
         return cls(
-            embeddings=EmbedderConfig.from_dict(config.get("embeddings", {})),
-            llm=LLMConfig.from_dict(config.get("llm", {})),
-            vision_llm=LLMConfig.from_dict(config.get("vision_llm", {})),
-            database=DatabaseClientConfig.from_dict(config.get("database", {})),
-            converter=ConverterConfig.from_dict(config.get("converter", {})),
-            extractor=ExtractorConfig.from_dict(config.get("extractor", {})),
-            metadata_schema=config.get("metadata_schema", {}),
-            chunk_size=config.get("utils", {}).get("chunk_size", 10000),
-            temp_dir=config.get("utils", {}).get("temp_dir", "tmp/"),
-            benchmark=config.get("utils", {}).get("benchmark", False),
-            generate_benchmark_questions=config.get("utils", {}).get("generate_benchmark_questions", False),
-            num_benchmark_questions=config.get("utils", {}).get("num_benchmark_questions", 3),
-            log_level=config.get("log_level", "INFO"),
-            log_file=config.get("log_file"),
+            embeddings=embeddings,
+            llm=llm,
+            vision_llm=vision_llm,
+            database=database,
+            converter=converter or ConverterConfig(),
+            extractor=extractor or ExtractorConfig(),
+            chunk_size=chunk_size,
+            metadata_schema=metadata_schema or {},
+            temp_dir=temp_dir,
+            benchmark=benchmark,
+            generate_benchmark_questions=generate_benchmark_questions,
+            num_benchmark_questions=num_benchmark_questions,
+            log_level=log_level,
+            log_file=log_file,
         )
 
+    @classmethod
+    def default_ollama(
+        cls,
+        collection: str = "documents",
+        embed_model: str = "all-minilm:v2",
+        llm_model: str = "llama3.2:3b",
+        vision_model: str = "llava:latest",
+        base_url: str = "http://localhost:11434",
+        host: str = "localhost",
+        port: int = 19530,
+        **kwargs,
+    ) -> "CrawlerConfig":
+        """Create a default configuration using Ollama models."""
+        embeddings = EmbedderConfig.ollama(model=embed_model, base_url=base_url)
+        llm = LLMConfig.ollama(model_name=llm_model, base_url=base_url)
+        vision_llm = LLMConfig.ollama(model_name=vision_model, base_url=base_url)
+        database = DatabaseClientConfig.milvus(
+            collection=collection, host=host, port=port
+        )
+
+        return cls.create(
+            embeddings=embeddings,
+            llm=llm,
+            vision_llm=vision_llm,
+            database=database,
+            **kwargs,
+        )
 
 
 class Crawler:
@@ -301,7 +433,9 @@ class Crawler:
 
         if self.converter is None:
             # Use the converter config directly
-            self.converter = create_converter(self.config.converter.type, self.config.converter)
+            self.converter = create_converter(
+                self.config.converter.type, self.config.converter
+            )
 
     def _get_filepaths(self, path: Union[str, list[str]]) -> List[str]:
         """
@@ -328,7 +462,9 @@ class Crawler:
         # If path is a file, return a list with just that file
         if os.path.isfile(path):
             file_size = os.path.getsize(path)
-            self.logger.info(f"Processing single file: {path} ({self._format_bytes(file_size)})")
+            self.logger.info(
+                f"Processing single file: {path} ({self._format_bytes(file_size)})"
+            )
             return [path]
 
         # If path is a directory, collect all files within it
@@ -346,17 +482,21 @@ class Crawler:
                     except OSError:
                         self.logger.warning(f"Could not get size for file: {file_path}")
 
-            self.logger.info(f"Found {len(file_paths)} files in directory ({self._format_bytes(total_size)} total)")
+            self.logger.info(
+                f"Found {len(file_paths)} files in directory ({self._format_bytes(total_size)} total)"
+            )
             return file_paths
 
         # If path is neither a file nor a directory
         else:
-            self.logger.error(f"Path {path} is neither a file nor a directory, returning empty list")
+            self.logger.error(
+                f"Path {path} is neither a file nor a directory, returning empty list"
+            )
             return []
 
     def _format_bytes(self, bytes_value: int) -> str:
         """Format bytes into human readable format."""
-        for unit in ['B', 'KB', 'MB', 'GB']:
+        for unit in ["B", "KB", "MB", "GB"]:
             if bytes_value < 1024.0:
                 return ".1f"
             bytes_value /= 1024.0
@@ -382,13 +522,13 @@ class Crawler:
 
         # Statistics tracking
         stats = {
-            'total_files': len(filepaths),
-            'processed_files': 0,
-            'skipped_files': 0,
-            'failed_files': 0,
-            'total_chunks': 0,
-            'total_processing_time': 0,
-            'total_file_size': 0
+            "total_files": len(filepaths),
+            "processed_files": 0,
+            "skipped_files": 0,
+            "failed_files": 0,
+            "total_chunks": 0,
+            "total_processing_time": 0,
+            "total_file_size": 0,
         }
 
         # Main processing loop with progress bar
@@ -399,7 +539,7 @@ class Crawler:
 
                 try:
                     file_size = os.path.getsize(filepath)
-                    stats['total_file_size'] += file_size
+                    stats["total_file_size"] += file_size
                 except OSError:
                     self.logger.warning(f"Could not get size for file: {filepath}")
 
@@ -407,12 +547,16 @@ class Crawler:
 
                 # Check for duplicates
                 if self.vector_db.check_duplicate(filepath, 0):
-                    self.logger.info(f"⏭️  Skipping duplicate document: {os.path.basename(filepath)}")
-                    stats['skipped_files'] += 1
+                    self.logger.info(
+                        f"⏭️  Skipping duplicate document: {os.path.basename(filepath)}"
+                    )
+                    stats["skipped_files"] += 1
                     pbar.update(1)
                     continue
 
-                self.logger.info(f"📄 Processing: {os.path.basename(filepath)} ({self._format_bytes(file_size)})")
+                self.logger.info(
+                    f"📄 Processing: {os.path.basename(filepath)} ({self._format_bytes(file_size)})"
+                )
 
                 markdown = None
                 metadata = None
@@ -423,7 +567,9 @@ class Crawler:
                     filename = os.path.splitext(os.path.basename(filepath))[0] + ".json"
                     temp_filepath = temp_dir / filename
                     if temp_filepath.exists():
-                        self.logger.info(f"📋 Loading cached document from {temp_filepath}")
+                        self.logger.info(
+                            f"📋 Loading cached document from {temp_filepath}"
+                        )
                         with open(temp_filepath, "r") as f:
                             data = json.load(f)
                             markdown = data["text"]
@@ -435,10 +581,12 @@ class Crawler:
                     self.logger.info("🔄 Converting document to markdown...")
                     try:
                         markdown = self.converter.convert(filepath)
-                        self.logger.info(f"✅ Conversion completed in {time.time() - convert_start:.2f}s")
+                        self.logger.info(
+                            f"✅ Conversion completed in {time.time() - convert_start:.2f}s"
+                        )
                     except Exception as e:
                         self.logger.error(f"❌ Conversion failed for {filepath}: {e}")
-                        stats['failed_files'] += 1
+                        stats["failed_files"] += 1
                         pbar.update(1)
                         continue
 
@@ -447,10 +595,14 @@ class Crawler:
                     self.logger.info("🧠 Extracting metadata...")
                     try:
                         metadata = self.extractor.extract_metadata(markdown)
-                        self.logger.info(f"✅ Metadata extraction completed in {time.time() - extract_start:.2f}s")
+                        self.logger.info(
+                            f"✅ Metadata extraction completed in {time.time() - extract_start:.2f}s"
+                        )
                     except Exception as e:
-                        self.logger.error(f"❌ Metadata extraction failed for {filepath}: {e}")
-                        stats['failed_files'] += 1
+                        self.logger.error(
+                            f"❌ Metadata extraction failed for {filepath}: {e}"
+                        )
+                        stats["failed_files"] += 1
                         pbar.update(1)
                         continue
 
@@ -459,7 +611,9 @@ class Crawler:
                         try:
                             with open(temp_filepath, "w") as f:
                                 json.dump({"text": markdown, "metadata": metadata}, f)
-                            self.logger.debug(f"💾 Cached processed document to {temp_filepath}")
+                            self.logger.debug(
+                                f"💾 Cached processed document to {temp_filepath}"
+                            )
                         except Exception as e:
                             self.logger.warning(f"⚠️  Failed to cache document: {e}")
 
@@ -468,7 +622,9 @@ class Crawler:
                 self.logger.info("✂️  Chunking text...")
                 chunks = self.extractor.chunk_text(markdown, self.config.chunk_size)
                 chunk_time = time.time() - chunk_start
-                self.logger.info(f"✅ Created {len(chunks)} chunks in {chunk_time:.2f}s (avg {len(chunks)/chunk_time:.1f} chunks/sec)")
+                self.logger.info(
+                    f"✅ Created {len(chunks)} chunks in {chunk_time:.2f}s (avg {len(chunks)/chunk_time:.1f} chunks/sec)"
+                )
 
                 # Generate embeddings for chunks
                 embed_start = time.time()
@@ -476,7 +632,12 @@ class Crawler:
                 entities: List[DatabaseDocument] = []
 
                 # Process chunks with progress tracking
-                with tqdm(total=len(chunks), desc="Embedding chunks", unit="chunk", leave=False) as chunk_pbar:
+                with tqdm(
+                    total=len(chunks),
+                    desc="Embedding chunks",
+                    unit="chunk",
+                    leave=False,
+                ) as chunk_pbar:
                     for i, chunk in enumerate(chunks):
                         chunk_embed_start = time.time()
                         try:
@@ -484,20 +645,26 @@ class Crawler:
                             chunk_embed_time = time.time() - chunk_embed_start
 
                             # Sanitize metadata before creating database document
-                            sanitized_metadata = sanitize_metadata(metadata, self.config.metadata_schema, self.logger)
+                            sanitized_metadata = sanitize_metadata(
+                                metadata, self.config.metadata_schema, self.logger
+                            )
 
                             # Create entities for database
-                            doc = DatabaseDocument.from_dict({
-                                "document_id": str(uuid.uuid4()),
-                                "chunk_index": i,
-                                "source": filepath,
-                                "text": chunk,
-                                "text_embedding": embeddings,
-                                **sanitized_metadata,
-                            })
+                            doc = DatabaseDocument.from_dict(
+                                {
+                                    "default_document_id": str(uuid.uuid4()),
+                                    "default_chunk_index": i,
+                                    "default_source": filepath,
+                                    "default_text": chunk,
+                                    "default_text_embedding": embeddings,
+                                    **sanitized_metadata,
+                                }
+                            )
                             entities.append(doc)
 
-                            chunk_pbar.set_postfix_str(f"Chunk {i+1}/{len(chunks)} ({chunk_embed_time:.3f}s)")
+                            chunk_pbar.set_postfix_str(
+                                f"Chunk {i+1}/{len(chunks)} ({chunk_embed_time:.3f}s)"
+                            )
                             chunk_pbar.update(1)
 
                         except Exception as e:
@@ -505,7 +672,9 @@ class Crawler:
                             continue
 
                 embed_time = time.time() - embed_start
-                self.logger.info(f"✅ Generated embeddings for {len(entities)} chunks in {embed_time:.2f}s (avg {len(entities)/embed_time:.1f} chunks/sec)")
+                self.logger.info(
+                    f"✅ Generated embeddings for {len(entities)} chunks in {embed_time:.2f}s (avg {len(entities)/embed_time:.1f} chunks/sec)"
+                )
 
                 # Store in database
                 if entities:
@@ -514,25 +683,29 @@ class Crawler:
                     try:
                         self.vector_db.insert_data(entities)
                         store_time = time.time() - store_start
-                        self.logger.info(f"✅ Successfully stored {len(entities)} documents in {store_time:.2f}s")
-                        stats['total_chunks'] += len(entities)
+                        self.logger.info(
+                            f"✅ Successfully stored {len(entities)} documents in {store_time:.2f}s"
+                        )
+                        stats["total_chunks"] += len(entities)
                     except Exception as e:
                         self.logger.error(f"❌ Failed to store documents: {e}")
-                        stats['failed_files'] += 1
+                        stats["failed_files"] += 1
                         pbar.update(1)
                         continue
                 else:
                     self.logger.warning("⚠️  No entities to store")
-                    stats['failed_files'] += 1
+                    stats["failed_files"] += 1
                     pbar.update(1)
                     continue
 
                 # Log file completion
                 file_time = time.time() - file_start_time
-                stats['processed_files'] += 1
-                stats['total_processing_time'] += file_time
+                stats["processed_files"] += 1
+                stats["total_processing_time"] += file_time
 
-                self.logger.info(f"🎉 Completed processing {os.path.basename(filepath)} in {file_time:.2f}s")
+                self.logger.info(
+                    f"🎉 Completed processing {os.path.basename(filepath)} in {file_time:.2f}s"
+                )
                 self.logger.debug(f"File metadata: {metadata}")
 
                 pbar.update(1)
@@ -546,13 +719,21 @@ class Crawler:
         self.logger.info(f"   • Files skipped (duplicates): {stats['skipped_files']}")
         self.logger.info(f"   • Files failed: {stats['failed_files']}")
         self.logger.info(f"   • Total chunks created: {stats['total_chunks']}")
-        self.logger.info(f"   • Total data processed: {self._format_bytes(stats['total_file_size'])}")
+        self.logger.info(
+            f"   • Total data processed: {self._format_bytes(stats['total_file_size'])}"
+        )
         self.logger.info(f"   • Total processing time: {total_time:.2f}s")
-        self.logger.info(f"   • Average time per file: {stats['total_processing_time']/max(stats['processed_files'], 1):.2f}s")
-        self.logger.info(f"   • Processing rate: {stats['processed_files']/total_time:.2f} files/sec")
+        self.logger.info(
+            f"   • Average time per file: {stats['total_processing_time']/max(stats['processed_files'], 1):.2f}s"
+        )
+        self.logger.info(
+            f"   • Processing rate: {stats['processed_files']/total_time:.2f} files/sec"
+        )
 
-        if stats['failed_files'] > 0:
-            self.logger.warning(f"⚠️  {stats['failed_files']} files failed to process - check logs above for details")
+        if stats["failed_files"] > 0:
+            self.logger.warning(
+                f"⚠️  {stats['failed_files']} files failed to process - check logs above for details"
+            )
 
     def benchmark(self, generate_queries: bool = False) -> None:
         if self.benchmarker:

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"internal-perplexity/server/llm/api"
 	"internal-perplexity/server/llm/providers/shared"
 	"internal-perplexity/server/llm/tools"
 )
@@ -28,10 +29,10 @@ func (d *DocumentSummarizer) Description() string {
 }
 
 // Schema returns the JSON schema for input validation
-func (d *DocumentSummarizer) Schema() *tools.ToolSchema {
-	return &tools.ToolSchema{
-		Type: "object",
-		Properties: map[string]interface{}{
+func (d *DocumentSummarizer) Schema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]interface{}{
 			"content": map[string]interface{}{
 				"type":        "string",
 				"description": "The document content to summarize",
@@ -42,17 +43,18 @@ func (d *DocumentSummarizer) Schema() *tools.ToolSchema {
 				"default":     200,
 			},
 		},
-		Required: []string{"content"},
+		"required": []string{"content"},
 	}
 }
 
 // Definition returns the OpenAI tool definition
-func (d *DocumentSummarizer) Definition() *tools.ToolDefinition {
-	return &tools.ToolDefinition{
+func (d *DocumentSummarizer) Definition() *api.ToolDefinition {
+	return &api.ToolDefinition{
 		Type: "function",
-		Function: &tools.FunctionDefinition{
+		Function: api.FunctionDefinition{
 			Name:        "document_summarizer",
 			Description: "Summarize documents and text content to a specified length. Use this tool when you need to condense long text into key points and main ideas. The tool uses advanced language models to create coherent, accurate summaries that preserve essential information while reducing length. Returns the summary text along with statistics about the original and summarized content.",
+			Strict:      &[]bool{true}[0],
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{

@@ -2,12 +2,11 @@ package retriever
 
 import (
 	"context"
+	"internal-perplexity/server/llm/tools"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"internal-perplexity/server/llm/tools"
 )
 
 func TestMilvusQueryTool_Name(t *testing.T) {
@@ -26,12 +25,12 @@ func TestMilvusQueryTool_Schema(t *testing.T) {
 	schema := tool.Schema()
 
 	assert.NotNil(t, schema)
-	assert.Equal(t, "object", schema.Type)
-	assert.Contains(t, schema.Properties, "collection_name")
-	assert.Contains(t, schema.Properties, "texts")
-	assert.Contains(t, schema.Properties, "top_k")
-	assert.Contains(t, schema.Required, "collection_name")
-	assert.Contains(t, schema.Required, "texts")
+	assert.Equal(t, "object", schema["type"])
+	assert.Contains(t, schema["properties"], "collection_name")
+	assert.Contains(t, schema["properties"], "texts")
+	assert.Contains(t, schema["properties"], "top_k")
+	assert.Contains(t, schema["required"], "collection_name")
+	assert.Contains(t, schema["required"], "texts")
 }
 
 func TestMilvusQueryTool_Definition(t *testing.T) {

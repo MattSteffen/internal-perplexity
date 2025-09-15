@@ -161,3 +161,4 @@ type ComponentRegistry struct {
 	Databases  DatabaseFactory
 	Benchmarks BenchmarkFactory
 }
+

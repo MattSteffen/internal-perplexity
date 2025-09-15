@@ -34,3 +34,4 @@ func CreateWithConfig(cfg *config.EmbedderConfig) (interfaces.Embedder, error) {
 	factory := NewFactory()
 	return factory.Create(cfg)
 }
+

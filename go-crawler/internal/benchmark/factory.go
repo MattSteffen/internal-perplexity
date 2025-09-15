@@ -39,3 +39,4 @@ func CreateWithConfig(dbConfig *config.DatabaseConfig, embedConfig *config.Embed
 	factory := NewFactory()
 	return factory.Create(dbConfig, embedConfig)
 }
+

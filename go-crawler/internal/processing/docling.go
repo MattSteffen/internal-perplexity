@@ -41,7 +41,7 @@ func (d *DoclingConverter) Convert(ctx context.Context, filePath string) (string
 
 	switch ext {
 	case ".pdf":
-		return d.convertPDFAdvanced(filepath, filename)
+		return d.convertPDFAdvanced(filePath, filename)
 	default:
 		// For other formats, fall back to basic conversion
 		return "", fmt.Errorf("docling converter currently only supports PDF files, got: %s", ext)
@@ -110,7 +110,7 @@ func (d *DoclingVLMConverter) Convert(ctx context.Context, filePath string) (str
 
 	switch ext {
 	case ".pdf":
-		return d.convertPDFWithVLM(ctx, filepath, filename)
+		return d.convertPDFWithVLM(ctx, filePath, filename)
 	default:
 		return "", fmt.Errorf("docling VLM converter currently only supports PDF files, got: %s", ext)
 	}

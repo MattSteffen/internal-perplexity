@@ -3,7 +3,6 @@ package retriever
 import (
 	"context"
 	"fmt"
-
 	"internal-perplexity/server/llm/tools"
 )
 

@@ -298,3 +298,4 @@ func getQueryParamBool(r *http.Request, key string, defaultValue bool) bool {
 
 	return defaultValue
 }
+

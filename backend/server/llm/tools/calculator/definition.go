@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"internal-perplexity/server/llm/providers/shared"
+	"internal-perplexity/server/llm/api"
 	"internal-perplexity/server/llm/tools"
 )
 
@@ -27,24 +27,24 @@ func (c *Calculator) Description() string {
 }
 
 // Schema returns the JSON schema for input validation
-func (c *Calculator) Schema() *tools.ToolSchema {
-	return &tools.ToolSchema{
-		Type: "object",
-		Properties: map[string]interface{}{
+func (c *Calculator) Schema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]interface{}{
 			"expression": map[string]interface{}{
 				"type":        "string",
 				"description": "Mathematical expression to evaluate (e.g., '15 + 27 * 3', '2.5 * (10 - 3)')",
 			},
 		},
-		Required: []string{"expression"},
+		"required": []string{"expression"},
 	}
 }
 
 // Definition returns the OpenAI tool definition
-func (c *Calculator) Definition() *tools.ToolDefinition {
-	return &tools.ToolDefinition{
+func (c *Calculator) Definition() *api.ToolDefinition {
+	return &api.ToolDefinition{
 		Type: "function",
-		Function: &tools.FunctionDefinition{
+		Function: api.FunctionDefinition{
 			Name:        "calculator",
 			Description: "Evaluate mathematical expressions with support for basic arithmetic operations. Use this tool when you need to perform calculations, solve math problems, or evaluate numerical expressions. The tool supports addition (+), subtraction (-), multiplication (*), division (/), and parentheses for controlling order of operations. It handles decimal numbers and follows standard mathematical precedence rules.",
 			Parameters: map[string]interface{}{
@@ -62,7 +62,7 @@ func (c *Calculator) Definition() *tools.ToolDefinition {
 }
 
 // Execute performs mathematical calculation
-func (c *Calculator) Execute(ctx context.Context, input *tools.ToolInput, llmProvider shared.LLMProvider) (*tools.ToolResult, error) {
+func (c *Calculator) Execute(ctx context.Context, input *tools.ToolInput) (*tools.ToolResult, error) {
 	expression, ok := input.Data["expression"].(string)
 	if !ok {
 		return &tools.ToolResult{

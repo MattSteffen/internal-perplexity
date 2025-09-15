@@ -4,6 +4,7 @@ from .database_client import (
     DatabaseDocument,
 )
 from .milvus_client import MilvusDB
+from .milvus_benchmarks import MilvusBenchmark
 from .database_utils import get_db, get_db_benchmark
 
 __all__ = [
@@ -11,6 +12,7 @@ __all__ = [
     "DatabaseClientConfig",
     "DatabaseDocument",
     "MilvusDB",
+    "MilvusBenchmark",
     "get_db",
     "get_db_benchmark",
 ]

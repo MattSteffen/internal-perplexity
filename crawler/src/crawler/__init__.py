@@ -1,5 +1,4 @@
 from .main import Crawler, CrawlerConfig
-from .processing import ConverterConfig
 from .config_defaults import *
 
 
@@ -7,8 +6,6 @@ __all__ = [
     # crawler.py
     "Crawler",
     "CrawlerConfig",
-    # processing
-    "ConverterConfig",
     # config defaults
     "DEFAULT_OLLAMA_EMBEDDINGS",
     "DEFAULT_OLLAMA_LLM",

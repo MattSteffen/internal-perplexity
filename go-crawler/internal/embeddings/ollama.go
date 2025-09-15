@@ -320,3 +320,4 @@ func (o *OpenAIEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]fl
 func (o *OpenAIEmbedder) GetDimension() int {
 	return o.dimension
 }
+

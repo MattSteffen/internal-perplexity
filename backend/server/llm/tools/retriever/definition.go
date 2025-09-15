@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"internal-perplexity/server/llm/api"
 	"internal-perplexity/server/llm/tools"
 )
 
@@ -30,10 +31,10 @@ func (m *MilvusQueryTool) Description() string {
 }
 
 // Schema returns the JSON schema for input validation
-func (m *MilvusQueryTool) Schema() *tools.ToolSchema {
-	return &tools.ToolSchema{
-		Type: "object",
-		Properties: map[string]interface{}{
+func (m *MilvusQueryTool) Schema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]interface{}{
 			"collection_name": map[string]interface{}{
 				"type":        "string",
 				"description": "Name of the Milvus collection to query",
@@ -55,15 +56,15 @@ func (m *MilvusQueryTool) Schema() *tools.ToolSchema {
 				"maximum":     100,
 			},
 		},
-		Required: []string{"collection_name", "texts"},
+		"required": []string{"collection_name", "texts"},
 	}
 }
 
 // Definition returns the OpenAI tool definition
-func (m *MilvusQueryTool) Definition() *tools.ToolDefinition {
-	return &tools.ToolDefinition{
+func (m *MilvusQueryTool) Definition() *api.ToolDefinition {
+	return &api.ToolDefinition{
 		Type: "function",
-		Function: &tools.FunctionDefinition{
+		Function: api.FunctionDefinition{
 			Name:        "retriever",
 			Description: "Perform semantic search and retrieval against a Milvus vector database. Use this tool when you need to find relevant documents by meaning rather than exact keywords. It supports hybrid queries with multiple text inputs, partition targeting, and configurable result limits. Returns documents with similarity scores and metadata for intelligent document retrieval and analysis.",
 			Parameters: map[string]interface{}{

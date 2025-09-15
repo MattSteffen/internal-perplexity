@@ -248,3 +248,4 @@ func (d *DatabaseConfig) GetURI() string {
 func (d *DatabaseConfig) GetToken() string {
 	return fmt.Sprintf("%s:%s", d.Username, d.Password)
 }
+

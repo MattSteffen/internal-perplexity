@@ -121,7 +121,7 @@ class MilvusDB(DatabaseClient):
             dimension=self.embedding_dimension,
             schema=collection_schema,
             index_params=index,
-            vector_field_name="text_embedding",
+            vector_field_name="default_text_embedding",
             auto_id=True,
         )
 
@@ -143,14 +143,16 @@ class MilvusDB(DatabaseClient):
         try:
             results = self.client.query(
                 collection_name=self.config.collection,
-                filter=f"source == '{source}'",
-                output_fields=["chunk_index"],
+                filter=f"default_source == '{source}'",
+                output_fields=["default_chunk_index"],
                 limit=10000,  # Adjust limit as needed
             )
-            return {result["chunk_index"] for result in results}
+            return {result["default_chunk_index"] for result in results}
 
         except MilvusException as e:
-            logging.error(f"Failed to fetch existing chunk indexes for source '{source}': {e}")
+            logging.error(
+                f"Failed to fetch existing chunk indexes for source '{source}': {e}"
+            )
             raise
         except Exception as e:
             logging.error(f"Unexpected error fetching chunk indexes: {e}")
@@ -170,8 +172,8 @@ class MilvusDB(DatabaseClient):
         try:
             results = self.client.query(
                 collection_name=self.config.collection,
-                filter=f"source == '{source}' AND chunk_index == {chunk_index}",
-                output_fields=["source"],
+                filter=f"default_source == '{source}' AND default_chunk_index == {chunk_index}",
+                output_fields=["default_source"],
                 limit=1,
             )
             return len(results) > 0
@@ -190,10 +192,10 @@ class MilvusDB(DatabaseClient):
         Insert data into the collection with optimized duplicate detection and progress tracking.
 
         Expected data format matches DatabaseDocument protocol:
-        - text: str
-        - text_embedding: List[float]
-        - chunk_index: int
-        - source: str
+        - default_text: str
+        - default_text_embedding: List[float]
+        - default_chunk_index: int
+        - default_source: str
         - Additional fields accessible via dict-like interface
 
         Args:
@@ -208,17 +210,21 @@ class MilvusDB(DatabaseClient):
             logging.info("Received empty data list. No data to insert.")
             return
 
-        logging.info(f"💾 Starting data insertion for {len(data)} items into collection '{self.config.collection}'")
+        logging.info(
+            f"💾 Starting data insertion for {len(data)} items into collection '{self.config.collection}'"
+        )
 
         # Group items by source for optimized duplicate detection
         items_by_source: Dict[str, List[DatabaseDocument]] = {}
         for item in data:
-            source = item.source
+            source = item.default_source
             if source not in items_by_source:
                 items_by_source[source] = []
             items_by_source[source].append(item)
 
-        logging.info(f"📊 Grouped {len(data)} items into {len(items_by_source)} sources")
+        logging.info(
+            f"📊 Grouped {len(data)} items into {len(items_by_source)} sources"
+        )
 
         # Filter out duplicates and prepare data for insertion
         data_to_insert = []
@@ -235,9 +241,9 @@ class MilvusDB(DatabaseClient):
                     for item in source_items:
                         try:
                             # Validate required fields exist (these should be guaranteed by protocol)
-                            chunk_index = item.chunk_index
-                            text = item.text
-                            text_embedding = item.text_embedding
+                            chunk_index = item.default_chunk_index
+                            text = item.default_text
+                            text_embedding = item.default_text_embedding
 
                             # Check for duplicates using the cached indexes
                             if chunk_index in existing_indexes:
@@ -250,23 +256,25 @@ class MilvusDB(DatabaseClient):
 
                             # Prepare the data for insertion
                             prepared_item = {
-                                "document_id": item.get("document_id", str(uuid.uuid4())),
-                                "text": text,
-                                "text_embedding": text_embedding,
-                                "chunk_index": chunk_index,
-                                "source": source,
-                                "minio": item.get("minio", ""),
+                                "default_document_id": item.get(
+                                    "default_document_id", str(uuid.uuid4())
+                                ),
+                                "default_text": text,
+                                "default_text_embedding": text_embedding,
+                                "default_chunk_index": chunk_index,
+                                "default_source": source,
+                                "default_minio": item.get("default_minio", ""),
                             }
 
                             # Extract additional metadata fields
                             metadata = {}
                             required_fields = {
-                                "text",
-                                "text_embedding",
-                                "chunk_index",
-                                "source",
-                                "document_id",
-                                "minio",
+                                "default_text",
+                                "default_text_embedding",
+                                "default_chunk_index",
+                                "default_source",
+                                "default_document_id",
+                                "default_minio",
                             }
 
                             # Handle benchmark_questions specially - only include for chunk_index == 0
@@ -285,24 +293,39 @@ class MilvusDB(DatabaseClient):
                                         )
                                         metadata[key] = value
                                         # Add as separate field (but only benchmark_questions for chunk_index 0)
-                                        if key == "benchmark_questions" and chunk_index == 0:
-                                            prepared_item[key] = json.dumps(value, separators=(",", ":"))
+                                        if (
+                                            key == "benchmark_questions"
+                                            and chunk_index == 0
+                                        ):
+                                            prepared_item[key] = json.dumps(
+                                                value, separators=(",", ":")
+                                            )
                                         elif key != "benchmark_questions":
                                             prepared_item[key] = value
                             else:
                                 # For objects with attributes, use dir() or __dict__
                                 if hasattr(item, "__dict__"):
                                     for key, value in item.__dict__.items():
-                                        if key not in required_fields and not key.startswith("_"):
+                                        if (
+                                            key not in required_fields
+                                            and not key.startswith("_")
+                                        ):
                                             metadata[key] = value
                                             # Add as separate field (but only benchmark_questions for chunk_index 0)
-                                            if key == "benchmark_questions" and chunk_index == 0:
-                                                prepared_item[key] = json.dumps(value, separators=(",", ":"))
+                                            if (
+                                                key == "benchmark_questions"
+                                                and chunk_index == 0
+                                            ):
+                                                prepared_item[key] = json.dumps(
+                                                    value, separators=(",", ":")
+                                                )
                                             elif key != "benchmark_questions":
                                                 prepared_item[key] = value
 
                             # Add metadata as JSON string (include benchmark_questions in all chunks)
-                            prepared_item["metadata"] = json.dumps(metadata, separators=(",", ":"))
+                            prepared_item["default_metadata"] = json.dumps(
+                                metadata, separators=(",", ":")
+                            )
 
                             data_to_insert.append(prepared_item)
                             pbar.set_postfix_str(f"Source: {source}")
@@ -345,12 +368,16 @@ class MilvusDB(DatabaseClient):
             logging.warning(f"⚠️  {processing_errors} items had processing errors")
 
         if not data_to_insert:
-            logging.info("ℹ️  No new data to insert after duplicate check and validation.")
+            logging.info(
+                "ℹ️  No new data to insert after duplicate check and validation."
+            )
             return
 
         # Insert the data with progress tracking
         try:
-            logging.info(f"📥 Inserting {len(data_to_insert)} new items into collection '{self.config.collection}'...")
+            logging.info(
+                f"📥 Inserting {len(data_to_insert)} new items into collection '{self.config.collection}'..."
+            )
 
             insert_api_start = time.time()
 
@@ -376,10 +403,14 @@ class MilvusDB(DatabaseClient):
             logging.info(f"   • API insert time: {insert_api_time:.2f}s")
             logging.info(f"   • Flush time: {flush_time:.2f}s")
             logging.info(f"   • Total insert time: {total_insert_time:.2f}s")
-            logging.info(f"   • Insert rate: {insert_count/insert_api_time:.1f} items/sec")
+            logging.info(
+                f"   • Insert rate: {insert_count/insert_api_time:.1f} items/sec"
+            )
 
         except MilvusException as e:
-            logging.error(f"❌ Failed to insert data into collection '{self.config.collection}': {e}")
+            logging.error(
+                f"❌ Failed to insert data into collection '{self.config.collection}': {e}"
+            )
             raise
         except Exception as e:
             logging.error(f"❌ Unexpected error during data insertion: {e}")

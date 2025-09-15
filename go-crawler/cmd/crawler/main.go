@@ -315,3 +315,4 @@ func averageDuration(values []time.Duration) time.Duration {
 	}
 	return sum / time.Duration(len(values))
 }
+

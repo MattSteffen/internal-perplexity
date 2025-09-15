@@ -1,6 +1,13 @@
 from crawler import Crawler, CrawlerConfig
-from crawler.processing import MultiSchemaExtractor, OllamaLLM
+from crawler.processing import (
+    ExtractorConfig,
+    ConverterConfig,
+    EmbedderConfig,
+    LLMConfig,
+)
+from crawler.storage import DatabaseClientConfig, MilvusBenchmark
 
+# Schema definitions for ArXiv document metadata extraction
 schema1 = {
     "type": "object",
     "required": ["title", "author", "date", "keywords", "unique_words"],
@@ -51,6 +58,7 @@ schema1 = {
         },
     },
 }
+
 schema2 = {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Document Summary Points",
@@ -76,7 +84,7 @@ schema2 = {
     },
 }
 
-# Combine schemas
+# Combine schemas for metadata schema
 metadata_schema = {
     "type": "object",
     "required": schema1.get("required", []) + schema2.get("required", []),
@@ -84,44 +92,46 @@ metadata_schema = {
 }
 
 
-arxiv_config_dict = {
-    "embeddings": {
-        "provider": "ollama",
-        "model": "all-minilm:v2",
-        "base_url": "http://localhost:11434",
-        "api_key": "ollama",
-    },
-    "vision_llm": {
-        "model_name": "granite-3.2vision:latest",
-        "provider": "ollama",
-        "base_url": "http://localhost:11434",
-    },
-    "database": {
-        "provider": "milvus",
-        "host": "localhost",
-        "port": 19530,
-        "username": "root",
-        "password": "Milvus",
-        "collection": "test_arxiv3",
-        "recreate": True,
-    },
-    "llm": {
-        "model_name": "qwen3:latest",
-        "provider": "ollama",
-        "base_url": "http://localhost:11434",
-    },
-    "extractor": {
-        "type": "multi_schema",
-        "llm": {
-            "model_name": "qwen3:latest",
-            "provider": "ollama",
-            "base_url": "http://localhost:11434",
-        },
-        "metadata_schema": [schema1, schema2],
-    },
-    "converter": {
-        "type": "pymupdf",
-        "metadata": {
+# Type-safe configuration using new factory methods
+def create_arxiv_config():
+    """Create type-safe configuration for ArXiv document processing."""
+
+    # Embeddings configuration
+    embeddings = EmbedderConfig.ollama(
+        model="all-minilm:v2", base_url="http://localhost:11434"
+    )
+
+    # Vision LLM for image processing
+    vision_llm = LLMConfig.ollama(
+        model_name="granite-3.2vision:latest", base_url="http://localhost:11434"
+    )
+
+    # Database configuration
+    database = DatabaseClientConfig.milvus(
+        collection="arxiv3",
+        host="localhost",
+        port=19530,
+        username="root",
+        password="Milvus",
+        recreate=True,
+    )
+
+    # Main LLM for metadata extraction (using tools mode)
+    llm = LLMConfig.ollama(
+        # model_name="qwen3:latest",
+        model_name="gpt-oss:20b",
+        base_url="http://localhost:11434",
+        # structured_output="response_format",  # Use OpenAI-compatible tools format
+        structured_output="tools",  # Use OpenAI-compatible tools format
+    )
+
+    # Multi-schema extractor configuration
+    extractor = ExtractorConfig.multi_schema(schemas=[schema1, schema2], llm=llm)
+
+    # PyMuPDF converter configuration with image processing
+    converter = ConverterConfig.pymupdf(
+        vision_llm=vision_llm,
+        metadata={
             "preserve_formatting": True,
             "include_page_numbers": True,
             "include_metadata": True,
@@ -134,16 +144,118 @@ arxiv_config_dict = {
                 "model": "granite-3.2vision:latest",
                 "base_url": "http://localhost:11434",
             },
-        }
-    },
-    "utils": {
-        "chunk_size": 1000,
-        "benchmark": True,
-    },
-    "metadata_schema": metadata_schema,
-}
+        },
+    )
+
+    # Create the complete crawler configuration
+    config = CrawlerConfig.create(
+        embeddings=embeddings,
+        llm=llm,
+        vision_llm=vision_llm,
+        database=database,
+        converter=converter,
+        extractor=extractor,
+        chunk_size=1000,
+        metadata_schema=metadata_schema,
+        benchmark=True,
+        log_level="DEBUG",
+    )
+
+    return config
 
 
+def search_louvain_clustering():
+    """Demonstrate searching for documents related to Louvain clustering."""
+    print("\n🔍 Demonstrating search functionality...")
+    print("Searching for: 'louvain clustering'")
+
+    # Create search configuration using the same database settings
+    search_config = create_arxiv_config()
+    search_benchmark = MilvusBenchmark(
+        db_config=search_config.database, embed_config=search_config.embeddings
+    )
+
+    # Perform search
+    search_results = search_benchmark.search(
+        queries=["louvain clustering"], filters=None
+    )
+
+    print(f"\n📊 Search Results: Found {len(search_results)} matches")
+    print("-" * 60)
+
+    # Display top results
+    for i, result in enumerate(search_results[:5]):  # Show top 5 results
+        print(f"\n🔸 Result {i+1}:")
+        print(f"   📏 Distance: {result.get('distance', 'N/A'):.4f}")
+
+        # Access the entity data which contains the actual document fields
+        entity = result.get("entity", {})
+
+        # Get the actual document data from entity
+        if hasattr(entity, "to_dict"):
+            entity_data = entity.to_dict()
+        else:
+            entity_data = entity if isinstance(entity, dict) else {}
+
+        # Get source and other fields (using new prefixed field names)
+        source = entity_data.get("default_source") or result.get("default_id", "N/A")
+        print(f"   📄 Source: {source}")
+
+        # Try to get text from entity data
+        text_content = entity_data.get("default_text")
+        if text_content:
+            print(f"   📝 Text Preview: {text_content[:200]}...")
+        else:
+            print("   📝 Text Preview: [Text content not available]")
+
+        # Try to display metadata if available
+        metadata_str = entity_data.get("default_metadata", "{}")
+        if (
+            isinstance(metadata_str, str)
+            and metadata_str != "{}"
+            and metadata_str != "null"
+        ):
+            try:
+                import json
+
+                metadata_dict = json.loads(metadata_str)
+                if "title" in metadata_dict and metadata_dict["title"]:
+                    print(f"   📖 Title: {metadata_dict['title']}")
+                if "author" in metadata_dict and metadata_dict["author"]:
+                    authors = metadata_dict["author"]
+                    if isinstance(authors, list):
+                        print(
+                            f"   👤 Authors: {', '.join(authors[:2])}"
+                            + ("..." if len(authors) > 2 else "")
+                        )
+                    else:
+                        print(f"   👤 Author: {authors}")
+                if (
+                    "summary_item_1" in metadata_dict
+                    and metadata_dict["summary_item_1"]
+                ):
+                    print(f"   📋 Summary: {metadata_dict['summary_item_1'][:150]}...")
+            except json.JSONDecodeError:
+                print(f"   📋 Metadata: {metadata_str[:100]}...")
+        else:
+            print("   📋 Metadata: [Not available]")
+
+        # Display some entity fields for debugging
+        if entity_data:
+            available_fields = [
+                k for k in entity_data.keys() if k != "text"
+            ]  # Don't show full text
+            print(
+                f"   🔍 Available entity fields: {available_fields[:5]}"
+                + ("..." if len(available_fields) > 5 else "")
+            )
+
+    print(
+        f"\n✅ Search demo completed! Found {len(search_results)} relevant documents."
+    )
+
+
+# File paths for processing
 short_options = [
     "/Users/mattsteffen/projects/llm/internal-perplexity/data/arxiv/2408.12236v1.pdf",
 ]
@@ -151,11 +263,36 @@ arxiv_dir_path = "/Users/mattsteffen/projects/llm/internal-perplexity/data/arxiv
 
 
 def main():
-    config = CrawlerConfig.from_dict(arxiv_config_dict)
+    """Main function to run the ArXiv document processing pipeline."""
+    print("🚀 Starting ArXiv document processing with type-safe configuration...")
+
+    # Create configuration using the new type-safe approach
+    config = create_arxiv_config()
     config.log_level = "INFO"  # Set log level for testing
-    mycrawler = Crawler(config)  # Extractor will be created from config
+
+    print(f"📊 Configuration created:")
+    print(f"   • Collection: {config.database.collection}")
+    print(f"   • LLM: {config.llm.model_name}")
+    print(f"   • Vision LLM: {config.vision_llm.model_name}")
+    print(f"   • Chunk size: {config.chunk_size}")
+    print(f"   • Benchmark: {config.benchmark}")
+
+    # Create and run crawler
+    mycrawler = Crawler(config)
+    print("🔄 Starting document processing...")
+
+    # Process documents
     mycrawler.crawl(short_options)
-    # mycrawler.benchmark()  # Comment out benchmark for now
+
+    # Run benchmark if enabled
+    if config.benchmark:
+        print("📊 Running benchmark analysis...")
+        mycrawler.benchmark()
+
+    # Demonstrate search functionality
+    search_louvain_clustering()
+
+    print("✅ ArXiv processing completed successfully!")
 
 
 if __name__ == "__main__":

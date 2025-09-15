@@ -1,7 +1,7 @@
 """
 Document conversion utilities with support for multiple conversion backends.
 
-This module provides a base converter class and implementations for different 
+This module provides a base converter class and implementations for different
 document conversion libraries including MarkItDown and Docling.
 """
 
@@ -49,25 +49,53 @@ class ConverterConfig:
 
     type: str = "markitdown"
     vision_llm: Optional[LLMConfig] = None
-    metadata: Optional[Dict[str, Any]] = None # This is for the metadata that each type of converter should use in it's init.
+    metadata: Optional[Dict[str, Any]] = (
+        None  # Converter-specific metadata configuration
+    )
 
-    @classmethod
-    def from_dict(cls, config: Dict[str, Any]) -> "ConverterConfig":
-        """Create ConverterConfig from dictionary with validation."""
-        converter_type = config.get("type", "markitdown")
-        if not converter_type:
+    def __post_init__(self):
+        """Validate configuration after initialization."""
+        if not self.type:
             raise ValueError("Converter type cannot be empty")
 
-        vision_llm_config = config.get("vision_llm")
-        vision_llm = None
-        if vision_llm_config:
-            vision_llm = LLMConfig.from_dict(vision_llm_config)
+        # Validate that vision_llm is provided for converters that need it
+        vision_requiring_types = ["markitdown", "docling", "docling_vlm"]
+        if self.type in vision_requiring_types and self.vision_llm is None:
+            raise ValueError(
+                f"Converter type '{self.type}' requires vision_llm configuration"
+            )
 
+    @classmethod
+    def markitdown(
+        cls, vision_llm: LLMConfig, metadata: Optional[Dict[str, Any]] = None
+    ) -> "ConverterConfig":
+        """Create MarkItDown converter configuration."""
+        return cls(type="markitdown", vision_llm=vision_llm, metadata=metadata)
+
+    @classmethod
+    def docling(
+        cls, vision_llm: LLMConfig, metadata: Optional[Dict[str, Any]] = None
+    ) -> "ConverterConfig":
+        """Create Docling converter configuration."""
+        return cls(type="docling", vision_llm=vision_llm, metadata=metadata)
+
+    @classmethod
+    def docling_vlm(cls) -> "ConverterConfig":
+        """Create Docling VLM converter configuration (uses default VLM)."""
         return cls(
-            type=converter_type,
-            vision_llm=vision_llm,
-            metadata=config.get("metadata"),
+            type="docling_vlm",
+            vision_llm=None,  # Docling VLM uses its own default
+            metadata=None,
         )
+
+    @classmethod
+    def pymupdf(
+        cls,
+        vision_llm: Optional[LLMConfig] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> "ConverterConfig":
+        """Create PyMuPDF converter configuration."""
+        return cls(type="pymupdf", vision_llm=vision_llm, metadata=metadata)
 
 
 class Converter(ABC):
@@ -142,10 +170,16 @@ class MarkItDownConverter(Converter):
         """Create and configure the MarkItDown converter."""
         vision_config = self.config.vision_llm
         if not vision_config:
-            raise ValueError("vision_llm configuration is required for MarkItDown converter")
+            raise ValueError(
+                "vision_llm configuration is required for MarkItDown converter"
+            )
 
         # Adjust URL based on provider
-        api_url = f"{vision_config.base_url}/v1" if vision_config.provider == "ollama" else vision_config.base_url
+        api_url = (
+            f"{vision_config.base_url}/v1"
+            if vision_config.provider == "ollama"
+            else vision_config.base_url
+        )
 
         # Initialize the LLM client
         client = OpenAI(base_url=api_url, api_key="ollama")
@@ -190,7 +224,9 @@ class MarkItDownConverter(Converter):
             self.logger.info("📊 Conversion Statistics:")
             self.logger.info(f"   • Processing time: {total_time:.2f}s")
             self.logger.info(f"   • Output length: {markdown_length} characters")
-            self.logger.info(f"   • Average processing speed: {markdown_length/total_time:.0f} chars/sec")
+            self.logger.info(
+                f"   • Average processing speed: {markdown_length/total_time:.0f} chars/sec"
+            )
 
             return result.markdown
 
@@ -201,7 +237,9 @@ class MarkItDownConverter(Converter):
             self.logger.error(f"❌ Failed to convert '{doc_name}': {e}")
             raise
         except Exception as e:
-            self.logger.error(f"❌ Unexpected error during conversion of '{doc_name}': {e}")
+            self.logger.error(
+                f"❌ Unexpected error during conversion of '{doc_name}': {e}"
+            )
             raise
 
 
@@ -228,7 +266,9 @@ class DoclingConverter(Converter):
     def _ollama_vlm_options(self) -> ApiVlmOptions:
         """Create VLM options for Ollama based on the configuration."""
         vision_config = self.config.vision_llm
-        model = vision_config.model_name if vision_config else "granite3.2-vision:latest"
+        model = (
+            vision_config.model_name if vision_config else "granite3.2-vision:latest"
+        )
         base_url = vision_config.base_url if vision_config else "http://localhost:8002"
 
         extractor_config = self.metadata_config.get("extractor", {})
@@ -298,7 +338,9 @@ class DoclingConverter(Converter):
             self.logger.info("📊 Conversion Statistics:")
             self.logger.info(f"   • Processing time: {total_time:.2f}s")
             self.logger.info(f"   • Output length: {markdown_length} characters")
-            self.logger.info(f"   • Average processing speed: {markdown_length/total_time:.0f} chars/sec")
+            self.logger.info(
+                f"   • Average processing speed: {markdown_length/total_time:.0f} chars/sec"
+            )
 
             return markdown_text
 
@@ -511,8 +553,12 @@ class PyMuPDFConverter(Converter):
         super().__init__(config)
 
         # Configuration options from metadata
-        self.preserve_formatting = self.metadata_config.get("preserve_formatting", False)
-        self.include_page_numbers = self.metadata_config.get("include_page_numbers", True)
+        self.preserve_formatting = self.metadata_config.get(
+            "preserve_formatting", False
+        )
+        self.include_page_numbers = self.metadata_config.get(
+            "include_page_numbers", True
+        )
         self.include_metadata = self.metadata_config.get("include_metadata", True)
         self.sort_reading_order = self.metadata_config.get("sort_reading_order", True)
         self.extract_tables = self.metadata_config.get("extract_tables", True)
@@ -859,17 +905,19 @@ class PyMuPDFConverter(Converter):
 
             with pymupdf.open(filepath) as doc:
                 total_pages = len(doc)
-                self.logger.info(f"📊 Document opened successfully - {total_pages} pages")
+                self.logger.info(
+                    f"📊 Document opened successfully - {total_pages} pages"
+                )
 
                 markdown_content = []
                 stats = {
-                    'total_pages': total_pages,
-                    'processed_pages': 0,
-                    'total_text_blocks': 0,
-                    'total_images': 0,
-                    'total_tables': 0,
-                    'total_image_descriptions': 0,
-                    'failed_image_descriptions': 0
+                    "total_pages": total_pages,
+                    "processed_pages": 0,
+                    "total_text_blocks": 0,
+                    "total_images": 0,
+                    "total_tables": 0,
+                    "total_image_descriptions": 0,
+                    "failed_image_descriptions": 0,
                 }
 
                 # Add document header
@@ -889,13 +937,17 @@ class PyMuPDFConverter(Converter):
                         self.logger.debug("✅ Document metadata added")
 
                 # Process pages with progress tracking
-                with tqdm(total=total_pages, desc="Processing pages", unit="page") as pbar:
+                with tqdm(
+                    total=total_pages, desc="Processing pages", unit="page"
+                ) as pbar:
                     for page_num in range(total_pages):
                         page_start_time = time.time()
                         page = doc[page_num]
 
                         pbar.set_postfix_str(f"Page {page_num + 1}/{total_pages}")
-                        self.logger.debug(f"📄 Processing page {page_num + 1}/{total_pages}")
+                        self.logger.debug(
+                            f"📄 Processing page {page_num + 1}/{total_pages}"
+                        )
 
                         if self.include_page_numbers:
                             markdown_content.append(f"## Page {page_num + 1}\n\n")
@@ -903,34 +955,44 @@ class PyMuPDFConverter(Converter):
                         # Extract all content types
                         self.logger.debug("📝 Extracting text blocks...")
                         text_blocks = self._get_text_blocks_with_positions(page)
-                        stats['total_text_blocks'] += len(text_blocks)
+                        stats["total_text_blocks"] += len(text_blocks)
 
                         self.logger.debug("🖼️  Extracting images...")
                         images = self._extract_images_from_page(page)
-                        stats['total_images'] += len(images)
+                        stats["total_images"] += len(images)
 
                         self.logger.debug("📊 Extracting tables...")
                         tables = self._extract_tables_from_page(page)
-                        stats['total_tables'] += len(tables)
+                        stats["total_tables"] += len(tables)
 
                         # Describe images with progress tracking
                         if images:
-                            self.logger.info(f"🖼️  Describing {len(images)} images on page {page_num + 1}...")
+                            self.logger.info(
+                                f"🖼️  Describing {len(images)} images on page {page_num + 1}..."
+                            )
                             for i, image in enumerate(images):
                                 try:
-                                    self.logger.debug(f"🔍 Describing image {i+1}/{len(images)} (Page {page_num + 1})")
+                                    self.logger.debug(
+                                        f"🔍 Describing image {i+1}/{len(images)} (Page {page_num + 1})"
+                                    )
                                     description = self.image_describer.describe_image(
                                         image.image_data,
                                         image.image_ext,
                                         self.image_description_prompt,
                                     )
                                     image.description = description
-                                    stats['total_image_descriptions'] += 1
-                                    self.logger.debug(f"✅ Image {i+1} described successfully")
+                                    stats["total_image_descriptions"] += 1
+                                    self.logger.debug(
+                                        f"✅ Image {i+1} described successfully"
+                                    )
                                 except Exception as e:
-                                    self.logger.error(f"❌ Failed to describe image {i+1} on page {page_num + 1}: {e}")
-                                    image.description = f"[Error describing image: {str(e)}]"
-                                    stats['failed_image_descriptions'] += 1
+                                    self.logger.error(
+                                        f"❌ Failed to describe image {i+1} on page {page_num + 1}: {e}"
+                                    )
+                                    image.description = (
+                                        f"[Error describing image: {str(e)}]"
+                                    )
+                                    stats["failed_image_descriptions"] += 1
                         else:
                             self.logger.debug("ℹ️  No images found on this page")
 
@@ -964,8 +1026,10 @@ class PyMuPDFConverter(Converter):
                         markdown_content.append("\n")  # Add space between pages
 
                         page_time = time.time() - page_start_time
-                        stats['processed_pages'] += 1
-                        self.logger.debug(f"✅ Page {page_num + 1} processed in {page_time:.2f}s")
+                        stats["processed_pages"] += 1
+                        self.logger.debug(
+                            f"✅ Page {page_num + 1} processed in {page_time:.2f}s"
+                        )
                         pbar.update(1)
 
                 # Join all content
@@ -975,15 +1039,25 @@ class PyMuPDFConverter(Converter):
                 total_time = time.time() - convert_start_time
                 self.logger.info("=== PDF Conversion completed successfully ===")
                 self.logger.info("📊 Conversion Statistics:")
-                self.logger.info(f"   • Total pages processed: {stats['processed_pages']}")
-                self.logger.info(f"   • Text blocks extracted: {stats['total_text_blocks']}")
+                self.logger.info(
+                    f"   • Total pages processed: {stats['processed_pages']}"
+                )
+                self.logger.info(
+                    f"   • Text blocks extracted: {stats['total_text_blocks']}"
+                )
                 self.logger.info(f"   • Images found: {stats['total_images']}")
-                self.logger.info(f"   • Images described: {stats['total_image_descriptions']}")
-                if stats['failed_image_descriptions'] > 0:
-                    self.logger.warning(f"   • Failed image descriptions: {stats['failed_image_descriptions']}")
+                self.logger.info(
+                    f"   • Images described: {stats['total_image_descriptions']}"
+                )
+                if stats["failed_image_descriptions"] > 0:
+                    self.logger.warning(
+                        f"   • Failed image descriptions: {stats['failed_image_descriptions']}"
+                    )
                 self.logger.info(f"   • Tables extracted: {stats['total_tables']}")
                 self.logger.info(f"   • Total processing time: {total_time:.2f}s")
-                self.logger.info(f"   • Average time per page: {total_time/stats['total_pages']:.2f}s")
+                self.logger.info(
+                    f"   • Average time per page: {total_time/stats['total_pages']:.2f}s"
+                )
                 self.logger.info(f"   • Output length: {len(result)} characters")
 
                 return result
@@ -1024,9 +1098,6 @@ def create_converter(converter_type: str, config: ConverterConfig) -> Converter:
     return converters[converter_type.lower()](config)
 
 
-
-
-
 # Example usage and testing functions
 def test_markitdown_converter():
     """Test the MarkItDown converter with sample configuration."""
@@ -1042,7 +1113,7 @@ def test_markitdown_converter():
         metadata={
             "prompt": "You are a helpful assistant.",
             "timeout": 300,
-        }
+        },
     )
 
     converter = MarkItDownConverter(config)
@@ -1068,7 +1139,7 @@ def test_docling_converter():
             "extractor": {
                 "timeout": 300,
             },
-        }
+        },
     )
 
     converter = DoclingConverter(config)
@@ -1113,7 +1184,7 @@ def test_pymupdf_converter():
             "ocr_fallback": False,
             "max_image_dim": 2048,
             "table_detection": True,
-        }
+        },
     )
 
     converter = PyMuPDFConverter(config)

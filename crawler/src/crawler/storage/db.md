@@ -104,11 +104,11 @@ from typing import List, Any
 @dataclass
 class DocumentChunk:
     """Example implementation of DatabaseDocument protocol"""
-    text: str
-    text_embedding: List[float]
-    chunk_index: int
-    source: str
-    document_id: str = ""
+    default_text: str
+    default_text_embedding: List[float]
+    default_chunk_index: int
+    default_source: str
+    default_document_id: str = ""
     minio: str = ""
     title: str = ""
     author: str = ""
@@ -125,19 +125,19 @@ class DocumentChunk:
 # Create document data
 documents = [
     DocumentChunk(
-        text="This is the first chunk of the document...",
-        text_embedding=[0.1, 0.2, 0.3] * 256,  # 768-dimensional vector
-        chunk_index=0,
-        source="document_001.pdf",
+        default_text="This is the first chunk of the document...",
+        default_text_embedding=[0.1, 0.2, 0.3] * 256,  # 768-dimensional vector
+        default_chunk_index=0,
+        default_source="document_001.pdf",
         minio="https://minio.example.com/bucket/document_001.pdf",
         title="Machine Learning Fundamentals",
         author="Dr. Jane Smith"
     ),
     DocumentChunk(
-        text="This is the second chunk of the document...",
-        text_embedding=[0.4, 0.5, 0.6] * 256,
-        chunk_index=1,
-        source="document_001.pdf",
+        default_text="This is the second chunk of the document...",
+        default_text_embedding=[0.4, 0.5, 0.6] * 256,
+        default_chunk_index=1,
+        default_source="document_001.pdf",
         title="Machine Learning Fundamentals",
         author="Dr. Jane Smith"
     )
@@ -155,10 +155,10 @@ The protocol also supports regular dictionaries:
 # Dictionary-based documents
 dict_documents = [
     {
-        "text": "This is document content...",
-        "text_embedding": [0.1, 0.2, 0.3] * 256,
-        "chunk_index": 0,
-        "source": "document_002.pdf",
+        "default_text": "This is document content...",
+        "default_text_embedding": [0.1, 0.2, 0.3] * 256,
+        "default_chunk_index": 0,
+        "default_source": "document_002.pdf",
         "title": "Deep Learning Guide",
         "author": "Prof. John Doe",
         "keywords": ["deep learning", "neural networks"],
@@ -173,20 +173,20 @@ class DictDocument:
         self._data = data
 
     @property
-    def text(self) -> str:
-        return self._data["text"]
+    def default_text(self) -> str:
+        return self._data["default_text"]
 
     @property
-    def text_embedding(self) -> List[float]:
-        return self._data["text_embedding"]
+    def default_text_embedding(self) -> List[float]:
+        return self._data["default_text_embedding"]
 
     @property
-    def chunk_index(self) -> int:
-        return self._data["chunk_index"]
+    def default_chunk_index(self) -> int:
+        return self._data["default_chunk_index"]
 
     @property
-    def source(self) -> str:
-        return self._data["source"]
+    def default_source(self) -> str:
+        return self._data["default_source"]
 
     def __getitem__(self, key: str) -> Any:
         return self._data[key]
@@ -224,7 +224,7 @@ def create_collection(self, recreate: bool = False) -> None:
 def insert_data(self, data: List[DatabaseDocument]) -> None:
     """Insert data with duplicate detection."""
 
-def check_duplicate(self, source: str, chunk_index: int) -> bool:
+def check_duplicate(self, default_source: str, default_chunk_index: int) -> bool:
     """Check if a document chunk already exists."""
 ```
 
@@ -234,11 +234,11 @@ Documents must implement this protocol:
 
 ```python
 class DatabaseDocument(Protocol):
-    # Required attributes
-    text: str
-    text_embedding: List[float]
-    chunk_index: int
-    source: str
+    # Required attributes (using prefixed field names)
+    default_text: str
+    default_text_embedding: List[float]
+    default_chunk_index: int
+    default_source: str
 
     # Required methods for dict-like access
     def __getitem__(self, key: str) -> Any: ...
@@ -338,18 +338,18 @@ Checks if a document chunk already exists in the collection.
 
 Every collection automatically includes these base fields:
 
-| Field                       | Type                | Description                       |
-| --------------------------- | ------------------- | --------------------------------- |
-| `id`                        | INT64               | Auto-generated primary key        |
-| `document_id`               | VARCHAR(64)         | UUID for the document chunk       |
-| `minio`                     | VARCHAR(256)        | URL to original document in MinIO |
-| `chunk_index`               | INT64               | Index of chunk within document    |
-| `source`                    | VARCHAR(512)        | Source identifier                 |
-| `text`                      | VARCHAR(65535)      | The text content                  |
-| `text_embedding`            | FLOAT_VECTOR        | Dense vector embedding            |
-| `text_sparse_embedding`     | SPARSE_FLOAT_VECTOR | BM25 sparse embedding             |
-| `metadata`                  | VARCHAR(65535)      | JSON string of custom metadata    |
-| `metadata_sparse_embedding` | SPARSE_FLOAT_VECTOR | BM25 embedding of metadata        |
+| Field                               | Type                | Description                       |
+| ----------------------------------- | ------------------- | --------------------------------- |
+| `id`                                | INT64               | Auto-generated primary key        |
+| `default_document_id`               | VARCHAR(64)         | UUID for the document chunk       |
+| `default_minio`                     | VARCHAR(256)        | URL to original document in MinIO |
+| `default_chunk_index`               | INT64               | Index of chunk within document    |
+| `default_source`                    | VARCHAR(512)        | Source identifier                 |
+| `default_text`                      | VARCHAR(65535)      | The text content                  |
+| `default_text_embedding`            | FLOAT_VECTOR        | Dense vector embedding            |
+| `default_text_sparse_embedding`     | SPARSE_FLOAT_VECTOR | BM25 sparse embedding             |
+| `default_metadata`                  | VARCHAR(65535)      | JSON string of custom metadata    |
+| `default_metadata_sparse_embedding` | SPARSE_FLOAT_VECTOR | BM25 embedding of metadata        |
 
 ### Custom Schema Fields
 
@@ -401,7 +401,7 @@ class NewProviderStorage(DatabaseClient):
         # Provider-specific data insertion
         pass
 
-    def check_duplicate(self, source: str, chunk_index: int) -> bool:
+    def check_duplicate(self, default_source: str, default_chunk_index: int) -> bool:
         # Provider-specific duplicate checking
         pass
 ```

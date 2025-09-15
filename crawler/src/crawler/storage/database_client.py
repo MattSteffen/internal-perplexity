@@ -15,7 +15,7 @@ from enum import Enum
 from typing import Protocol, Any, List, Dict, runtime_checkable
 from abc import abstractmethod
 
-from ..processing.embeddings import EmbedderConfig
+# EmbedderConfig imported only for type hints to avoid circular imports
 
 
 @dataclass
@@ -23,29 +23,30 @@ class DatabaseDocument:
     """
     Protocol defining the minimum interface for document data.
 
+    All system fields use default_ prefix to avoid conflicts with user metadata.
     Any object that has these attributes/methods can be used as document data.
     This includes regular dicts, custom classes, dataclasses, etc.
     """
 
-    # Required attributes - these must exist
-    text: str
-    text_embedding: List[float]
-    chunk_index: int
-    source: str
+    # Required attributes - these must exist (using prefixed field names)
+    default_text: str
+    default_text_embedding: List[float]
+    default_chunk_index: int
+    default_source: str
 
     metadata: Dict[str, any] = field(default_factory=dict)
 
     # Required methods for dict-like access
     def __getitem__(self, key: str) -> Any:
         match key:
-            case "text":
-                return self.text
-            case "text_embedding":
-                return self.text_embedding
-            case "chunk_index":
-                return self.chunk_index
-            case "source":
-                return self.source
+            case "default_text":
+                return self.default_text
+            case "default_text_embedding":
+                return self.default_text_embedding
+            case "default_chunk_index":
+                return self.default_chunk_index
+            case "default_source":
+                return self.default_source
             case _:
                 return self.metadata.get(key)
 
@@ -58,24 +59,35 @@ class DatabaseDocument:
 
     @classmethod
     def from_dict(cls, data: Dict[str, any]) -> "DatabaseDocument":
-        text = data.get("text")
-        text_embedding = data.get("text_embedding")
-        chunk_index = data.get("chunk_index")
-        source = data.get("source")
+        default_text = data.get("default_text")
+        default_text_embedding = data.get("default_text_embedding")
+        default_chunk_index = data.get("default_chunk_index")
+        default_source = data.get("default_source")
         metadata = {
             k: v
             for k, v in data.items()
-            if k not in ["text", "text_embedding", "chunk_index", "source"]
+            if k
+            not in [
+                "default_text",
+                "default_text_embedding",
+                "default_chunk_index",
+                "default_source",
+            ]
         }
         if any(
-            [text is None, text_embedding is None, chunk_index is None, source is None]
+            [
+                default_text is None,
+                default_text_embedding is None,
+                default_chunk_index is None,
+                default_source is None,
+            ]
         ):
             raise ValueError("missing data")
         return cls(
-            text=text,
-            text_embedding=text_embedding,
-            chunk_index=chunk_index,
-            source=source,
+            default_text=default_text,
+            default_text_embedding=default_text_embedding,
+            default_chunk_index=default_chunk_index,
+            default_source=default_source,
             metadata=metadata,
         )
 
@@ -95,6 +107,15 @@ class DatabaseClientConfig:
     username: str = "root"
     password: str = "Milvus"
 
+    def __post_init__(self):
+        """Validate configuration after initialization."""
+        if not self.provider:
+            raise ValueError("Database provider cannot be empty")
+        if not self.collection:
+            raise ValueError("Database collection cannot be empty")
+        if self.port <= 0 or self.port > 65535:
+            raise ValueError("Port must be between 1 and 65535")
+
     @property
     def uri(self) -> str:
         """Get the connection URI."""
@@ -106,25 +127,28 @@ class DatabaseClientConfig:
         return f"{self.username}:{self.password}"
 
     @classmethod
-    def from_dict(cls, config: Dict[str, any]):
-        provider = config.get("provider")
-        if not provider:
-            raise ValueError("Database provider cannot be empty")
-
-        collection = config.get("collection")
-        if not collection:
-            raise ValueError("Database collection cannot be empty")
-
+    def milvus(
+        cls,
+        collection: str,
+        host: str = "localhost",
+        port: int = 19530,
+        username: str = "root",
+        password: str = "Milvus",
+        partition: Optional[str] = None,
+        recreate: bool = False,
+        collection_description: Optional[str] = None,
+    ) -> "DatabaseClientConfig":
+        """Create Milvus database configuration."""
         return cls(
-            provider=provider,
-            host=config.get("host", "localhost"),
-            port=config.get("port", 19530),
-            username=config.get("username", "root"),
-            password=config.get("password", "Milvus"),
+            provider="milvus",
             collection=collection,
-            partition=config.get("partition"),
-            recreate=config.get("recreate", False),
-            collection_description=config.get("collection_description"),
+            host=host,
+            port=port,
+            username=username,
+            password=password,
+            partition=partition,
+            recreate=recreate,
+            collection_description=collection_description,
         )
 
 
@@ -177,12 +201,12 @@ class DatabaseClient(ABC):
         Expected data format:
         [
             {
-                "text": "content text",
-                "text_embedding": [0.1, 0.2, ...],
-                "chunk_index": 0,
-                "source": "filename",
-                "document_id": "uuid",
-                "minio": "optional_url",
+                "default_text": "content text",
+                "default_text_embedding": [0.1, 0.2, ...],
+                "default_chunk_index": 0,
+                "default_source": "filename",
+                "default_document_id": "uuid",
+                "default_minio": "optional_url",
                 # ... other user-defined fields
             },
             ...

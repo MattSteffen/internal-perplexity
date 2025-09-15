@@ -22,10 +22,10 @@ func TestDocumentSummarizer_Schema(t *testing.T) {
 	schema := summarizer.Schema()
 
 	assert.NotNil(t, schema)
-	assert.Equal(t, "object", schema.Type)
-	assert.Contains(t, schema.Properties, "content")
-	assert.Contains(t, schema.Properties, "max_length")
-	assert.Contains(t, schema.Required, "content")
+	assert.Equal(t, "object", schema["type"])
+	assert.Contains(t, schema["properties"], "content")
+	assert.Contains(t, schema["properties"], "max_length")
+	assert.Contains(t, schema["required"], "content")
 }
 
 func TestDocumentSummarizer_Definition(t *testing.T) {

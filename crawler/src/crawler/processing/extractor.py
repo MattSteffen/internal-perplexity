@@ -3,36 +3,54 @@ import time
 import json
 from typing import Dict, Any, List
 from abc import ABC, abstractmethod
-from .llm import LLM, LLMConfig
+from .llm import LLM, LLMConfig, schema_to_openai_tools
 from dataclasses import dataclass
 from typing import Optional
 
 
 @dataclass
 class ExtractorConfig:
-    """Configuration for document converters."""
+    """Configuration for document extractors."""
 
     type: str = "basic"
     llm: Optional[LLMConfig] = None
-    metadata_schema: Optional[Dict[str, Any]] = None # This is for the metadata that each type of converter should use in it's init.
+    metadata_schema: Optional[Dict[str, Any]] = (
+        None  # JSON schema for metadata validation
+    )
 
-    @classmethod
-    def from_dict(cls, config: Dict[str, Any]) -> "ExtractorConfig":
-        """Create ExtractorConfig from dictionary with validation."""
-        extractor_type = config.get("type", "basic")
-        if not extractor_type:
+    def __post_init__(self):
+        """Validate configuration after initialization."""
+        if not self.type:
             raise ValueError("Extractor type cannot be empty")
 
-        llm_config = config.get("llm")
-        llm = None
-        if llm_config:
-            llm = LLMConfig.from_dict(llm_config)
+        # Validate that LLM is provided for extractors that need it
+        llm_requiring_types = ["basic", "multi_schema"]
+        if self.type in llm_requiring_types and self.llm is None:
+            raise ValueError(f"Extractor type '{self.type}' requires LLM configuration")
+
+    @classmethod
+    def basic(
+        cls, llm: LLMConfig, metadata_schema: Optional[Dict[str, Any]] = None
+    ) -> "ExtractorConfig":
+        """Create basic extractor configuration."""
+        return cls(type="basic", llm=llm, metadata_schema=metadata_schema)
+
+    @classmethod
+    def multi_schema(
+        cls, schemas: List[Dict[str, Any]], llm: LLMConfig
+    ) -> "ExtractorConfig":
+        """Create multi-schema extractor configuration."""
+        if not schemas:
+            raise ValueError(
+                "At least one schema must be provided for multi_schema extractor"
+            )
 
         return cls(
-            type=extractor_type,
+            type="multi_schema",
             llm=llm,
-            metadata_schema=config.get("metadata_schema"),
+            metadata_schema=schemas,  # For multi_schema, this contains the list of schemas
         )
+
 
 class Extractor(ABC):
     """
@@ -87,7 +105,9 @@ class Extractor(ABC):
         chunk_time = time.time() - chunk_start_time
 
         # Calculate chunk statistics
-        avg_chunk_size = sum(len(chunk) for chunk in chunks) / len(chunks) if chunks else 0
+        avg_chunk_size = (
+            sum(len(chunk) for chunk in chunks) / len(chunks) if chunks else 0
+        )
         total_chars = sum(len(chunk) for chunk in chunks)
 
         self.logger.info("✅ Text chunking completed successfully")
@@ -118,7 +138,7 @@ class BasicExtractor(Extractor):
         self.num_benchmark_questions = num_benchmark_questions
 
         # Get logger (already configured by main crawler)
-        self.logger = logging.getLogger('Extractor')
+        self.logger = logging.getLogger("Extractor")
         self.logger.info("Initialized BasicExtractor with schema and LLM")
 
     def extract_metadata(self, text: str) -> Dict[str, Any]:
@@ -136,15 +156,30 @@ class BasicExtractor(Extractor):
 
                 # Log schema information
                 required_fields = self.metadata_schema.get("required", [])
-                self.logger.info(f"📋 Extracting {len(required_fields)} required fields: {required_fields}")
+                self.logger.info(
+                    f"📋 Extracting {len(required_fields)} required fields: {required_fields}"
+                )
 
                 # Make LLM call with timing
                 llm_start_time = time.time()
                 self.logger.info("🤖 Calling LLM for metadata extraction...")
 
-                result = self.llm.invoke(
-                    prompt, response_format=self.metadata_schema
-                )
+                # Call LLM based on structured output configuration
+                if hasattr(self.llm, "config") and hasattr(
+                    self.llm.config, "structured_output"
+                ):
+                    if self.llm.config.structured_output == "tools":
+                        tools = schema_to_openai_tools(self.metadata_schema)
+                        result = self.llm.invoke(prompt, tools=tools)
+                    else:  # response_format
+                        result = self.llm.invoke(
+                            prompt, response_format=self.metadata_schema
+                        )
+                else:
+                    # Fallback for backward compatibility
+                    result = self.llm.invoke(
+                        prompt, response_format=self.metadata_schema
+                    )
 
                 llm_time = time.time() - llm_start_time
                 total_time = time.time() - extract_start_time
@@ -160,9 +195,15 @@ class BasicExtractor(Extractor):
                     self.logger.info(f"   • Fields: {extracted_fields}")
 
                     # Check for missing required fields
-                    missing_fields = [field for field in required_fields if field not in result or result[field] == "Unknown"]
+                    missing_fields = [
+                        field
+                        for field in required_fields
+                        if field not in result or result[field] == "Unknown"
+                    ]
                     if missing_fields:
-                        self.logger.warning(f"⚠️  Missing required fields: {missing_fields}")
+                        self.logger.warning(
+                            f"⚠️  Missing required fields: {missing_fields}"
+                        )
 
                     self.logger.debug(f"Extracted metadata: {result}")
                 else:
@@ -170,24 +211,32 @@ class BasicExtractor(Extractor):
 
                 # Generate benchmark questions if enabled
                 if self.generate_benchmark_questions:
-                    self.logger.info(f"📝 Generating {self.num_benchmark_questions} benchmark questions...")
+                    self.logger.info(
+                        f"📝 Generating {self.num_benchmark_questions} benchmark questions..."
+                    )
                     try:
                         questions = generate_benchmark_questions(
                             self.llm, text, self.num_benchmark_questions
                         )
                         if questions:
                             result["benchmark_questions"] = questions
-                            self.logger.info(f"✅ Generated {len(questions)} benchmark questions")
+                            self.logger.info(
+                                f"✅ Generated {len(questions)} benchmark questions"
+                            )
                         else:
                             self.logger.warning("⚠️  No benchmark questions generated")
                     except Exception as e:
-                        self.logger.error(f"❌ Failed to generate benchmark questions: {e}")
+                        self.logger.error(
+                            f"❌ Failed to generate benchmark questions: {e}"
+                        )
 
                 return result
 
             except Exception as e:
                 total_time = time.time() - extract_start_time
-                self.logger.error(f"❌ Metadata extraction failed after {total_time:.2f}s: {e}")
+                self.logger.error(
+                    f"❌ Metadata extraction failed after {total_time:.2f}s: {e}"
+                )
                 raise
         else:
             self.logger.info("ℹ️  No metadata schema provided, skipping extraction")
@@ -198,12 +247,12 @@ class BasicExtractor(Extractor):
         schema_json = json.dumps(self.metadata_schema, ensure_ascii=False, indent=2)
 
         # Inject schema, context, and document into the prompt template
-        return extract_metadata_prompt.replace(
-            "{{json_schema}}", schema_json
-        ).replace(
-            "{{document_library_context}}", self.document_library_context or ""
-        ).replace(
-            "{{document_text}}", text
+        return (
+            extract_metadata_prompt.replace("{{json_schema}}", schema_json)
+            .replace(
+                "{{document_library_context}}", self.document_library_context or ""
+            )
+            .replace("{{document_text}}", text)
         )
 
 
@@ -222,8 +271,10 @@ class MultiSchemaExtractor(Extractor):
         self.library_description = library_description
 
         # Get logger (already configured by main crawler)
-        self.logger = logging.getLogger('MultiSchemaExtractor')
-        self.logger.info(f"Initialized MultiSchemaExtractor with {len(schemas)} schemas")
+        self.logger = logging.getLogger("MultiSchemaExtractor")
+        self.logger.info(
+            f"Initialized MultiSchemaExtractor with {len(schemas)} schemas"
+        )
 
         # Create extractors
         for i, schema in enumerate(schemas):
@@ -237,20 +288,24 @@ class MultiSchemaExtractor(Extractor):
         """Extract metadata using multiple schemas with comprehensive logging."""
         extract_start_time = time.time()
 
-        self.logger.info(f"🧠 Starting multi-schema metadata extraction with {len(self.extractors)} extractors...")
+        self.logger.info(
+            f"🧠 Starting multi-schema metadata extraction with {len(self.extractors)} extractors..."
+        )
         self.logger.debug(f"Input text length: {len(text)} characters")
 
         metadata = {}
         stats = {
-            'total_extractors': len(self.extractors),
-            'successful_extractions': 0,
-            'failed_extractions': 0,
-            'total_fields_extracted': 0
+            "total_extractors": len(self.extractors),
+            "successful_extractions": 0,
+            "failed_extractions": 0,
+            "total_fields_extracted": 0,
         }
 
         for i, extractor in enumerate(self.extractors):
             schema_name = f"Schema_{i+1}"
-            self.logger.info(f"🔄 Processing {schema_name} ({i+1}/{len(self.extractors)})...")
+            self.logger.info(
+                f"🔄 Processing {schema_name} ({i+1}/{len(self.extractors)})..."
+            )
 
             try:
                 extractor_start = time.time()
@@ -260,15 +315,17 @@ class MultiSchemaExtractor(Extractor):
                 if extractor_metadata:
                     fields_extracted = len(extractor_metadata)
                     metadata.update(extractor_metadata)
-                    stats['successful_extractions'] += 1
-                    stats['total_fields_extracted'] += fields_extracted
+                    stats["successful_extractions"] += 1
+                    stats["total_fields_extracted"] += fields_extracted
 
-                    self.logger.info(f"✅ {schema_name} completed in {extractor_time:.2f}s - {fields_extracted} fields extracted")
+                    self.logger.info(
+                        f"✅ {schema_name} completed in {extractor_time:.2f}s - {fields_extracted} fields extracted"
+                    )
                 else:
                     self.logger.warning(f"⚠️  {schema_name} returned no metadata")
 
             except Exception as e:
-                stats['failed_extractions'] += 1
+                stats["failed_extractions"] += 1
                 self.logger.error(f"❌ {schema_name} failed: {e}")
 
         total_time = time.time() - extract_start_time
@@ -277,14 +334,20 @@ class MultiSchemaExtractor(Extractor):
         self.logger.info("=== Multi-schema extraction completed ===")
         self.logger.info("📊 Multi-Schema Extraction Statistics:")
         self.logger.info(f"   • Total schemas processed: {stats['total_extractors']}")
-        self.logger.info(f"   • Successful extractions: {stats['successful_extractions']}")
+        self.logger.info(
+            f"   • Successful extractions: {stats['successful_extractions']}"
+        )
         self.logger.info(f"   • Failed extractions: {stats['failed_extractions']}")
         self.logger.info(f"   • Total unique fields extracted: {total_fields}")
         self.logger.info(f"   • Total processing time: {total_time:.2f}s")
-        self.logger.info(f"   • Average time per schema: {total_time/stats['total_extractors']:.2f}s")
+        self.logger.info(
+            f"   • Average time per schema: {total_time/stats['total_extractors']:.2f}s"
+        )
 
-        if stats['failed_extractions'] > 0:
-            self.logger.warning(f"⚠️  {stats['failed_extractions']} schema(s) failed to extract metadata")
+        if stats["failed_extractions"] > 0:
+            self.logger.warning(
+                f"⚠️  {stats['failed_extractions']} schema(s) failed to extract metadata"
+            )
 
         return metadata
 
@@ -308,7 +371,7 @@ def create_extractor(config: ExtractorConfig, llm: LLM) -> Extractor:
             llm=llm,
             document_library_context="",
             generate_benchmark_questions=False,
-            num_benchmark_questions=3
+            num_benchmark_questions=3,
         )
     elif extractor_type == "multi_schema":
         # For multi-schema extractor, we need to handle the schemas list
@@ -316,11 +379,7 @@ def create_extractor(config: ExtractorConfig, llm: LLM) -> Extractor:
         if not isinstance(schemas, list):
             schemas = [config.metadata_schema] if config.metadata_schema else []
 
-        return MultiSchemaExtractor(
-            schemas=schemas,
-            llm=llm,
-            library_description=""
-        )
+        return MultiSchemaExtractor(schemas=schemas, llm=llm, library_description="")
     else:
         raise ValueError(f"Unknown extractor type: {config.type}")
 
@@ -357,17 +416,20 @@ Questions:"""
         if isinstance(response, str):
             # Try to parse as JSON
             import json
+
             try:
                 questions = json.loads(response.strip())
                 if isinstance(questions, list) and len(questions) == n:
                     return questions
                 else:
-                    logging.warning(f"Expected {n} questions, got {len(questions) if isinstance(questions, list) else 'non-list'}")
+                    logging.warning(
+                        f"Expected {n} questions, got {len(questions) if isinstance(questions, list) else 'non-list'}"
+                    )
                     return []
             except json.JSONDecodeError:
                 # Fallback: extract questions from text response
-                lines = [line.strip() for line in response.split('\n') if line.strip()]
-                questions = [line for line in lines if line.endswith('?')]
+                lines = [line.strip() for line in response.split("\n") if line.strip()]
+                questions = [line for line in lines if line.endswith("?")]
                 return questions[:n]
         else:
             logging.warning("Unexpected response type from LLM")
@@ -375,6 +437,7 @@ Questions:"""
     except Exception as e:
         logging.error(f"Error generating benchmark questions: {e}")
         return []
+
 
 extract_metadata_prompt = """
 You are an expert metadata extraction engine. Read the document and output a

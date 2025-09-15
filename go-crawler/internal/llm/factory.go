@@ -34,3 +34,4 @@ func CreateWithConfig(cfg *config.LLMConfig) (interfaces.LLM, error) {
 	factory := NewFactory()
 	return factory.Create(cfg)
 }
+

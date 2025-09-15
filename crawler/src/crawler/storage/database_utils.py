@@ -1,9 +1,10 @@
 from .database_client import DatabaseClient, DatabaseClientConfig, DatabaseBenchmark
 from .milvus_client import MilvusDB
 from .milvus_benchmarks import MilvusBenchmark
-from typing import Dict
+from typing import Dict, TYPE_CHECKING
 
-from ..processing.embeddings import EmbedderConfig
+if TYPE_CHECKING:
+    from ..processing.embeddings import EmbedderConfig
 
 
 def get_db(

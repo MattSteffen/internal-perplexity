@@ -1,4 +1,3 @@
-
 from .converter import (
     Converter,
     ConverterConfig,
@@ -8,7 +7,13 @@ from .converter import (
     PyMuPDFConverter,
     create_converter,
 )
-from .extractor import Extractor, BasicExtractor, MultiSchemaExtractor, ExtractorConfig
+from .extractor import (
+    Extractor,
+    BasicExtractor,
+    MultiSchemaExtractor,
+    ExtractorConfig,
+    create_extractor,
+)
 from .llm import LLM, OllamaLLM, LLMConfig, get_llm
 from .embeddings import Embedder, OllamaEmbedder, EmbedderConfig, get_embedder
 

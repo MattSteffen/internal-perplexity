@@ -30,3 +30,4 @@ func CreateWithConfig(cfg *config.DatabaseConfig, embeddingDim int, metadataSche
 	factory := NewFactory()
 	return factory.Create(cfg, embeddingDim, metadataSchema)
 }
+
