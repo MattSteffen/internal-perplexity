@@ -8,6 +8,7 @@ import (
 	"internal-perplexity/server/api"
 	"internal-perplexity/server/llm/providers/openai"
 	"internal-perplexity/server/llm/tools"
+	"internal-perplexity/server/llm/tools/shared"
 )
 
 // ToolHandler handles tool-related HTTP requests
@@ -68,7 +69,7 @@ func (h *ToolHandler) ExecuteTool(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Execute tool with dynamic provider
-	input := &tools.ToolInput{
+	input := &shared.ToolInput{
 		Name: toolName,
 		Data: req.Input,
 	}

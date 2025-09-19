@@ -1,12 +1,10 @@
-package tools
+package shared
 
 import (
-	"context"
 	"encoding/json"
 	"time"
 
 	"internal-perplexity/server/llm/api"
-	"internal-perplexity/server/llm/providers/shared"
 )
 
 // ToolInput represents input data for tool execution
@@ -35,11 +33,13 @@ type ToolStats struct {
 	TokensUsed    int           `json:"tokens_used,omitempty"`
 }
 
-// Tool defines the interface that all tools must implement
-type Tool interface {
-	Name() string
-	Description() string
-	Schema() map[string]any
-	Definition() *api.ToolDefinition
-	Execute(ctx context.Context, input *ToolInput, llmProvider shared.LLMProvider) (*ToolResult, error)
+func ToOpenAISchema(name, description string, schema map[string]any) *api.ToolDefinition {
+	return &api.ToolDefinition{
+		Type: "function",
+		Function: api.FunctionDefinition{
+			Name:        name,
+			Description: description,
+			Parameters:  schema,
+		},
+	}
 }

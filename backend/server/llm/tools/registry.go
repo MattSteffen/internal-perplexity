@@ -5,8 +5,19 @@ import (
 	"fmt"
 	"time"
 
-	"internal-perplexity/server/llm/providers/shared"
+	"internal-perplexity/server/llm/api"
+	providershared "internal-perplexity/server/llm/providers/shared"
+	toolshared "internal-perplexity/server/llm/tools/shared"
 )
+
+// Tool defines the interface that all tools must implement
+type Tool interface {
+	Name() string
+	Description() string
+	Schema() map[string]any
+	Definition() *api.ToolDefinition
+	Execute(ctx context.Context, input *toolshared.ToolInput, llmProvider providershared.LLMProvider) (*toolshared.ToolResult, error)
+}
 
 // Registry manages tool registration and execution
 type Registry struct {
@@ -40,7 +51,7 @@ func (r *Registry) List() map[string]Tool {
 }
 
 // Execute runs a tool by name with the given input
-func (r *Registry) Execute(ctx context.Context, input *ToolInput, llmProvider shared.LLMProvider) (*ToolResult, error) {
+func (r *Registry) Execute(ctx context.Context, input *toolshared.ToolInput, llmProvider providershared.LLMProvider) (*toolshared.ToolResult, error) {
 	tool, err := r.Get(input.Name)
 	if err != nil {
 		return nil, err

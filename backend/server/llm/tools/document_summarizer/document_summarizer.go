@@ -4,16 +4,16 @@ import (
 	"context"
 	"fmt"
 
-	"internal-perplexity/server/llm/providers/shared"
-	"internal-perplexity/server/llm/tools"
+	providershared "internal-perplexity/server/llm/providers/shared"
+	toolshared "internal-perplexity/server/llm/tools/shared"
 )
 
 // summarizeContent performs the actual LLM-based summarization
-func (d *DocumentSummarizer) summarizeContent(ctx context.Context, content string, maxLength int, llmProvider shared.LLMProvider) (*tools.ToolResult, error) {
+func (d *DocumentSummarizer) summarizeContent(ctx context.Context, content string, maxLength int, llmProvider providershared.LLMProvider) (*toolshared.ToolResult, error) {
 	// Single LLM call for summarization
 	prompt := fmt.Sprintf("Summarize the following text in %d words or less. Focus on the key points and main ideas:\n\n%s", maxLength, content)
 
-	messages := []shared.Message{
+	messages := []providershared.Message{
 		{
 			Role:    "system",
 			Content: "You are a professional document summarizer. Provide concise, accurate summaries that capture the essential information.",
@@ -24,9 +24,9 @@ func (d *DocumentSummarizer) summarizeContent(ctx context.Context, content strin
 		},
 	}
 
-	req := &shared.CompletionRequest{
+	req := &providershared.CompletionRequest{
 		Messages: messages,
-		Options: shared.CompletionOptions{
+		Options: providershared.CompletionOptions{
 			Model:       "gpt-4",       // default model
 			MaxTokens:   maxLength * 5, // Rough estimate: 5 tokens per word
 			Temperature: 0.3,           // Lower temperature for more focused summaries
@@ -41,14 +41,14 @@ func (d *DocumentSummarizer) summarizeContent(ctx context.Context, content strin
 	// Count tokens used
 	tokensUsed, _ := llmProvider.CountTokens(messages, req.Options.Model)
 
-	return &tools.ToolResult{
+	return &toolshared.ToolResult{
 		Success: true,
 		Data: map[string]interface{}{
 			"summary":         resp.Content,
 			"original_length": len(content),
 			"summary_length":  len(resp.Content),
 		},
-		Stats: tools.ToolStats{
+		Stats: toolshared.ToolStats{
 			TokensUsed: tokensUsed + resp.Usage.TotalTokens,
 		},
 	}, nil

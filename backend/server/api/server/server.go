@@ -7,82 +7,51 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
 	"internal-perplexity/server/api/handlers"
 	"internal-perplexity/server/llm/agents"
-	"internal-perplexity/server/llm/agents/main-agents/primary"
-	subagentsummary "internal-perplexity/server/llm/agents/sub-agents/summary"
-	"internal-perplexity/server/llm/providers/openai"
 	"internal-perplexity/server/llm/providers/shared"
 	"internal-perplexity/server/llm/tools"
-	"internal-perplexity/server/llm/tools/calculator"
 	"internal-perplexity/server/llm/tools/document_summarizer"
 )
 
 // Server represents the agent server
 type Server struct {
-	httpServer   *http.Server
-	llmProvider  shared.LLMProvider
-	toolRegistry *tools.Registry
-	primaryAgent agents.IntelligentAgent
-	summaryAgent *subagentsummary.SummaryAgent
-	subAgents    map[string]agents.Agent
+	httpServer *http.Server
+	LLMs       shared.LLMProvider
+	Tools      *tools.Registry
+	Agents     map[string]agents.Agent
 }
 
 // Config holds server configuration
 type Config struct {
-	Port         string
-	LLMBaseURL   string
-	LLMAPIKey    string
-	LLMModel     string
-	ReadTimeout  time.Duration
-	WriteTimeout time.Duration
-	IdleTimeout  time.Duration
+	Address string
+}
+
+var defaultConfig = &Config{
+	Address: "http://localhost:8080",
 }
 
 // NewServer creates a new server instance
 func NewServer(config *Config) (*Server, error) {
 	if config == nil {
-		config = &Config{
-			Port:         ":8080",
-			LLMBaseURL:   "http://localhost:11434/v1",
-			LLMAPIKey:    "",
-			LLMModel:     "gpt-oss:20b",
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-			IdleTimeout:  60 * time.Second,
-		}
+		config = defaultConfig
 	}
 
 	server := &Server{}
 
-	// Initialize LLM provider
-	llmProvider, err := openai.NewProvider(openai.Config{
-		BaseURL: config.LLMBaseURL,
-		APIKey:  config.LLMAPIKey,
-	})
-	if err != nil {
-		log.Fatalf("Failed to initialize LLM provider: %v", err)
-	}
-	log.Println("Initializing LLM provider...")
-	server.llmProvider = llmProvider
-
 	// Initialize tool registry and register tools
-	server.toolRegistry = tools.NewRegistry()
-	server.toolRegistry.Register(document_summarizer.NewDocumentSummarizer())
-	server.toolRegistry.Register(calculator.NewCalculator())
+	server.Tools = tools.NewRegistry()
+	server.Tools.Register(document_summarizer.NewDocumentSummarizer())
 
 	// Initialize agents
-	server.summaryAgent = subagentsummary.NewSummaryAgent()
+	// server.Agents = map[string]agents.Agent{
+	// 	"summary": subagentsummary.NewSummaryAgent(),
+	// }
 
 	// Create sub-agents map for both primary agent and sub-agent handler
-	server.subAgents = map[string]agents.Agent{
-		"summary": server.summaryAgent,
-	}
-	server.primaryAgent = primary.NewPrimaryAgent(server.subAgents, server.toolRegistry)
 
 	// Setup HTTP server
 	if err := server.setupHTTPServer(config); err != nil {
@@ -95,35 +64,34 @@ func NewServer(config *Config) (*Server, error) {
 // setupHTTPServer configures the HTTP server with routes and middleware
 func (s *Server) setupHTTPServer(config *Config) error {
 	// Initialize handlers
-	agentHandler := handlers.NewAgentHandler(s.primaryAgent)
-	subAgentHandler := handlers.NewSubAgentHandler(s.subAgents)
-	toolHandler := handlers.NewToolHandler(s.toolRegistry)
+	// agentHandler := handlers.NewAgentHandler(s.Agents)
+	toolHandler := handlers.NewToolHandler(s.Tools)
 
 	// Set up HTTP routes
 	mux := http.NewServeMux()
 
-	// Agent routes
-	mux.HandleFunc("/agents/", func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "/capabilities") {
-			agentHandler.GetAgentCapabilities(w, r)
-		} else if strings.Contains(r.URL.Path, "/stats") {
-			agentHandler.GetAgentStats(w, r)
-		} else {
-			agentHandler.ExecuteAgent(w, r)
-		}
-	})
+	// // Agent routes
+	// mux.HandleFunc("/agents/", func(w http.ResponseWriter, r *http.Request) {
+	// 	if strings.Contains(r.URL.Path, "/capabilities") {
+	// 		agentHandler.GetAgentCapabilities(w, r)
+	// 	} else if strings.Contains(r.URL.Path, "/stats") {
+	// 		agentHandler.GetAgentStats(w, r)
+	// 	} else {
+	// 		agentHandler.ExecuteAgent(w, r)
+	// 	}
+	// })
 
-	// Sub-agent routes
-	mux.HandleFunc("/sub-agents/", func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "/capabilities") {
-			subAgentHandler.GetSubAgentCapabilities(w, r)
-		} else if strings.Contains(r.URL.Path, "/stats") {
-			subAgentHandler.GetSubAgentStats(w, r)
-		} else {
-			subAgentHandler.ExecuteSubAgent(w, r)
-		}
-	})
-	mux.HandleFunc("/sub-agents", subAgentHandler.ListSubAgents)
+	// // Sub-agent routes
+	// mux.HandleFunc("/sub-agents/", func(w http.ResponseWriter, r *http.Request) {
+	// 	if strings.Contains(r.URL.Path, "/capabilities") {
+	// 		subAgentHandler.GetSubAgentCapabilities(w, r)
+	// 	} else if strings.Contains(r.URL.Path, "/stats") {
+	// 		subAgentHandler.GetSubAgentStats(w, r)
+	// 	} else {
+	// 		subAgentHandler.ExecuteSubAgent(w, r)
+	// 	}
+	// })
+	// mux.HandleFunc("/sub-agents", subAgentHandler.ListSubAgents)
 
 	// Tool routes
 	mux.HandleFunc("/tools/", toolHandler.ExecuteTool)
@@ -169,11 +137,11 @@ func (s *Server) setupHTTPServer(config *Config) error {
 
 	// Configure server
 	s.httpServer = &http.Server{
-		Addr:         config.Port,
+		Addr:         config.Address,
 		Handler:      handler,
-		ReadTimeout:  config.ReadTimeout,
-		WriteTimeout: config.WriteTimeout,
-		IdleTimeout:  config.IdleTimeout,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 300 * time.Second,
+		IdleTimeout:  600 * time.Second,
 	}
 
 	return nil
@@ -183,13 +151,13 @@ func (s *Server) setupHTTPServer(config *Config) error {
 func (s *Server) Start() error {
 	log.Printf("Starting agent server on %s", s.httpServer.Addr)
 	log.Println("Available endpoints:")
-	log.Println("  POST /agents/{name} - Execute main agents")
-	log.Println("  GET /agents/{name}/capabilities - Get agent capabilities")
-	log.Println("  GET /agents/{name}/stats - Get agent statistics")
-	log.Println("  POST /sub-agents/{name} - Execute sub-agents")
-	log.Println("  GET /sub-agents - List available sub-agents")
-	log.Println("  GET /sub-agents/{name}/capabilities - Get sub-agent capabilities")
-	log.Println("  GET /sub-agents/{name}/stats - Get sub-agent statistics")
+	// log.Println("  POST /agents/{name} - Execute main agents")
+	// log.Println("  GET /agents/{name}/capabilities - Get agent capabilities")
+	// log.Println("  GET /agents/{name}/stats - Get agent statistics")
+	// log.Println("  POST /sub-agents/{name} - Execute sub-agents")
+	// log.Println("  GET /sub-agents - List available sub-agents")
+	// log.Println("  GET /sub-agents/{name}/capabilities - Get sub-agent capabilities")
+	// log.Println("  GET /sub-agents/{name}/stats - Get sub-agent statistics")
 	log.Println("  POST /tools/{name} - Execute tools")
 	log.Println("  GET /tools - List available tools")
 	log.Println("  GET /health - Health check")
@@ -231,15 +199,15 @@ func (s *Server) Shutdown() error {
 
 // GetLLMProvider returns the LLM provider (for testing or external access)
 func (s *Server) GetLLMProvider() shared.LLMProvider {
-	return s.llmProvider
+	return s.LLMs
 }
 
 // GetToolRegistry returns the tool registry (for testing or external access)
 func (s *Server) GetToolRegistry() *tools.Registry {
-	return s.toolRegistry
+	return s.Tools
 }
 
 // GetPrimaryAgent returns the primary agent (for testing or external access)
 func (s *Server) GetPrimaryAgent() agents.IntelligentAgent {
-	return s.primaryAgent
+	return s.Agents["primary"].(agents.IntelligentAgent)
 }

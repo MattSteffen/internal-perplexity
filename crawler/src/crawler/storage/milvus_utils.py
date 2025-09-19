@@ -50,7 +50,7 @@ JSON_TYPE_TO_MILVUS_ELEMENT_TYPE = {
 
 def _create_base_schema(embedding_size) -> CollectionSchema:
     field_schema_primary_id = FieldSchema(
-        name="default_id",
+        name="id",
         dtype=DataType.INT64,
         is_primary=True,
         auto_id=True,
@@ -91,7 +91,7 @@ def _create_base_schema(embedding_size) -> CollectionSchema:
         dtype=DataType.SPARSE_FLOAT_VECTOR,
         description="The full-text-search embedding of the text",
     )
-    field_schema_metadata = FieldSchema(
+    field_schema_default_metadata = FieldSchema(
         name="default_metadata",
         dtype=DataType.VARCHAR,
         max_length=MAX_DOC_LENGTH,
@@ -103,6 +103,11 @@ def _create_base_schema(embedding_size) -> CollectionSchema:
         dtype=DataType.SPARSE_FLOAT_VECTOR,
         description="The full-text-search embedding of the metadata",
     )
+    field_schema_metadata = FieldSchema(
+        name="metadata",
+        dtype=DataType.JSON,
+        description="The metadata of the document as outlined by the user.",
+    )
     field_schema_benchmark_questions = FieldSchema(
         name="benchmark_questions",
         dtype=DataType.VARCHAR,
@@ -111,6 +116,7 @@ def _create_base_schema(embedding_size) -> CollectionSchema:
         default_value="[]",
     )
 
+    # functions to build the full-text-search indexes
     function_full_text_search = Function(
         name="full_text_search_on_chunks",
         input_field_names=["default_text"],
@@ -128,6 +134,7 @@ def _create_base_schema(embedding_size) -> CollectionSchema:
         field_schema_document_id,
         field_schema_minio,
         field_schema_chunk_index,
+        field_schema_default_metadata,
         field_schema_text,
         field_schema_text_embedding,
         field_schema_text_sparse_embedding,
@@ -139,217 +146,11 @@ def _create_base_schema(embedding_size) -> CollectionSchema:
     return fields, functions
 
 
-def _build_user_defined_fields(schema_config: Dict[str, Any]) -> List[FieldSchema]:
-    """
-    Builds Milvus FieldSchema objects for user-defined metadata fields only.
-
-    Args:
-        schema_config: JSON schema configuration with 'properties' containing field definitions
-
-    Returns:
-        List of FieldSchema objects for user-defined fields
-
-    Raises:
-        ValueError: If schema_config is invalid or contains unsupported types
-        ImportError: If Pymilvus is not installed
-    """
-    if not schema_config:
-        logging.warning("Empty schema configuration provided.")
-        return []
-    # TODO: raise error if not valid jsonschema or if properties is not a dict
-    non_allowed_fields = [
-        "default_id",
-        "default_document_id",
-        "default_source",
-        "default_chunk_index",
-        "default_text",
-        "default_text_embedding",
-        "default_text_sparse_embedding",
-        "default_metadata",
-        "default_metadata_sparse_embedding",
-    ]
-
-    fields_config = schema_config.get("properties", {})
-    user_fields: List[FieldSchema] = []
-
-    for field_name, field_def in fields_config.items():
-        if not isinstance(field_def, dict) or "type" not in field_def:
-            logging.warning(
-                f"Skipping invalid field definition for '{field_name}': {field_def}"
-            )
-            continue
-        if field_name in non_allowed_fields:
-            logging.warning(
-                f"Skipping field '{field_name}' as it's a reserved field name"
-            )
-            continue
-
-        field_type = field_def.get("type")
-        field_description = field_def.get(
-            "description", f"User metadata field: {field_name}"
-        )
-        milvus_field: Optional[FieldSchema] = None
-
-        try:
-            match field_type:
-                case "string":
-                    max_length = max(
-                        field_def.get("maxLength", DEFAULT_VARCHAR_MAX_LENGTH),
-                        DEFAULT_VARCHAR_MAX_LENGTH,
-                    )
-                    milvus_field = FieldSchema(
-                        name=field_name,
-                        dtype=DataType.VARCHAR,
-                        max_length=max_length,
-                        description=field_description,
-                        default_value="",
-                    )
-
-                case "integer":
-                    milvus_field = FieldSchema(
-                        name=field_name,
-                        dtype=DataType.INT64,
-                        description=field_description,
-                        default_value=0,
-                    )
-
-                case "number" | "float":
-                    milvus_field = FieldSchema(
-                        name=field_name,
-                        dtype=DataType.DOUBLE,
-                        description=field_description,
-                        default_value=0.0,
-                    )
-
-                case "boolean":
-                    milvus_field = FieldSchema(
-                        name=field_name,
-                        dtype=DataType.BOOL,
-                        description=field_description,
-                        default_value=False,
-                    )
-
-                case "array":
-                    milvus_field = _build_array_field(
-                        field_name, field_def, field_description
-                    )
-
-                case "object":
-                    milvus_field = FieldSchema(
-                        name=field_name,
-                        dtype=DataType.JSON,
-                        description=field_description,
-                    )
-                    logging.info(
-                        f"Mapping object field '{field_name}' to Milvus JSON type."
-                    )
-
-                case _:
-                    raise ValueError(
-                        f"Unsupported field type '{field_type}' for field '{field_name}'."
-                    )
-
-            if milvus_field:
-                user_fields.append(milvus_field)
-                logging.debug(
-                    f"Added user field '{field_name}' (Type: {milvus_field.dtype})"
-                )
-
-        except Exception as e:
-            logging.error(
-                f"Error processing field '{field_name}' with definition {field_def}: {e}"
-            )
-            raise
-
-    logging.info(
-        f"Built {len(user_fields)} user-defined fields: {[f.name for f in user_fields]}"
-    )
-    return user_fields
-
-
-def _build_array_field(
-    field_name: str, field_def: Dict[str, Any], field_description: str
-) -> FieldSchema:
-    """
-    Helper function to build array field schemas.
-
-    Args:
-        field_name: Name of the field
-        field_def: Field definition from JSON schema
-        field_description: Description for the field
-
-    Returns:
-        FieldSchema for the array field
-    """
-    items_def = field_def.get("items")
-
-    if not isinstance(items_def, dict) or "type" not in items_def:
-        logging.warning(
-            f"Array field '{field_name}' missing valid 'items' definition. Using VARCHAR fallback."
-        )
-        return _build_array_fallback_field(field_name, field_def, field_description)
-
-    element_type_str = items_def.get("type")
-    milvus_element_type = JSON_TYPE_TO_MILVUS_ELEMENT_TYPE.get(element_type_str)
-
-    if not milvus_element_type:
-        logging.warning(
-            f"Unsupported array element type '{element_type_str}' for field '{field_name}'. Using VARCHAR fallback."
-        )
-        return _build_array_fallback_field(field_name, field_def, field_description)
-
-    # Build native Milvus array field
-    max_capacity = min(
-        max(1, field_def.get("maxItems", DEFAULT_ARRAY_CAPACITY)),
-        DEFAULT_ARRAY_CAPACITY,
-    )
-
-    field_kwargs = {
-        "name": field_name,
-        "dtype": DataType.ARRAY,
-        "element_type": milvus_element_type,
-        "max_capacity": max_capacity,
-        "description": field_description,
-        "nullable": True,
-    }
-
-    # Add max_length for VARCHAR array elements
-    if milvus_element_type == DataType.VARCHAR:
-        element_max_length = min(
-            items_def.get("maxLength", DEFAULT_ARRAY_VARCHAR_MAX_LENGTH),
-            DEFAULT_ARRAY_VARCHAR_MAX_LENGTH,
-        )
-        field_kwargs["max_length"] = element_max_length
-
-    logging.info(
-        f"Mapping array field '{field_name}' to native Milvus ARRAY({milvus_element_type}, capacity={max_capacity})"
-    )
-    return FieldSchema(**field_kwargs)
-
-
-def _build_array_fallback_field(
-    field_name: str, field_def: Dict[str, Any], field_description: str
-) -> FieldSchema:
-    """
-    Fallback for unsupported array types - serialize as VARCHAR.
-    """
-    max_length = field_def.get("maxLength", MAX_DOC_LENGTH)
-    return FieldSchema(
-        name=field_name,
-        dtype=DataType.VARCHAR,
-        max_length=max_length,
-        description=f"{field_description} (serialized array)",
-        default_value="[]",
-    )
-
-
 def create_schema(
     embedding_size: int, user_metadata_json_schema: Dict[str, any] = None
 ):
     fields, functions = _create_base_schema(embedding_size)
 
-    # Add user metadata fields
-    fields.extend(_build_user_defined_fields(user_metadata_json_schema))
     schema = CollectionSchema(
         fields=fields,
         functions=functions,
@@ -388,92 +189,3 @@ def create_index(client: MilvusClient):
     )
 
     return index_params
-
-
-def migrate_collection_schema(client: MilvusClient, collection_name: str) -> None:
-    """
-    Migrate an existing collection from old field names to new prefixed field names.
-
-    This function handles the migration of collections created with the old schema
-    to use the new prefixed field naming convention (default_*).
-
-    Args:
-        client: Milvus client instance
-        collection_name: Name of the collection to migrate
-
-    Raises:
-        Exception: If migration fails
-    """
-    import logging
-
-    logger = logging.getLogger(__name__)
-
-    logger.info(f"🚀 Starting migration for collection '{collection_name}'")
-
-    # Field mapping from old names to new names
-    field_mapping = {
-        "id": "default_id",
-        "document_id": "default_document_id",
-        "chunk_index": "default_chunk_index",
-        "source": "default_source",
-        "text": "default_text",
-        "text_embedding": "default_text_embedding",
-        "text_sparse_embedding": "default_text_sparse_embedding",
-        "metadata": "default_metadata",
-        "metadata_sparse_embedding": "default_metadata_sparse_embedding",
-        "minio": "default_minio",
-    }
-
-    try:
-        # Check if collection exists
-        if not client.has_collection(collection_name):
-            logger.warning(
-                f"Collection '{collection_name}' does not exist, skipping migration"
-            )
-            return
-
-        # Load collection to get current schema
-        client.load_collection(collection_name)
-        desc = client.describe_collection(collection_name)
-
-        logger.info(f"📋 Current collection schema has {len(desc['fields'])} fields")
-
-        # Check which fields need to be renamed
-        fields_to_rename = {}
-        current_fields = {field["name"]: field for field in desc["fields"]}
-
-        for old_name, new_name in field_mapping.items():
-            if old_name in current_fields and new_name not in current_fields:
-                fields_to_rename[old_name] = new_name
-                logger.info(f"🔄 Will rename field '{old_name}' → '{new_name}'")
-
-        if not fields_to_rename:
-            logger.info(
-                "✅ No fields need migration, collection already uses new schema"
-            )
-            return
-
-        logger.info(f"📊 Migration plan: {len(fields_to_rename)} fields to rename")
-
-        # Note: Milvus doesn't have a direct field rename operation
-        # This would require creating a new collection with the new schema,
-        # copying all data, and then dropping the old collection
-        # For now, we'll log the migration plan and provide guidance
-
-        logger.warning("⚠️  Manual migration required:")
-        logger.warning("   1. Create new collection with updated schema")
-        logger.warning("   2. Copy data from old collection to new collection")
-        logger.warning("   3. Update field names during data transfer")
-        logger.warning("   4. Drop old collection")
-        logger.warning("   5. Rename new collection to original name")
-        logger.warning(f"   Fields to migrate: {list(fields_to_rename.keys())}")
-
-        # TODO: Implement automatic migration when Milvus supports field renaming
-        # For now, this serves as documentation of what needs to be done
-
-    except Exception as e:
-        logger.error(f"❌ Migration failed for collection '{collection_name}': {e}")
-        raise
-
-
-# Future enhancement: Function to validate metadata compared to json schema, concat strings to correct max length.

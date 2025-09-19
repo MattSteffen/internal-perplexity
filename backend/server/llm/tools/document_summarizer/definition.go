@@ -6,8 +6,8 @@ import (
 	"strconv"
 
 	"internal-perplexity/server/llm/api"
-	"internal-perplexity/server/llm/providers/shared"
-	"internal-perplexity/server/llm/tools"
+	providershared "internal-perplexity/server/llm/providers/shared"
+	toolshared "internal-perplexity/server/llm/tools/shared"
 )
 
 // DocumentSummarizer provides document summarization capabilities
@@ -77,10 +77,10 @@ func (d *DocumentSummarizer) Definition() *api.ToolDefinition {
 }
 
 // Execute performs document summarization using LLM
-func (d *DocumentSummarizer) Execute(ctx context.Context, input *tools.ToolInput, llmProvider shared.LLMProvider) (*tools.ToolResult, error) {
+func (d *DocumentSummarizer) Execute(ctx context.Context, input *toolshared.ToolInput, llmProvider providershared.LLMProvider) (*toolshared.ToolResult, error) {
 	content, ok := input.Data["content"].(string)
 	if !ok {
-		return &tools.ToolResult{
+		return &toolshared.ToolResult{
 			Success: false,
 			Error:   "content field is required and must be a string",
 		}, nil
@@ -100,7 +100,7 @@ func (d *DocumentSummarizer) Execute(ctx context.Context, input *tools.ToolInput
 	// Generate summarization prompt and execute
 	result, err := d.summarizeContent(ctx, content, maxLength, llmProvider)
 	if err != nil {
-		return &tools.ToolResult{
+		return &toolshared.ToolResult{
 			Success: false,
 			Error:   fmt.Sprintf("summarization failed: %v", err),
 		}, nil

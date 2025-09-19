@@ -12,13 +12,11 @@ import (
 
 // ProviderConfig holds configuration for creating providers
 type ProviderConfig struct {
-	Name    string // "openai" | "anthropic" | "ollama" | "openai-compatible"
-	APIKey  string
-	BaseURL string
-	OrgID   string
-	// Additional knobs
-	ModelDefault string
-	Extra        map[string]any
+	Name           string // "openai" | "anthropic" | "ollama" | "openai-compatible"
+	DefaultAPIKey  string
+	DefaultBaseURL string
+	DefaultModel   string
+	Extra          map[string]any
 }
 
 // Registry manages provider instances

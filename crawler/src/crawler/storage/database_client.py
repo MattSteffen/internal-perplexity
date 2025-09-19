@@ -1,21 +1,14 @@
 from abc import ABC, abstractmethod
-from curses import meta
-from pydoc import text
-from typing import List, Dict, Any, Optional, Tuple, Union
-import logging
+from typing import List, Dict, Any, Optional
 import os
 import json
 import matplotlib.pyplot as plt
 
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, List, Union
-from pathlib import Path
-from enum import Enum
+from typing import Optional, Dict, Any, List
 
-from typing import Protocol, Any, List, Dict, runtime_checkable
+from typing import Any, List, Dict
 from abc import abstractmethod
-
-# EmbedderConfig imported only for type hints to avoid circular imports
 
 
 @dataclass
@@ -29,12 +22,21 @@ class DatabaseDocument:
     """
 
     # Required attributes - these must exist (using prefixed field names)
+    default_document_id: str
     default_text: str
     default_text_embedding: List[float]
     default_chunk_index: int
     default_source: str
-
     metadata: Dict[str, any] = field(default_factory=dict)
+
+    id: Optional[int] = -1
+    default_metadata: Optional[str] = ""
+    default_minio: Optional[str] = ""
+    default_text_sparse_embedding: Optional[List[float]] = field(default_factory=list)
+    default_metadata_sparse_embedding: Optional[List[float]] = field(
+        default_factory=list
+    )
+    default_benchmark_questions: Optional[List[str]] = field(default_factory=list)
 
     # Required methods for dict-like access
     def __getitem__(self, key: str) -> Any:
@@ -45,8 +47,18 @@ class DatabaseDocument:
                 return self.default_text_embedding
             case "default_chunk_index":
                 return self.default_chunk_index
+            case "default_minio":
+                return self.default_minio
+            case "default_document_id":
+                return self.default_document_id
+            case "default_metadata":
+                return self.default_metadata
+            case "default_metadata_sparse_embedding":
+                return self.default_metadata_sparse_embedding
             case "default_source":
                 return self.default_source
+            case "default_benchmark_questions":
+                return self.default_benchmark_questions
             case _:
                 return self.metadata.get(key)
 
@@ -57,46 +69,71 @@ class DatabaseDocument:
         else:
             return default
 
+    def to_dict(self) -> Dict[str, any]:
+        return {
+            "default_document_id": self.default_document_id,
+            "default_minio": self.default_minio,
+            "default_text": self.default_text,
+            "default_text_embedding": self.default_text_embedding,
+            "default_chunk_index": self.default_chunk_index,
+            "default_metadata": self.default_metadata,
+            "default_source": self.default_source,
+            "default_benchmark_questions": self.default_benchmark_questions,
+            "metadata": self.metadata,
+        }
+
     @classmethod
     def from_dict(cls, data: Dict[str, any]) -> "DatabaseDocument":
+        id = data.get("id")
         default_text = data.get("default_text")
         default_text_embedding = data.get("default_text_embedding")
         default_chunk_index = data.get("default_chunk_index")
+        default_minio = data.get("default_minio")
+        default_document_id = data.get("default_document_id")
+        default_metadata = data.get("default_metadata")
+        default_metadata_sparse_embedding = data.get(
+            "default_metadata_sparse_embedding"
+        )
         default_source = data.get("default_source")
-        metadata = {
-            k: v
-            for k, v in data.items()
-            if k
-            not in [
-                "default_text",
-                "default_text_embedding",
-                "default_chunk_index",
-                "default_source",
-            ]
-        }
+        default_benchmark_questions = data.get("default_benchmark_questions")
+        metadata = data.get("metadata")
         if any(
             [
                 default_text is None,
                 default_text_embedding is None,
                 default_chunk_index is None,
                 default_source is None,
+                default_document_id is None,
+                default_metadata is None,
+                default_metadata_sparse_embedding is None,
+                id is None,
             ]
         ):
             raise ValueError("missing data")
         return cls(
+            id=id,
             default_text=default_text,
             default_text_embedding=default_text_embedding,
             default_chunk_index=default_chunk_index,
             default_source=default_source,
+            default_document_id=default_document_id,
+            default_minio=default_minio,
+            default_metadata=default_metadata,
+            default_metadata_sparse_embedding=default_metadata_sparse_embedding,
             metadata=metadata,
+            default_benchmark_questions=default_benchmark_questions,
         )
+
+    def to_string(self) -> str:
+        # TODO: Nicely format the string for llm input
+        return json.dumps(self.to_dict(), indent=4)
 
 
 @dataclass
 class DatabaseClientConfig:
     """Base configuration for database clients."""
 
-    provider: str
+    provider: str  # milvus
     collection: str
     partition: Optional[str] = None
     recreate: bool = False
@@ -195,6 +232,7 @@ class DatabaseClient(ABC):
 
     @abstractmethod
     def insert_data(self, data: List[DatabaseDocument]) -> None:
+        # TODO: All locations where minio is used, update to use default_url
         """
         Insert data into the collection with duplicate detection.
 

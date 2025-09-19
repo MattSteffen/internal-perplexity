@@ -259,7 +259,7 @@ class MilvusBenchmark(DatabaseBenchmark):
 
         with tqdm(total=len(all_docs), desc="Processing documents", unit="doc") as pbar:
             for doc in all_docs:
-                source = doc.get("default_id")
+                source = doc.get("id")
                 text = doc.get("default_text")
 
                 if not text or len(text.strip()) == 0:
@@ -412,7 +412,7 @@ class MilvusBenchmark(DatabaseBenchmark):
 
                             found_in_results = False
                             for i, res in enumerate(search_results):
-                                if res.get("default_id") == source:
+                                if res.get("id") == source:
                                     placement = i + 1
                                     distance = res["distance"]
                                     result = BenchmarkResult(

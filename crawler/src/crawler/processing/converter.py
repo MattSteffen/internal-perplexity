@@ -455,8 +455,14 @@ class OllamaImageDescriber(ImageDescriptionInterface):
             model_name: Name of the Ollama model to use for image description
             base_url: Base URL for Ollama API
         """
+        # Validate inputs early to fail fast
+        if not isinstance(model_name, str) or not model_name.strip():
+            raise ValueError("OllamaImageDescriber requires a non-empty model_name")
+        if not isinstance(base_url, str) or not base_url.strip():
+            raise ValueError("OllamaImageDescriber requires a non-empty base_url")
+
         self.model_name = model_name
-        self.base_url = base_url
+        self.base_url = base_url.rstrip("/")
 
         # Try to import requests
         try:
@@ -573,14 +579,25 @@ class PyMuPDFConverter(Converter):
     def _create_image_describer(self) -> ImageDescriptionInterface:
         """Create and configure the image describer based on configuration."""
         describer_config = self.metadata_config.get("image_describer", {})
+        if not isinstance(describer_config, dict):
+            raise ValueError("image_describer config must be a dictionary if provided")
+
         describer_type = describer_config.get("type", "ollama")
 
         if describer_type == "ollama":
             model_name = describer_config.get("model", "granite3.2-vision:latest")
             base_url = describer_config.get("base_url", "http://localhost:11434")
+            # Validate essential params
+            if not model_name or not isinstance(model_name, str):
+                raise ValueError("image_describer.model must be a non-empty string")
+            if not base_url or not isinstance(base_url, str):
+                raise ValueError("image_describer.base_url must be a non-empty string")
             return OllamaImageDescriber(model_name=model_name, base_url=base_url)
-        else:
+
+        if describer_type == "dummy":
             return DummyImageDescriber()
+
+        raise ValueError(f"Unsupported image_describer.type: {describer_type}")
 
     def _extract_tables_from_page(self, page: pymupdf.Page) -> List[Dict[str, Any]]:
         """
@@ -1098,135 +1115,6 @@ def create_converter(converter_type: str, config: ConverterConfig) -> Converter:
     return converters[converter_type.lower()](config)
 
 
-# Example usage and testing functions
-def test_markitdown_converter():
-    """Test the MarkItDown converter with sample configuration."""
-    vision_config = LLMConfig(
-        model_name="granite3.2-vision:latest",
-        provider="ollama",
-        base_url="http://localhost:8002",
-    )
-
-    config = ConverterConfig(
-        type="markitdown",
-        vision_llm=vision_config,
-        metadata={
-            "prompt": "You are a helpful assistant.",
-            "timeout": 300,
-        },
-    )
-
-    converter = MarkItDownConverter(config)
-    # Replace with actual file path for testing
-    filepath = "/Users/mattsteffen/projects/llm/internal-perplexity/data/arxiv/2408.12236v1.pdf"
-    markdown = converter.convert(filepath)
-    print(markdown)
-    print("MarkItDown converter created successfully")
-
-
-def test_docling_converter():
-    """Test the Docling converter with sample configuration."""
-    vision_config = LLMConfig(
-        model_name="granite3.2-vision:latest",
-        provider="ollama",
-        base_url="http://localhost:8002",
-    )
-
-    config = ConverterConfig(
-        type="docling",
-        vision_llm=vision_config,
-        metadata={
-            "extractor": {
-                "timeout": 300,
-            },
-        },
-    )
-
-    converter = DoclingConverter(config)
-    # Replace with actual file path for testing
-    filepath = "/Users/mattsteffen/projects/llm/internal-perplexity/data/arxiv/2408.12236v1.pdf"
-    markdown = converter.convert(filepath)
-    print(markdown)
-    print("Docling converter created successfully")
-
-
-def test_docling_vlm_converter():
-    """Test the Docling VLM converter with sample configuration."""
-    config = ConverterConfig(type="docling_vlm")  # No config needed for default VLM
-
-    converter = create_converter("docling_vlm", config)
-    # Replace with actual file path for testing
-    filepath = "/Users/mattsteffen/projects/llm/internal-perplexity/data/arxiv/2408.12236v1.pdf"
-    try:
-        markdown = converter.convert(filepath)
-        print(markdown)
-        print("Docling VLM converter test completed successfully")
-    except Exception as e:
-        print(f"Docling VLM converter test failed: {e}")
-
-
-def test_pymupdf_converter():
-    """Test the PyMuPDF converter with current config and capabilities."""
-    config = ConverterConfig(
-        type="pymupdf",
-        metadata={
-            "preserve_formatting": True,
-            "include_page_numbers": True,
-            "include_metadata": True,
-            "sort_reading_order": True,
-            "image_description_prompt": "Describe this image in detail for a technical document.",
-            "image_describer": {
-                "type": "ollama",
-                "model": "granite3.2-vision:latest",
-                "base_url": "http://localhost:11434",
-            },
-            "extract_images": True,
-            "ocr_fallback": False,
-            "max_image_dim": 2048,
-            "table_detection": True,
-        },
-    )
-
-    converter = PyMuPDFConverter(config)
-
-    # Use a real file path for actual testing
-    filepath = "/Users/mattsteffen/projects/llm/internal-perplexity/data/arxiv/2408.12236v1.pdf"
-    try:
-        markdown = converter.convert(filepath)
-        print(markdown)
-        print("PyMuPDF converter test completed successfully")
-    except Exception as e:
-        import traceback
-
-        print(f"PyMuPDF converter test failed: {e}")
-        traceback.print_exc()
-
-
-def test_factory_function():
-    """Test the converter factory function."""
-    vision_config = LLMConfig(
-        model_name="granite3.2-vision:latest",
-        provider="ollama",
-        base_url="http://localhost:8002",
-    )
-
-    config = ConverterConfig(
-        type="markitdown",
-        vision_llm=vision_config,
-    )
-
-    # Test creating different converter types
-    markitdown_converter = create_converter("markitdown", config)
-    docling_converter = create_converter("docling", config)
-    docling_vlm_converter = create_converter("docling_vlm", config)
-
-    print(f"Created MarkItDown converter: {type(markitdown_converter).__name__}")
-    print(f"Created Docling converter: {type(docling_converter).__name__}")
-    print(f"Created Docling VLM converter: {type(docling_vlm_converter).__name__}")
-
-
-# if __name__ == "__main__":
-#     test_markitdown_converter()
-#     test_docling_converter()
-#     test_docling_vlm_converter()
-#     test_factory_function()
+"""
+Inline test scaffolds removed; add tests under the dedicated tests/ directory.
+"""

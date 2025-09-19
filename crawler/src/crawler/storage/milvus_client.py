@@ -242,8 +242,6 @@ class MilvusDB(DatabaseClient):
                         try:
                             # Validate required fields exist (these should be guaranteed by protocol)
                             chunk_index = item.default_chunk_index
-                            text = item.default_text
-                            text_embedding = item.default_text_embedding
 
                             # Check for duplicates using the cached indexes
                             if chunk_index in existing_indexes:
@@ -255,76 +253,13 @@ class MilvusDB(DatabaseClient):
                                 continue
 
                             # Prepare the data for insertion
-                            prepared_item = {
-                                "default_document_id": item.get(
-                                    "default_document_id", str(uuid.uuid4())
-                                ),
-                                "default_text": text,
-                                "default_text_embedding": text_embedding,
-                                "default_chunk_index": chunk_index,
-                                "default_source": source,
-                                "default_minio": item.get("default_minio", ""),
-                            }
-
-                            # Extract additional metadata fields
-                            metadata = {}
-                            required_fields = {
-                                "default_text",
-                                "default_text_embedding",
-                                "default_chunk_index",
-                                "default_source",
-                                "default_document_id",
-                                "default_minio",
-                            }
-
-                            # Handle benchmark_questions specially - only include for chunk_index == 0
-                            benchmark_questions = None
-                            if chunk_index == 0:
-                                benchmark_questions = item.get("benchmark_questions")
-
-                            # For dict-like objects, iterate through all keys
-                            if hasattr(item, "keys"):
-                                for key in item.keys():
-                                    if key not in required_fields:
-                                        value = (
-                                            item[key]
-                                            if hasattr(item, "__getitem__")
-                                            else getattr(item, key)
-                                        )
-                                        metadata[key] = value
-                                        # Add as separate field (but only benchmark_questions for chunk_index 0)
-                                        if (
-                                            key == "benchmark_questions"
-                                            and chunk_index == 0
-                                        ):
-                                            prepared_item[key] = json.dumps(
-                                                value, separators=(",", ":")
-                                            )
-                                        elif key != "benchmark_questions":
-                                            prepared_item[key] = value
-                            else:
-                                # For objects with attributes, use dir() or __dict__
-                                if hasattr(item, "__dict__"):
-                                    for key, value in item.__dict__.items():
-                                        if (
-                                            key not in required_fields
-                                            and not key.startswith("_")
-                                        ):
-                                            metadata[key] = value
-                                            # Add as separate field (but only benchmark_questions for chunk_index 0)
-                                            if (
-                                                key == "benchmark_questions"
-                                                and chunk_index == 0
-                                            ):
-                                                prepared_item[key] = json.dumps(
-                                                    value, separators=(",", ":")
-                                                )
-                                            elif key != "benchmark_questions":
-                                                prepared_item[key] = value
+                            prepared_item = item.to_dict()
+                            if prepared_item["default_document_id"] is None:
+                                prepared_item["default_document_id"] = str(uuid.uuid4())
 
                             # Add metadata as JSON string (include benchmark_questions in all chunks)
                             prepared_item["default_metadata"] = json.dumps(
-                                metadata, separators=(",", ":")
+                                item.metadata, separators=(",", ":")
                             )
 
                             data_to_insert.append(prepared_item)

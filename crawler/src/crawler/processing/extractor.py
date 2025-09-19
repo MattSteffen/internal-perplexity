@@ -17,6 +17,7 @@ class ExtractorConfig:
     metadata_schema: Optional[Dict[str, Any]] = (
         None  # JSON schema for metadata validation
     )
+    document_library_context: Optional[str] = ""
 
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -30,14 +31,25 @@ class ExtractorConfig:
 
     @classmethod
     def basic(
-        cls, llm: LLMConfig, metadata_schema: Optional[Dict[str, Any]] = None
+        cls,
+        llm: LLMConfig,
+        metadata_schema: Optional[Dict[str, Any]] = None,
+        document_library_context: Optional[str] = "",
     ) -> "ExtractorConfig":
         """Create basic extractor configuration."""
-        return cls(type="basic", llm=llm, metadata_schema=metadata_schema)
+        return cls(
+            type="basic",
+            llm=llm,
+            metadata_schema=metadata_schema,
+            document_library_context=document_library_context,
+        )
 
     @classmethod
     def multi_schema(
-        cls, schemas: List[Dict[str, Any]], llm: LLMConfig
+        cls,
+        schemas: List[Dict[str, Any]],
+        llm: LLMConfig,
+        document_library_context: Optional[str] = "",
     ) -> "ExtractorConfig":
         """Create multi-schema extractor configuration."""
         if not schemas:
@@ -49,6 +61,7 @@ class ExtractorConfig:
             type="multi_schema",
             llm=llm,
             metadata_schema=schemas,  # For multi_schema, this contains the list of schemas
+            document_library_context=document_library_context,
         )
 
 
@@ -265,19 +278,19 @@ class MultiSchemaExtractor(Extractor):
         self, schemas: list[dict], llm: LLM, library_description: str = ""
     ) -> None:
         super().__init__()
-        self.extractors = []
-        self.schemas = schemas
+        self.extractors: list[BasicExtractor] = []
+        self.schemas: list[dict] = schemas
         self.llm = llm
         self.library_description = library_description
 
         # Get logger (already configured by main crawler)
         self.logger = logging.getLogger("MultiSchemaExtractor")
         self.logger.info(
-            f"Initialized MultiSchemaExtractor with {len(schemas)} schemas"
+            f"Initialized MultiSchemaExtractor with {len(self.schemas)} schemas"
         )
 
         # Create extractors
-        for i, schema in enumerate(schemas):
+        for i, schema in enumerate(self.schemas):
             self.logger.debug(f"Creating extractor {i+1}/{len(schemas)}")
             extractor = BasicExtractor(schema, llm, library_description)
             self.extractors.append(extractor)
@@ -369,7 +382,7 @@ def create_extractor(config: ExtractorConfig, llm: LLM) -> Extractor:
         return BasicExtractor(
             metadata_schema=config.metadata_schema or {},
             llm=llm,
-            document_library_context="",
+            document_library_context=config.document_library_context,
             generate_benchmark_questions=False,
             num_benchmark_questions=3,
         )
@@ -379,7 +392,11 @@ def create_extractor(config: ExtractorConfig, llm: LLM) -> Extractor:
         if not isinstance(schemas, list):
             schemas = [config.metadata_schema] if config.metadata_schema else []
 
-        return MultiSchemaExtractor(schemas=schemas, llm=llm, library_description="")
+        return MultiSchemaExtractor(
+            schemas=schemas,
+            llm=llm,
+            library_description=config.document_library_context,
+        )
     else:
         raise ValueError(f"Unknown extractor type: {config.type}")
 
@@ -443,28 +460,30 @@ extract_metadata_prompt = """
 You are an expert metadata extraction engine. Read the document and output a
 single JSON object that conforms EXACTLY to the injected JSON Schema.
 
-STRICT RULES:
-- Use ONLY the keys defined in the injected schema's properties.
-- Include ALL fields required by the schema.
-- Do NOT invent or copy fields that are not in the schema.
-- Normalize values (e.g., convert dates to YYYY-MM-DD, strip markup/artifacts).
-- If a required field is missing or cannot be inferred, set its value to
-  "Unknown".
-- Validate each value against the schema types/formats.
-- Output must be ONLY a JSON object (no extra text, no markdown fences).
+STRICT OUTPUT CONTRACT:
+- Output MUST be a single valid JSON object. Do not include explanations,
+  preambles, markdown code fences, or trailing text.
+- Use ONLY the keys defined in the schema's properties. Do not add extra keys.
+- Include ALL fields listed in the schema's required list.
+- If a required field is missing or not inferable, set its value to "Unknown".
+- Normalize common types:
+  - Dates: use YYYY-MM-DD where the full date is available, otherwise "Unknown".
+  - Arrays: ensure each item matches the item type in the schema.
+  - Strings: strip markup and artifacts.
+- Ensure the final object validates against the schema types and formats.
 
 JSON Schema:
-[[SCHEMA_START]]
+<schema>
 {{json_schema}}
-[[SCHEMA_END]]
+</schema>
 
-Document Library Context (do not echo in output; use only for disambiguation):
-[[CONTEXT_START]]
+Document Library Context (do not echo; use only for disambiguation):
+<context>
 {{document_library_context}}
-[[CONTEXT_END]]
+</context>
 
 Document:
-[[DOCUMENT_START]]
+<document>
 {{document_text}}
-[[DOCUMENT_END]]
+</document>
 """

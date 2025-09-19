@@ -126,7 +126,9 @@ def create_arxiv_config():
     )
 
     # Multi-schema extractor configuration
-    extractor = ExtractorConfig.multi_schema(schemas=[schema1, schema2], llm=llm)
+    extractor = ExtractorConfig.multi_schema(
+        schemas=[schema1, schema2], llm=llm, document_library_context=""
+    )
 
     # PyMuPDF converter configuration with image processing
     converter = ConverterConfig.pymupdf(

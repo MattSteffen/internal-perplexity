@@ -233,31 +233,4 @@ class OllamaEmbedder(Embedder):
         return self._dimension
 
 
-def test():
-    """Test function for the OllamaEmbedder."""
-    config = EmbedderConfig(model="all-minilm:v2", base_url="http://localhost:11434")
-
-    embedder = OllamaEmbedder(config)
-
-    # Test single embedding
-    result = embedder.embed("test")
-    print(f"Embedding dimension: {len(result)}")
-    print(f"First 5 values: {result[:5]}")
-
-    # Test dimension detection
-    dimension = embedder.get_dimension()
-    print(f"Reported dimension: {dimension}")
-
-    # Test with pre-configured dimension
-    config_with_dimension = EmbedderConfig(
-        model="all-minilm:v2",
-        base_url="http://localhost:11434",
-        dimension=384,  # Known dimension for all-minilm:v2
-    )
-    embedder_with_dimension = OllamaEmbedder(config_with_dimension)
-    preconfigured_dimension = embedder_with_dimension.get_dimension()
-    print(f"Pre-configured dimension: {preconfigured_dimension}")
-
-
-if __name__ == "__main__":
-    test()
+# Inline tests removed; add tests under the dedicated tests/ directory.

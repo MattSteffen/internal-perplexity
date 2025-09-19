@@ -81,8 +81,6 @@ from .processing import (
     get_embedder,
     Extractor,
     ExtractorConfig,
-    BasicExtractor,
-    MultiSchemaExtractor,
     LLM,
     LLMConfig,
     get_llm,
@@ -99,17 +97,17 @@ from .storage import (
     get_db_benchmark,
 )
 
-# Reserved keys that should not appear in metadata to avoid conflicts with database schema
-RESERVED = {
-    "default_document_id",
-    "default_chunk_index",
-    "default_source",
-    "default_text",
-    "default_text_embedding",
-    "default_text_sparse_embedding",
-    "default_metadata",
-    "default_metadata_sparse_embedding",
-}
+# # Reserved keys that should not appear in metadata to avoid conflicts with database schema
+# RESERVED = {
+#     "default_document_id",
+#     "default_chunk_index",
+#     "default_source",
+#     "default_text",
+#     "default_text_embedding",
+#     "default_text_sparse_embedding",
+#     "default_metadata",
+#     "default_metadata_sparse_embedding",
+# }
 
 
 def sanitize_metadata(
@@ -152,89 +150,21 @@ def sanitize_metadata(
                     f"Metadata validation failed: {e.message}, adding defaults for missing required fields"
                 )
 
-            # Fill in missing required fields with defaults
-            sanitized = _add_default_values_for_required_fields(
-                sanitized, schema, logger
-            )
         except Exception as e:
             if logger:
                 logger.warning(
                     f"Error during metadata validation: {e}, adding defaults for missing required fields"
                 )
-            # Fill in missing required fields with defaults
-            sanitized = _add_default_values_for_required_fields(
-                sanitized, schema, logger
-            )
 
     return sanitized
-
-
-def _add_default_values_for_required_fields(
-    md: dict, schema: dict, logger: logging.Logger = None
-) -> dict:
-    """
-    Add default values for missing required fields in metadata based on JSON schema.
-
-    Args:
-        md: Metadata dictionary
-        schema: JSON schema with required fields
-        logger: Optional logger for debug messages
-
-    Returns:
-        Metadata dictionary with defaults filled in
-    """
-    if not isinstance(md, dict):
-        md = {}
-
-    if not schema or "required" not in schema or "properties" not in schema:
-        return md
-
-    required_fields = schema.get("required", [])
-    properties = schema.get("properties", {})
-
-    for field_name in required_fields:
-        if field_name not in md:
-            field_schema = properties.get(field_name, {})
-            field_type = field_schema.get("type")
-
-            # Set default value based on field type
-            if field_type == "string":
-                default_value = ""
-            elif field_type == "integer" or field_type == "number":
-                default_value = 0
-            elif field_type == "boolean":
-                default_value = False
-            elif field_type == "array":
-                default_value = []
-            elif field_type == "object":
-                default_value = {}
-            else:
-                default_value = None
-
-            md[field_name] = default_value
-            if logger:
-                logger.debug(
-                    f"Added default value for missing required field '{field_name}': {default_value}"
-                )
-
-    return md
 
 
 """
 Crawler takes a directory or list of filepaths, extracts the markdown and metadata from each, chunks them, and stores them in a vector database.
 The crawler class is a base class.
 
-# TODO: With new prefixed field naming, these system fields no longer conflict with user metadata:
-    - "default_document_id"
-    - "default_chunk_index"
-    - "default_source"
-    - "default_text"
-    - "default_text_embedding"
-    - "default_text_sparse_embedding"
-    - "default_metadata"
-    - "default_metadata_sparse_embedding"
 
-# TODO: Make a backend server for OI and have radchat model available.
+# TODO: Update this to the new config with the types, not json
 
 Example config:
 {
@@ -359,8 +289,8 @@ class CrawlerConfig:
         cls,
         collection: str = "documents",
         embed_model: str = "all-minilm:v2",
-        llm_model: str = "llama3.2:3b",
-        vision_model: str = "llava:latest",
+        llm_model: str = "gpt-oss:20b",
+        vision_model: str = "granite-3.2vision:latest",
         base_url: str = "http://localhost:11434",
         host: str = "localhost",
         port: int = 19530,
@@ -368,7 +298,9 @@ class CrawlerConfig:
     ) -> "CrawlerConfig":
         """Create a default configuration using Ollama models."""
         embeddings = EmbedderConfig.ollama(model=embed_model, base_url=base_url)
-        llm = LLMConfig.ollama(model_name=llm_model, base_url=base_url)
+        llm = LLMConfig.ollama(
+            model_name=llm_model, base_url=base_url, structured_output="tools"
+        )
         vision_llm = LLMConfig.ollama(model_name=vision_model, base_url=base_url)
         database = DatabaseClientConfig.milvus(
             collection=collection, host=host, port=port
@@ -498,9 +430,9 @@ class Crawler:
         """Format bytes into human readable format."""
         for unit in ["B", "KB", "MB", "GB"]:
             if bytes_value < 1024.0:
-                return ".1f"
+                return f"{bytes_value:.1f}B"
             bytes_value /= 1024.0
-        return ".1f"
+        return f"{bytes_value:.1f}B"
 
     def crawl(self, path: Union[str, List[str]]) -> None:
         """
@@ -650,16 +582,15 @@ class Crawler:
                             )
 
                             # Create entities for database
-                            doc = DatabaseDocument.from_dict(
-                                {
-                                    "default_document_id": str(uuid.uuid4()),
-                                    "default_chunk_index": i,
-                                    "default_source": filepath,
-                                    "default_text": chunk,
-                                    "default_text_embedding": embeddings,
-                                    **sanitized_metadata,
-                                }
+                            doc = DatabaseDocument(
+                                default_document_id=str(uuid.uuid4()),
+                                default_text=chunk,
+                                default_text_embedding=embeddings,
+                                default_chunk_index=i,
+                                default_source=filepath,  # TODO: This should be the file name not whole path
+                                metadata=sanitized_metadata,
                             )
+
                             entities.append(doc)
 
                             chunk_pbar.set_postfix_str(
