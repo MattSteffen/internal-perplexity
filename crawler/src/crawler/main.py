@@ -572,6 +572,7 @@ class Crawler:
                 ) as chunk_pbar:
                     for i, chunk in enumerate(chunks):
                         chunk_embed_start = time.time()
+                        doc_id = str(uuid.uuid4())
                         try:
                             embeddings = self.embedder.embed(chunk)
                             chunk_embed_time = time.time() - chunk_embed_start
@@ -583,11 +584,12 @@ class Crawler:
 
                             # Create entities for database
                             doc = DatabaseDocument(
-                                default_document_id=str(uuid.uuid4()),
+                                default_document_id=doc_id,
+                                default_minio=filepath,
                                 default_text=chunk,
                                 default_text_embedding=embeddings,
                                 default_chunk_index=i,
-                                default_source=filepath,  # TODO: This should be the file name not whole path
+                                default_source=os.path.basename(filepath),
                                 metadata=sanitized_metadata,
                             )
 

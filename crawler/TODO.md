@@ -1,3 +1,21 @@
 # TODO
 
 - [ ] make a cli
+- [ ] make a rest server
+- [ ] update the docs
+- [ ] improve logging, image describer log doesn't mix with the tqdm
+  - [ ] can the logs under the main file tqdm be overwitten or stay in place
+  - [ ] remove the emojis from logs
+  - [ ] scoped logging
+- [ ] move config into package/directory
+  - [ ] Add config validation where every aspect is tested
+    - [ ] image describe can be sent an image and get a description, no 404
+    - [ ] model is tested
+    - [ ] embedding model is tested
+    - [ ] milvus connection is tested
+    - [ ] metadata schema is valid
+    - [ ] etc
+- [ ] Enable milvus permissions (or do i change databases?)
+- [ ] Semantic Chunking
+  - [ ] graph db and relationships too
+- [ ] Do I migrate from milvus to qdrant or other?
