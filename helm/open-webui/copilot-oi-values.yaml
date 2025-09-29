@@ -1,0 +1,194 @@
+nameOverride: ""
+namespaceOverride: ""
+
+ollama:
+  enabled: false
+pipelines:
+  enabled: false
+
+# TODO: Determine cluster.local url for ollama
+ollamaUrls:
+  - "http://ollama.a1.autobahn.rinconres.com"
+
+podLabels:
+  app.kubernetes.io/name: open-webui-rrc-copilot
+  app.kubernetes.io/part-of: rrc-copilot
+
+image:
+  repository: ghcr.io/open-webui/open-webui
+  tag: ""
+  pullPolicy: "Always"
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  failureThreshold: 1
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  failureThreshold: 1
+  periodSeconds: 10
+
+# managedCertificate:
+#   enabled: false
+#   name: "mydomain-chat-cert" # You can override this name if needed
+#   domains:
+#     - chat.example.com # update to your real domain
+
+# TODO: Create the ingress for the oi
+ingress:
+  enabled: false
+  class: ""
+  annotations: {}
+  #   # Example for GKE Ingress
+  #   kubernetes.io/ingress.class: "gce"
+  #   kubernetes.io/ingress.global-static-ip-name: "open-webui-external-ip"   #  you need to create this address in GCP console
+  #   # Force HTTP to redirect to HTTPS
+  #   nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+  #   nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  #   nginx.ingress.kubernetes.io/permanent-redirect: "https://chat.example.com"
+  #   networking.gke.io/managed-certificates: "mydomain-chat-cert"
+  #   # nginx.ingress.kubernetes.io/rewrite-target: /
+  host: "chat.example.com" # update to your real domain
+  additionalHosts: []
+  tls: false
+  existingSecret: ""
+
+persistence:
+  enabled: true
+  size: 5Gi
+
+# -- Service values to expose Open WebUI pods to cluster
+service:
+  type: ClusterIP
+  annotations: {}
+  port: 80
+  containerPort: 8080
+  nodePort: ""
+  labels: {}
+  loadBalancerClass: ""
+
+# -- OpenAI base API URL to use. Defaults to the Pipelines service endpoint when Pipelines are enabled, and "https://api.openai.com/v1" if Pipelines are not enabled and this value is blank
+openaiBaseApiUrl: "https://api.openai.com/v1"
+
+# -- OpenAI base API URLs to use. Overwrites the value in openaiBaseApiUrl if set
+# TODO: Add our proxy backend as openai compatible backend
+openaiBaseApiUrls:
+  []
+  # - "https://api.openai.com/v1"
+  # - "https://api.company.openai.com/v1"
+
+# -- Env vars added to the Open WebUI deployment. Most up-to-date environment variables can be found here: https://docs.openwebui.com/getting-started/env-configuration/
+extraEnvVars:
+  # -- Default API key value for Pipelines. Should be updated in a production deployment, or be changed to the required API key if not using Pipelines
+  - name: DEFAULT_USER_ROLE
+    value: "user"
+  - name: WEBUI_NAME
+    value: "RRC-Copilot"
+  - name: ENABLE_VERSION_UPDATE_CHECK
+    value: "false"
+  # If LDAP is enabled:
+  # - name: ENABLE_LOGIN_FORM
+  #   value: "false"
+  # - name: ENABLE_OAUTH_SIGNUP
+  #   value: "true"
+  # To set milvus as the vector database need:
+  # - MILVUS_URI, MILVUS_DB, MILVUS_TOKEN
+  # - name: VECTOR_DB
+  #   value: "milvus"
+  # Content extraction as docling:
+  # - name: CONTENT_EXTRACTION_ENGINE
+  #   value: "docling"
+  # - name: DOCLING_SERVER_URL # (default: http://docling:5001)
+  #   value: "http://docling.a1.autobahn.rinconres.com"
+  # - name: PIP_OPTIONS
+  #   value: "--upgrade" # maybe have it upgrade itself each time too
+
+# -- Env vars added to the Open WebUI deployment, common across environments. Most up-to-date environment variables can be found here: https://docs.openwebui.com/getting-started/env-configuration/ (caution: environment variables defined in both `extraEnvVars` and `commonEnvVars` will result in a conflict. Avoid duplicates)
+commonEnvVars:
+  []
+  # - name: RAG_EMBEDDING_ENGINE
+  #   value: "openai"
+
+# -- Env vars added from configmap or secret to the Open WebUI deployment. Most up-to-date environment variables can be found here: https://docs.openwebui.com/getting-started/env-configuration/ (caution: `extraEnvVars` will take precedence over the value from `extraEnvFrom`)
+extraEnvFrom:
+  []
+  # - configMapRef:
+  #     name: my-config
+  # - secretRef:
+  #     name: my-secret
+
+# TODO: Set up SSO or LDAP
+sso:
+  # -- **Enable SSO authentication globally** must enable to use SSO authentication
+  # @section -- SSO Configuration
+  enabled: false
+  # -- Enable account creation when logging in with OAuth (distinct from regular signup)
+  # @section -- SSO Configuration
+  enableSignup: false
+  # -- Allow logging into accounts that match email from OAuth provider (considered insecure)
+  # @section -- SSO Configuration
+  mergeAccountsByEmail: false
+  # -- Enable OAuth role management through access token roles claim
+  # @section -- SSO Configuration
+  enableRoleManagement: false
+  # -- Enable OAuth group management through access token groups claim
+  # @section -- SSO Configuration
+  enableGroupManagement: false
+  oidc:
+    # -- Enable OIDC authentication
+    # @section -- OIDC configuration
+    enabled: false
+    # -- OIDC client ID
+    # @section -- OIDC configuration
+    clientId: ""
+    # -- OIDC client secret (ignored if clientExistingSecret is set)
+    # @section -- OIDC configuration
+    clientSecret: ""
+    # -- OICD client secret from existing secret
+    # @section -- OIDC configuration
+    clientExistingSecret: ""
+    # -- OIDC client secret key from existing secret
+    # @section -- OIDC configuration
+    clientExistingSecretKey: ""
+    # -- OIDC provider well known URL
+    # @section -- OIDC configuration
+    providerUrl: ""
+    # -- Name of the provider to show on the UI
+    # @section -- OIDC configuration
+    providerName: "SSO"
+    # -- Scopes to request (space-separated).
+    # @section -- OIDC configuration
+    scopes: "openid email profile"
+
+  roleManagement:
+    # -- The claim that contains the roles (can be nested, e.g., user.roles)
+    # @section -- Role management configuration
+    rolesClaim: "roles"
+    # -- Comma-separated list of roles allowed to log in (receive open webui role user)
+    # @section -- Role management configuration
+    allowedRoles: ""
+    # -- Comma-separated list of roles allowed to log in as admin (receive open webui role admin)
+    # @section -- Role management configuration
+    adminRoles: ""
+
+  groupManagement:
+    # -- The claim that contains the groups (can be nested, e.g., user.memberOf)
+    # @section -- SSO Configuration
+    groupsClaim: "groups"
+
+  trustedHeader:
+    # -- Enable trusted header authentication
+    # @section -- SSO trusted header authentication
+    enabled: false
+    # -- Header containing the user's email address
+    # @section -- SSO trusted header authentication
+    emailHeader: ""
+    # -- Header containing the user's name (optional, used for new user creation)
+    # @section -- SSO trusted header authentication
+    nameHeader: ""
+# TODO: Set up OTEL, and metrics for prometheus.

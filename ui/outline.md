@@ -1,3 +1,18 @@
+# TODO:
+
+- /chat
+  - [ ] sticky input on bottom
+- errors:
+
+  - I need to make a component to render while the slots are rendering and set as default.
+
+    ```
+    No default component was found for a parallel route rendered on this page. Falling back to nearest NotFound boundary.
+    Learn more: https://nextjs.org/docs/app/building-your-application/routing/parallel-routes#defaultjs
+
+    Missing slots: @chatsidebar, @filesidebar
+    ```
+
 # outline of user interface (UI + Backend)
 
 Requirements:

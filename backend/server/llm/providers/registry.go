@@ -1,13 +1,13 @@
 package providers
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"sync"
 
-	"internal-perplexity/server/llm/providers/anthropic"
+	"internal-perplexity/server/llm/api"
 	"internal-perplexity/server/llm/providers/ollama"
-	"internal-perplexity/server/llm/providers/openai"
-	"internal-perplexity/server/llm/providers/shared"
 )
 
 // ProviderConfig holds configuration for creating providers
@@ -19,28 +19,53 @@ type ProviderConfig struct {
 	Extra          map[string]any
 }
 
+type Model struct {
+	Name  string
+	Model string
+}
+
+type LLMProvider interface {
+	Complete(ctx context.Context, req *api.ChatCompletionRequest, apiKey string) (*api.ChatCompletionResponse, error)
+	HasModel(model string) bool
+	// StreamComplete(ctx context.Context, req *api.ChatCompletionRequest) (<-chan *api.ChatCompletionStreamResponse, func(), error)
+	Name() string
+	GetModels() ([]Model, error)
+}
+
 // Registry manages provider instances
 type Registry struct {
-	providers map[string]shared.LLMProvider
+	providers map[string]LLMProvider
 	mu        sync.RWMutex
 }
 
 // NewRegistry creates a new provider registry
 func NewRegistry() *Registry {
+	providers := make(map[string]LLMProvider)
+	// providers["openai"] = openai.NewProvider()
+	// providers["anthropic"] = anthropic.NewProvider()
+	ollamaModel, err := ollama.NewProvider(&ollama.Config{
+		BaseURL: "http://localhost:11434",
+	})
+	if err != nil {
+		log.Fatalf("Failed to create Ollama provider: %v", err)
+	}
+
+	providers["ollama"] = ollamaModel
+	fmt.Printf("providers, %+v\n", providers)
 	return &Registry{
-		providers: make(map[string]shared.LLMProvider),
+		providers: providers,
 	}
 }
 
 // RegisterProvider registers a provider instance with a name
-func (r *Registry) RegisterProvider(name string, provider shared.LLMProvider) {
+func (r *Registry) RegisterProvider(name string, provider LLMProvider) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.providers[name] = provider
 }
 
 // GetProvider gets a registered provider by name
-func (r *Registry) GetProvider(name string) (shared.LLMProvider, error) {
+func (r *Registry) GetProvider(name string) (LLMProvider, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -61,102 +86,4 @@ func (r *Registry) ListProviders() []string {
 		names = append(names, name)
 	}
 	return names
-}
-
-// NewProvider creates a new provider instance based on configuration
-func NewProvider(cfg ProviderConfig) (shared.LLMProvider, error) {
-	switch cfg.Name {
-	case "openai", "openai-compatible":
-		return NewOpenAIProvider(cfg)
-	case "anthropic":
-		return NewAnthropicProvider(cfg)
-	case "ollama":
-		return NewOllamaProvider(cfg)
-	default:
-		return nil, fmt.Errorf("unknown provider: %s", cfg.Name)
-	}
-}
-
-// NewOpenAIProvider creates an OpenAI provider instance
-func NewOpenAIProvider(cfg ProviderConfig) (shared.LLMProvider, error) {
-	return openai.NewProvider(openai.Config{
-		APIKey:  cfg.APIKey,
-		BaseURL: defaultURL(cfg.BaseURL, "https://api.openai.com/v1"),
-		OrgID:   cfg.OrgID,
-	})
-}
-
-// NewAnthropicProvider creates an Anthropic provider instance
-func NewAnthropicProvider(cfg ProviderConfig) (shared.LLMProvider, error) {
-	return anthropic.NewProvider(anthropic.Config{
-		APIKey:  cfg.APIKey,
-		BaseURL: defaultURL(cfg.BaseURL, "https://api.anthropic.com"),
-	})
-}
-
-// NewOllamaProvider creates an Ollama provider instance
-func NewOllamaProvider(cfg ProviderConfig) (shared.LLMProvider, error) {
-	return ollama.NewProvider(ollama.Config{
-		BaseURL: defaultURL(cfg.BaseURL, "http://localhost:11434"),
-	})
-}
-
-// defaultURL provides a default URL if none is specified
-func defaultURL(baseURL, defaultURL string) string {
-	if baseURL != "" {
-		return baseURL
-	}
-	return defaultURL
-}
-
-// ProviderFactory provides factory methods for creating providers
-type ProviderFactory struct {
-	registry *Registry
-}
-
-// NewProviderFactory creates a new provider factory
-func NewProviderFactory() *ProviderFactory {
-	return &ProviderFactory{
-		registry: NewRegistry(),
-	}
-}
-
-// CreateProvider creates a provider from configuration and registers it
-func (f *ProviderFactory) CreateProvider(name string, cfg ProviderConfig) (shared.LLMProvider, error) {
-	provider, err := NewProvider(cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	f.registry.RegisterProvider(name, provider)
-	return provider, nil
-}
-
-// GetProvider gets a provider from the registry
-func (f *ProviderFactory) GetProvider(name string) (shared.LLMProvider, error) {
-	return f.registry.GetProvider(name)
-}
-
-// Global registry instance
-var globalRegistry = NewRegistry()
-
-// RegisterGlobalProvider registers a provider in the global registry
-func RegisterGlobalProvider(name string, provider shared.LLMProvider) {
-	globalRegistry.RegisterProvider(name, provider)
-}
-
-// GetGlobalProvider gets a provider from the global registry
-func GetGlobalProvider(name string) (shared.LLMProvider, error) {
-	return globalRegistry.GetProvider(name)
-}
-
-// CreateGlobalProvider creates and registers a provider in the global registry
-func CreateGlobalProvider(name string, cfg ProviderConfig) (shared.LLMProvider, error) {
-	provider, err := NewProvider(cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	RegisterGlobalProvider(name, provider)
-	return provider, nil
 }

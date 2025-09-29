@@ -2,8 +2,10 @@ package ollama
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
-	"internal-perplexity/server/llm/providers/shared"
+	"internal-perplexity/server/llm/api"
 )
 
 // Config holds Ollama provider configuration
@@ -13,73 +15,59 @@ type Config struct {
 
 // Provider implements the unified LLMProvider interface for Ollama
 type Provider struct {
-	config Config
+	config *Config
+	models map[string]Model
 }
 
 // NewProvider creates a new Ollama provider
-func NewProvider(cfg Config) (*Provider, error) {
-	if cfg.BaseURL == "" {
-		cfg.BaseURL = "http://localhost:11434"
+func NewProvider(cfg *Config) (*Provider, error) {
+	if cfg == nil || cfg.BaseURL == "" {
+		cfg = &Config{
+			BaseURL: "http://localhost:11434",
+		}
 	}
 
-	return &Provider{
+	provider := &Provider{
 		config: cfg,
-	}, nil
+		models: make(map[string]Model),
+	}
+
+	if _, err := provider.GetModels(); err != nil {
+		return nil, err
+	}
+
+	fmt.Printf("provider.models, %+v\n", provider.models)
+	return provider, nil
 }
 
 // Name returns the provider name
 func (p *Provider) Name() string { return "ollama" }
 
-// GetModelCapabilities returns capabilities for the specified model
-func (p *Provider) GetModelCapabilities(model string) shared.ModelCapabilities {
-	return shared.ModelCapabilities{
-		Streaming:           true,
-		Tools:               false,
-		ParallelToolCalls:   false,
-		JSONMode:            false,
-		SystemMessage:       true,
-		Vision:              false,
-		SupportsTopK:        true,
-		SupportsPresencePen: false,
-		SupportsFreqPen:     false,
-		MaxContextTokens:    8192,
+func (p *Provider) HasModel(model string) bool {
+	if m, ok := p.models[model]; ok {
+		return m.IsSupported(model)
 	}
+	return false
 }
 
-// CountTokens estimates token count for the given messages and model
-func (p *Provider) CountTokens(messages []shared.Message, model string) (int, error) {
-	// TODO: Implement proper token counting
-	// For now, return a rough estimate
-	totalTokens := 0
-	for _, msg := range messages {
-		totalTokens += len(msg.Content) / 4
-		totalTokens += 4 // overhead per message
+func (p *Provider) GetModels() ([]Model, error) {
+	models, err := GetModels(p.config.BaseURL)
+	if err != nil {
+		return nil, err
 	}
-	return totalTokens, nil
+	for _, model := range models {
+		p.models[model.Name] = model
+	}
+	return models, nil
 }
 
 // Complete performs a completion request
-func (p *Provider) Complete(ctx context.Context, req *shared.CompletionRequest) (*shared.CompletionResponse, error) {
-	if err := shared.ValidateCompletionRequest(req); err != nil {
-		return nil, err
+func (p *Provider) Complete(ctx context.Context, req *api.ChatCompletionRequest, apiKey string) (*api.ChatCompletionResponse, error) {
+	model, _ := strings.CutPrefix(req.Model, p.Name()+"/")
+	req.Model = model
+	if !p.HasModel(req.Model) {
+		return nil, fmt.Errorf("model %s not supported", req.Model)
 	}
 
-	// TODO: Implement Ollama /api/chat endpoint call
-	return nil, &shared.ProviderError{
-		Code:    shared.ErrUnsupportedFeature,
-		Message: "Ollama provider not yet implemented",
-	}
-}
-
-// StreamComplete performs a streaming completion request
-func (p *Provider) StreamComplete(ctx context.Context, req *shared.CompletionRequest) (<-chan *shared.StreamChunk, func(), error) {
-	if err := shared.ValidateCompletionRequest(req); err != nil {
-		return nil, nil, err
-	}
-
-	// TODO: Implement Ollama streaming
-	return nil, nil, &shared.ProviderError{
-		Code:    shared.ErrUnsupportedFeature,
-		Message: "Ollama streaming not yet implemented",
-	}
+	return api.SendRequest(ctx, req, p.config.BaseURL+"/v1/chat/completions", apiKey, 3)
 }

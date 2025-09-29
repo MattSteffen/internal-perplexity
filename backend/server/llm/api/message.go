@@ -21,33 +21,116 @@ type ChatCompletionMessage interface {
 	GetRole() Role
 }
 
+// ChatMessages is a slice wrapper that knows how to (un)marshal mixed-role
+// messages using the role discriminator.
+type ChatCompletionMessages []ChatCompletionMessage
+
+func (cm *ChatCompletionMessages) UnmarshalJSON(data []byte) error {
+	msgs, err := UnmarshalChatMessages(data)
+	if err != nil {
+		return err
+	}
+	*cm = ChatCompletionMessages(msgs)
+	return nil
+}
+
+func (cm ChatCompletionMessages) MarshalJSON() ([]byte, error) {
+	return MarshalChatMessages([]ChatCompletionMessage(cm))
+}
+
+// ChatMessage wraps a single ChatCompletionMessage and knows how to unmarshal
+// based on the "role" discriminator.
+type ChatMessage struct {
+	ChatCompletionMessage
+}
+
+func (m *ChatMessage) UnmarshalJSON(data []byte) error {
+	var head struct {
+		Role Role `json:"role"`
+	}
+	if err := json.Unmarshal(data, &head); err != nil {
+		return err
+	}
+	switch head.Role {
+	case RoleSystem:
+		var v ChatCompletionSystemMessage
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		m.ChatCompletionMessage = v
+	case RoleUser:
+		var v ChatCompletionUserMessage
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		m.ChatCompletionMessage = v
+	case RoleAssistant:
+		var v ChatCompletionAssistantMessage
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		m.ChatCompletionMessage = v
+	case RoleTool:
+		var v ChatCompletionToolMessage
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		m.ChatCompletionMessage = v
+	default:
+		return fmt.Errorf("unknown role: %q", head.Role)
+	}
+	return nil
+}
+
+// Optional: make marshaling explicit (otherwise the embedded interface may
+// still work with json.Marshal, but this is safer).
+func (m ChatMessage) MarshalJSON() ([]byte, error) {
+	switch v := m.ChatCompletionMessage.(type) {
+	case ChatCompletionSystemMessage:
+		return json.Marshal(v)
+	case ChatCompletionUserMessage:
+		return json.Marshal(v)
+	case ChatCompletionAssistantMessage:
+		return json.Marshal(v)
+	case ChatCompletionToolMessage:
+		return json.Marshal(v)
+	case nil:
+		return []byte("null"), nil
+	default:
+		return nil, fmt.Errorf("unknown message concrete type: %T", v)
+	}
+}
+
 // -------------------- Message Types --------------------
 
 // ChatCompletionSystemMessage represents a system message.
+// content may be string, array of parts, or null.
 type ChatCompletionSystemMessage struct {
-	Content string `json:"content"`
-	Role    Role   `json:"role"`
-	Name    string `json:"name,omitempty"`
+	Content MessageContent `json:"content"`
+	Role    Role           `json:"role"`
+	Name    string         `json:"name,omitempty"`
 }
 
 func (m ChatCompletionSystemMessage) GetRole() Role { return m.Role }
 
 // ChatCompletionUserMessage represents a user message.
-// Note: content can be a plain string OR an array of content parts.
+// content may be string or array of content parts.
 type ChatCompletionUserMessage struct {
-	Content UserMessageContent `json:"content"`
-	Role    Role               `json:"role"`
-	Name    string             `json:"name,omitempty"`
+	Content MessageContent `json:"content"`
+	Role    Role           `json:"role"`
+	Name    string         `json:"name,omitempty"`
 }
 
 func (m ChatCompletionUserMessage) GetRole() Role { return m.Role }
 
 // ChatCompletionAssistantMessage represents an assistant message.
+// content may be string, array of parts, or null (e.g., when only tool_calls
+// are present).
 type ChatCompletionAssistantMessage struct {
-	Content   string     `json:"content,omitempty"`
-	Role      Role       `json:"role"`
-	Name      string     `json:"name,omitempty"`
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	Content   MessageContent `json:"content,omitempty"`
+	Role      Role           `json:"role"`
+	Name      string         `json:"name,omitempty"`
+	ToolCalls []ToolCall     `json:"tool_calls,omitempty"`
 }
 
 func (m ChatCompletionAssistantMessage) GetRole() Role { return m.Role }
@@ -61,22 +144,26 @@ type ChatCompletionToolMessage struct {
 
 func (m ChatCompletionToolMessage) GetRole() Role { return m.Role }
 
-// -------------------- User Content (string or parts[]) --------------------
+// -------------------- Message Content (string | parts[] | null) --------------------
 
-// UserMessageContent can be either a string or a list of structured parts.
-type UserMessageContent struct {
-	// If String != nil, the original JSON was a string.
+// MessageContent can be a string, a list of structured parts, or null.
+type MessageContent struct {
+	// String is set when the original JSON was a string.
 	String *string
 
-	// If Parts != nil, the original JSON was an array of parts.
+	// Parts is set when the original JSON was an array of parts.
 	Parts []ChatCompletionMessageContentPart
+
+	// Null is true when the original JSON was null.
+	Null bool
 }
 
-func (c *UserMessageContent) UnmarshalJSON(data []byte) error {
+func (c *MessageContent) UnmarshalJSON(data []byte) error {
 	d := bytes.TrimSpace(data)
 	if len(d) == 0 {
 		c.String = nil
 		c.Parts = nil
+		c.Null = false
 		return nil
 	}
 
@@ -88,6 +175,7 @@ func (c *UserMessageContent) UnmarshalJSON(data []byte) error {
 		}
 		c.String = &s
 		c.Parts = nil
+		c.Null = false
 		return nil
 	case '[':
 		var raws []json.RawMessage
@@ -104,25 +192,41 @@ func (c *UserMessageContent) UnmarshalJSON(data []byte) error {
 		}
 		c.String = nil
 		c.Parts = parts
+		c.Null = false
+		return nil
+	case 'n':
+		// Expecting "null"
+		var v interface{}
+		if err := json.Unmarshal(d, &v); err != nil {
+			return err
+		}
+		if v != nil {
+			return fmt.Errorf("expected null for content")
+		}
+		c.String = nil
+		c.Parts = nil
+		c.Null = true
 		return nil
 	default:
-		return fmt.Errorf(
-			"user content must be string or array of content parts",
-		)
+		return fmt.Errorf("content must be string, array, or null")
 	}
 }
 
-func (c UserMessageContent) MarshalJSON() ([]byte, error) {
+func (c MessageContent) MarshalJSON() ([]byte, error) {
+	if c.Null {
+		return []byte("null"), nil
+	}
 	if c.String != nil && (c.Parts == nil || len(c.Parts) == 0) {
 		return json.Marshal(*c.String)
 	}
-	// Marshal parts array form
+	// Marshal parts array form (empty slice becomes "[]")
 	return json.Marshal(c.Parts)
 }
 
 // -------------------- Content Parts --------------------
 
-// ChatCompletionMessageContentPart is a discriminated interface for user content parts.
+// ChatCompletionMessageContentPart is a discriminated interface
+// for message content parts.
 type ChatCompletionMessageContentPart interface {
 	GetType() string
 }
@@ -230,6 +334,5 @@ func UnmarshalChatMessages(data []byte) ([]ChatCompletionMessage, error) {
 // Since each element is a concrete struct under the interface, the default
 // json.Marshal behavior is sufficient.
 func MarshalChatMessages(msgs []ChatCompletionMessage) ([]byte, error) {
-	// The json package will marshal each element using its concrete type.
 	return json.Marshal(msgs)
 }

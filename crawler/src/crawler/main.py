@@ -75,27 +75,52 @@ def setup_crawler_logging(
     return logging.getLogger("Crawler")
 
 
-from .processing import (
-    Embedder,
-    EmbedderConfig,
-    get_embedder,
-    Extractor,
-    ExtractorConfig,
-    LLM,
-    LLMConfig,
-    get_llm,
-    Converter,
-    ConverterConfig,
-    create_converter,
-    create_extractor,
-)
-from .storage import (
-    DatabaseClient,
-    DatabaseClientConfig,
-    DatabaseDocument,
-    get_db,
-    get_db_benchmark,
-)
+try:
+    # When run as part of the crawler package
+    from .processing import (
+        Embedder,
+        EmbedderConfig,
+        get_embedder,
+        Extractor,
+        ExtractorConfig,
+        LLM,
+        LLMConfig,
+        get_llm,
+        Converter,
+        ConverterConfig,
+        create_converter,
+        create_extractor,
+    )
+    from .storage import (
+        DatabaseClient,
+        DatabaseClientConfig,
+        DatabaseDocument,
+        get_db,
+        get_db_benchmark,
+    )
+except ImportError:
+    # When run standalone (e.g., for testing)
+    from processing import (
+        Embedder,
+        EmbedderConfig,
+        get_embedder,
+        Extractor,
+        ExtractorConfig,
+        LLM,
+        LLMConfig,
+        get_llm,
+        Converter,
+        ConverterConfig,
+        create_converter,
+        create_extractor,
+    )
+    from storage import (
+        DatabaseClient,
+        DatabaseClientConfig,
+        DatabaseDocument,
+        get_db,
+        get_db_benchmark,
+    )
 
 # # Reserved keys that should not appear in metadata to avoid conflicts with database schema
 # RESERVED = {
@@ -226,8 +251,14 @@ class CrawlerConfig:
     llm: LLMConfig
     vision_llm: LLMConfig
     database: DatabaseClientConfig
-    converter: ConverterConfig = field(default_factory=lambda: ConverterConfig())
-    extractor: ExtractorConfig = field(default_factory=lambda: ExtractorConfig())
+    converter: ConverterConfig = field(
+        default_factory=lambda: ConverterConfig(type="pymupdf")
+    )
+    extractor: ExtractorConfig = field(
+        default_factory=lambda: ExtractorConfig(
+            type="basic", llm=LLMConfig.ollama(model_name="llama3.2:3b")
+        )
+    )
     chunk_size: int = 10000  # treated as maximum if using semantic chunking
     metadata_schema: Dict[str, Any] = field(default_factory=dict)
     temp_dir: str = "tmp/"
@@ -272,8 +303,8 @@ class CrawlerConfig:
             llm=llm,
             vision_llm=vision_llm,
             database=database,
-            converter=converter or ConverterConfig(),
-            extractor=extractor or ExtractorConfig(),
+            converter=converter or ConverterConfig(type="pymupdf"),
+            extractor=extractor or ExtractorConfig(type="basic", llm=llm),
             chunk_size=chunk_size,
             metadata_schema=metadata_schema or {},
             temp_dir=temp_dir,
@@ -290,7 +321,7 @@ class CrawlerConfig:
         collection: str = "documents",
         embed_model: str = "all-minilm:v2",
         llm_model: str = "gpt-oss:20b",
-        vision_model: str = "granite-3.2vision:latest",
+        vision_model: str = "granite3.2-vision:latest",
         base_url: str = "http://localhost:11434",
         host: str = "localhost",
         port: int = 19530,
@@ -564,6 +595,7 @@ class Crawler:
                 entities: List[DatabaseDocument] = []
 
                 # Process chunks with progress tracking
+                doc_id = str(uuid.uuid4())
                 with tqdm(
                     total=len(chunks),
                     desc="Embedding chunks",
@@ -572,7 +604,6 @@ class Crawler:
                 ) as chunk_pbar:
                     for i, chunk in enumerate(chunks):
                         chunk_embed_start = time.time()
-                        doc_id = str(uuid.uuid4())
                         try:
                             embeddings = self.embedder.embed(chunk)
                             chunk_embed_time = time.time() - chunk_embed_start

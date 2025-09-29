@@ -50,7 +50,9 @@ func SendRequest(ctx context.Context, request *ChatCompletionRequest, endpointUR
 		}
 
 		// Set headers
-		req.Header.Set("Authorization", "Bearer "+apiKey)
+		if apiKey != "" {
+			req.Header.Set("Authorization", "Bearer "+apiKey)
+		}
 		req.Header.Set("Content-Type", "application/json")
 
 		// Send the request
@@ -122,14 +124,14 @@ func SendRequestStructured[T any](ctx context.Context, request *ChatCompletionRe
 	if len(response.Choices) == 0 {
 		return structuredResult, response, fmt.Errorf("API response contained no choices")
 	}
-	if response.Choices[0].Message.(*ChatCompletionAssistantMessage).Content == "" {
+	if response.Choices[0].Message.ChatCompletionMessage == nil {
 		// This can happen if the model calls a tool instead of providing content
 		return structuredResult, response, fmt.Errorf("API response message content is nil, possibly due to a tool call")
 	}
 
 	// The content is a JSON string, so we unmarshal it into the generic type T
-	contentJSON := response.Choices[0].Message.(*ChatCompletionAssistantMessage).Content
-	err = json.Unmarshal([]byte(contentJSON), &structuredResult)
+	contentJSON := response.Choices[0].Message.ChatCompletionMessage.(ChatCompletionAssistantMessage).Content.String
+	err = json.Unmarshal([]byte(*contentJSON), &structuredResult)
 	if err != nil {
 		return structuredResult, response, fmt.Errorf("failed to unmarshal content into structured type: %w", err)
 	}

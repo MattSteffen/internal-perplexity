@@ -2,25 +2,6 @@ package api
 
 import "time"
 
-// ExecuteAgentRequest represents a request to execute an agent
-type ExecuteAgentRequest struct {
-	Input   map[string]any `json:"input" binding:"required"`
-	Context map[string]any `json:"context,omitempty"`
-	Model   string         `json:"model,omitempty"`
-	Async   bool           `json:"async,omitempty"`
-	Timeout time.Duration  `json:"timeout,omitempty"`
-}
-
-// ExecuteSubAgentRequest represents a request to execute a sub-agent
-type ExecuteSubAgentRequest struct {
-	Input      map[string]any `json:"input" binding:"required"`
-	Context    map[string]any `json:"context,omitempty"`
-	Parameters map[string]any `json:"parameters,omitempty"`
-	Model      string         `json:"model,omitempty"`
-	Async      bool           `json:"async,omitempty"`
-	Timeout    time.Duration  `json:"timeout,omitempty"`
-}
-
 // ExecuteToolRequest represents a request to execute a tool
 type ExecuteToolRequest struct {
 	Input      map[string]any `json:"input" binding:"required"`

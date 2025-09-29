@@ -59,7 +59,7 @@ class ConverterConfig:
             raise ValueError("Converter type cannot be empty")
 
         # Validate that vision_llm is provided for converters that need it
-        vision_requiring_types = ["markitdown", "docling", "docling_vlm"]
+        vision_requiring_types = ["markitdown", "docling"]
         if self.type in vision_requiring_types and self.vision_llm is None:
             raise ValueError(
                 f"Converter type '{self.type}' requires vision_llm configuration"

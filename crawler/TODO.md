@@ -2,6 +2,9 @@
 
 - [ ] make a cli
 - [ ] make a rest server
+- [ ] make a local-minified version
+  - [ ] single binary (ish) that runs, indexes the directories you tell it, then you can chat with it.
+  - [ ] files and indexes stored .rrccp
 - [ ] update the docs
 - [ ] improve logging, image describer log doesn't mix with the tqdm
   - [ ] can the logs under the main file tqdm be overwitten or stay in place
@@ -19,3 +22,12 @@
 - [ ] Semantic Chunking
   - [ ] graph db and relationships too
 - [ ] Do I migrate from milvus to qdrant or other?
+
+- Design new architecture
+  - [ ] Upload -> process -> insert into db
+    - [ ] upload via some constructed UI with drag/drop or filepath
+    - [ ] process via docling
+      - [ ] docling: pdf/doc -> md, perform chunking too
+      - [ ] metadata via extractor (llm)
+    - [ ] insert into db
+      - [ ] do i stick with milvus?

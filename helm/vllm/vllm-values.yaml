@@ -1,0 +1,131 @@
+# TODO:
+# - Download the models and then mount correctly to pvc
+# - Make sure that the pvc is accessible to the container
+# - Make sure GPUs are being used
+# - Make sure resources are set up correctly, do i need a ton of memory or just GPU stuff?
+# - Sit down with an expert to walk through the values and make sure they are set up correctly
+
+
+# Image and container basics
+image:
+  repository: vllm/vllm-openai # Doesn't come pre built with gpt-oss-120b
+  tag: "v0.10.1" # Or "latest"; use v0.10.1 for GPT-OSS stability
+  pullPolicy: IfNotPresent
+
+# Service/Ingress
+service:
+  type: LoadBalancer
+  port: 8000
+
+ingress:
+  enabled: true
+  host: vllm.yourdomain.com
+  path: /v1 # For OpenAI API compatibility
+
+# Resources (tune per model/GPU)
+replicaCount: 1
+resources:
+  limits:
+    nvidia.com/gpu: "{{ .Values.gpuCount }}" # Overridden in model-specific YAML
+    memory: 512Gi
+    cpu: 32
+  requests:
+    nvidia.com/gpu: "{{ .Values.gpuCount }}"
+    memory: 256Gi
+    cpu: 16
+
+# Volumes: Persistent for models/HF cache
+volumes:
+  - name: hf-cache
+    persistentVolumeClaim:
+      claimName: vllm-hf-cache-pvc # Create PVC with ~500Gi for 120B; pre-load models
+  - name: model-storage # Optional: if pre-loading full model files
+    persistentVolumeClaim:
+      claimName: vllm-models-pvc
+
+# TODO: Add this to the deployment.yaml
+# spec:
+#   template:
+#     spec:
+#       containers:
+#         - name: vllm
+#           # ... existing spec ...
+#           volumeMounts:
+#             - name: model-storage
+#               mountPath: /models  # Arbitrary; vLLM expects full dir at --model path
+#       volumes:
+#         - name: model-storage
+#           persistentVolumeClaim:
+#             claimName: vllm-models-pvc
+# Volumes (existing + model storage)
+volumes:
+  - name: model-storage
+    persistentVolumeClaim:
+      claimName: vllm-models-pvc
+
+# Args: Change to local path (no HF download)
+args:
+  # Remove or comment: - --model=openai/gpt-oss-120b  # HF repo
+  - --model=/models/gpt-oss-120b  # Full path to mounted dir (relative to mountPath)
+  # Keep others: - --async-scheduling, etc.
+
+
+# TODO: For 20b:
+# args:
+#   - --model=/models/gpt-oss-20b
+# volumes:  # If separate PVC: claimName: vllm-20b-models-pvc
+#   - name: model-storage
+#     persistentVolumeClaim:
+#       claimName: vllm-models-pvc  # Or model-specific
+
+# Environment variables (from secrets; HF_TOKEN optional but recommended for caching)
+env:
+  HUGGING_FACE_HUB_TOKEN: "" # Set via --set secrets.hfToken=your-token
+  # For B200/Blackwell: Uncomment if using MXFP4 MoE
+  # VLLM_USE_FLASHINFER_MXFP4_BF16_MOE: "1"  # BF16 for accuracy; or "VLLM_USE_FLASHINFER_MXFP4_MOE=1" for speed
+
+# Secrets (create via kubectl create secret generic vllm-secrets --from-literal=hfToken=your-token)
+secrets:
+  hfToken: ""
+
+# Common args (override per model)
+command: ["python", "-m", "vllm.entrypoints.openai.api_server"]
+args:
+  - --host=0.0.0.0
+  - --port=8000
+  - --dtype=bfloat16 # Recommended for GPT-OSS; auto or half for quantization
+  - --gpu-memory-utilization=0.90 # High for large models; leave room for KV cache
+  - --max-model-len=131072 # GPT-OSS context; adjust if needed
+  - --max-num-batched-tokens=10240 # Tune for throughput (higher = better TTFT)
+  - --max-num-seqs=128
+  - --enforce-eager=false # Use CUDA graphs for perf; set true if debugging
+  - --trust-remote-code=true # For HF models
+
+# Node affinity/tolerations (NVIDIA GPUs)
+nodeSelector:
+  nvidia.com/gpu: "true"
+tolerations:
+  - key: "nvidia.com/gpu"
+    operator: "Exists"
+    effect: "NoSchedule"
+
+# Probes (health on /health)
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 60
+  periodSeconds: 10
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 30
+  periodSeconds: 5
+
+# HPA for scaling (if multi-replica)
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 70

@@ -1,0 +1,72 @@
+# helm upgrade rrc-copilot-milvus milvus/milvus --values milvus_values.yaml --values copilot_milvus_values.yaml
+
+# Equivalent command to the modifications made to the milvus_values.yaml file
+# helm upgrade --install my-release \
+#  --set cluster.enabled=false \
+#  --set etcd.replicaCount=1 \
+#  --set pulsar.enabled=false \
+#  --set minio.mode=standalone \
+#  milvus/milvus
+
+## Enable or disable Milvus Cluster mode
+cluster:
+  enabled: false
+
+extraConfigFiles:
+  user.yaml: |+
+    common:
+      security:
+        authorizationEnabled: true
+        # milvus admin token: superUsers:defaultRootPassword - root:Milvus
+        superUsers: root
+        defaultRootPassword: Milvus
+
+# Global labels and annotations
+labels:
+  app.kubernetes.io/name: milvus-rrc-copilot
+  app.kubernetes.io/part-of: rrc-copilot
+annotations: {}
+
+log:
+  format: "json" # text/json
+  persistence:
+    persistentVolumeClaim:
+      size: 5Gi
+
+standalone:
+  replicas: 1 # Run standalone mode with replication disabled
+  resources: {}
+  persistence:
+    persistentVolumeClaim:
+      size: 50Gi
+
+# TODO: Set up security properly
+minio:
+  enabled: true
+  mode: standalone
+  accessKey: minioadmin
+  secretKey: minioadmin
+  existingSecret: ""
+  bucketName: "copilot-milvus-bucket"
+  rootPath: file
+  useIAM: false
+  iamEndpoint: ""
+  resources:
+    requests:
+      memory: 2Gi
+
+  persistence:
+    enabled: true
+    size: 100Gi
+
+etcd:
+  enabled: true
+  name: etcd
+  replicaCount: 1
+
+  persistence:
+    enabled: true
+    size: 10Gi
+
+pulsar:
+  enabled: false

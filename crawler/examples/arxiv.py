@@ -103,7 +103,7 @@ def create_arxiv_config():
 
     # Vision LLM for image processing
     vision_llm = LLMConfig.ollama(
-        model_name="granite-3.2vision:latest", base_url="http://localhost:11434"
+        model_name="granite3.2-vision:latest", base_url="http://localhost:11434"
     )
 
     # Database configuration
@@ -143,7 +143,7 @@ def create_arxiv_config():
             "image_description_prompt": "Describe this image in detail for a technical document.",
             "image_describer": {
                 "type": "ollama",
-                "model": "granite-3.2vision:latest",
+                "model": "granite3.2-vision:latest",
                 "base_url": "http://localhost:11434",
             },
         },

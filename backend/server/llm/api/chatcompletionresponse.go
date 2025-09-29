@@ -23,10 +23,10 @@ type ChatCompletionStreamResponse struct {
 
 // Choice represents a single choice in a chat completion response.
 type Choice struct {
-	FinishReason string                `json:"finish_reason"`
-	Index        int                   `json:"index"`
-	Message      ChatCompletionMessage `json:"message"`
-	Logprobs     *Logprobs             `json:"logprobs,omitempty"`
+	FinishReason string      `json:"finish_reason"`
+	Index        int         `json:"index"`
+	Message      ChatMessage `json:"message"`
+	Logprobs     *Logprobs   `json:"logprobs,omitempty"`
 }
 
 // StreamChoice represents a single choice in a streamed chat completion response.

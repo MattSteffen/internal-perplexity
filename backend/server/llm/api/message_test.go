@@ -17,7 +17,7 @@ var _ = Describe("Chat message model", func() {
 	Describe("UserMessageContent (string vs parts) JSON (un)marshal", func() {
 		It("unmarshals from a string", func() {
 			input := `"Hello there"`
-			var c api.UserMessageContent
+			var c api.MessageContent
 
 			By("printing before")
 			GinkgoWriter.Println("Before (JSON):", input)
@@ -44,7 +44,7 @@ var _ = Describe("Chat message model", func() {
 			]
 			`
 
-			var c api.UserMessageContent
+			var c api.MessageContent
 
 			By("printing before")
 			GinkgoWriter.Println("Before (JSON):", input)
@@ -75,7 +75,7 @@ var _ = Describe("Chat message model", func() {
 		})
 
 		It("errors when user content is neither string nor array", func() {
-			var c api.UserMessageContent
+			var c api.MessageContent
 			err := json.Unmarshal([]byte(`{"foo":"bar"}`), &c)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("must be string or array"))
@@ -193,18 +193,20 @@ var _ = Describe("Chat message model", func() {
 		It("marshals and round-trips a mixed message list", func() {
 			msgs := []api.ChatCompletionMessage{
 				api.ChatCompletionSystemMessage{
-					Role:    api.RoleSystem,
-					Content: "System prompt",
+					Role: api.RoleSystem,
+					Content: api.MessageContent{
+						String: strPtr("System prompt"),
+					},
 				},
 				api.ChatCompletionUserMessage{
 					Role: api.RoleUser,
-					Content: api.UserMessageContent{
+					Content: api.MessageContent{
 						String: strPtr("Hi"),
 					},
 				},
 				api.ChatCompletionUserMessage{
 					Role: api.RoleUser,
-					Content: api.UserMessageContent{
+					Content: api.MessageContent{
 						Parts: []api.ChatCompletionMessageContentPart{
 							api.ChatCompletionMessageContentPartText{
 								Type: "text",
@@ -221,8 +223,10 @@ var _ = Describe("Chat message model", func() {
 					},
 				},
 				api.ChatCompletionAssistantMessage{
-					Role:    api.RoleAssistant,
-					Content: "Reply",
+					Role: api.RoleAssistant,
+					Content: api.MessageContent{
+						String: strPtr("Reply"),
+					},
 				},
 				api.ChatCompletionAssistantMessage{
 					Role: api.RoleAssistant,
@@ -293,13 +297,13 @@ var _ = Describe("Chat message model", func() {
 		It("marshals UserMessageContent as string vs array appropriately", func() {
 			asString := api.ChatCompletionUserMessage{
 				Role: api.RoleUser,
-				Content: api.UserMessageContent{
+				Content: api.MessageContent{
 					String: strPtr("hello"),
 				},
 			}
 			asArray := api.ChatCompletionUserMessage{
 				Role: api.RoleUser,
-				Content: api.UserMessageContent{
+				Content: api.MessageContent{
 					Parts: []api.ChatCompletionMessageContentPart{
 						api.ChatCompletionMessageContentPartText{
 							Type: "text",

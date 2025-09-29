@@ -1,12 +1,11 @@
 from .main import Crawler, CrawlerConfig
-from .config_defaults import *
-
+from .config import *
 
 __all__ = [
     # crawler.py
     "Crawler",
     "CrawlerConfig",
-    # config defaults
+    # config package
     "DEFAULT_OLLAMA_EMBEDDINGS",
     "DEFAULT_OLLAMA_LLM",
     "DEFAULT_OLLAMA_VISION_LLM",
@@ -17,4 +16,10 @@ __all__ = [
     "DEFAULT_BENCHMARK",
     "DEFAULT_METADATA_SCHEMA",
     "DEFAULT_EXTRACTOR_CONFIG",
+    # validation
+    "ConfigValidator",
+    "ValidationError",
+    # loading
+    "load_config_from_file",
+    "load_config_from_env",
 ]

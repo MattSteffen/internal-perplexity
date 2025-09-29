@@ -3,13 +3,10 @@ package retriever
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 
 	toolshared "internal-perplexity/server/llm/tools/shared"
 
-	"github.com/milvus-io/milvus/client/v2/entity"
-	"github.com/milvus-io/milvus/client/v2/index"
 	"github.com/milvus-io/milvus/client/v2/milvusclient"
 )
 
@@ -137,167 +134,167 @@ func (m *MilvusQueryTool) HybridQuery(
 	ctx context.Context,
 	req QueryRequest,
 ) (QueryResponse, error) {
-	if m.client == nil {
-		return QueryResponse{}, fmt.Errorf("milvus client not initialized")
-	}
-	if len(req.Texts) == 0 {
-		return QueryResponse{Results: []MilvusDocument{}}, nil
-	}
+	// if m.client == nil {
+	// 	return QueryResponse{}, fmt.Errorf("milvus client not initialized")
+	// }
+	// if len(req.Texts) == 0 {
+	// 	return QueryResponse{Results: []MilvusDocument{}}, nil
+	// }
 
-	// Ensure collection is loaded
-	if err := m.loadCollectionIfNeeded(ctx, req.CollectionName); err != nil {
-		return QueryResponse{}, fmt.Errorf("load collection: %w", err)
-	}
+	// // Ensure collection is loaded
+	// if err := m.loadCollectionIfNeeded(ctx, req.CollectionName); err != nil {
+	// 	return QueryResponse{}, fmt.Errorf("load collection: %w", err)
+	// }
 
-	// Determine embedding model from index if possible
-	embedModel := ""
-	var err error
-	embedModel, err = m.embeddingModelFromIndex(
-		ctx, req.CollectionName, denseField,
-	)
-	if strings.TrimSpace(embedModel) == "" {
-		embedModel = defaultEmbedModel
-	}
+	// // Determine embedding model from index if possible
+	// embedModel := ""
+	// var err error
+	// embedModel, err = m.embeddingModelFromIndex(
+	// 	ctx, req.CollectionName, denseField,
+	// )
+	// if strings.TrimSpace(embedModel) == "" {
+	// 	embedModel = defaultEmbedModel
+	// }
 
-	// Pre-embed all texts for dense if available
-	var denseVecs [][]float32
-	denseVecs, err = m.embedTexts(ctx, embedModel, req.Texts)
-	if err != nil {
-		return QueryResponse{}, fmt.Errorf("embed texts: %w", err)
-	}
-	if len(denseVecs) != len(req.Texts) {
-		return QueryResponse{}, fmt.Errorf(
-			"embedding output mismatch: got %d vectors for %d texts",
-			len(denseVecs), len(req.Texts),
-		)
-	}
+	// // Pre-embed all texts for dense if available
+	// var denseVecs [][]float32
+	// denseVecs, err = m.embedTexts(ctx, embedModel, req.Texts)
+	// if err != nil {
+	// 	return QueryResponse{}, fmt.Errorf("embed texts: %w", err)
+	// }
+	// if len(denseVecs) != len(req.Texts) {
+	// 	return QueryResponse{}, fmt.Errorf(
+	// 		"embedding output mismatch: got %d vectors for %d texts",
+	// 		len(denseVecs), len(req.Texts),
+	// 	)
+	// }
 
-	// Build all AnnSearchRequests
-	var requests []*milvusclient.AnnRequest
-	filterExpr := ""
-	if len(req.Filters) > 0 {
-		filterExpr = strings.Join(req.Filters, " and ")
-	}
+	// // Build all AnnSearchRequests
+	// var requests []*milvusclient.AnnRequest
+	// filterExpr := ""
+	// if len(req.Filters) > 0 {
+	// 	filterExpr = strings.Join(req.Filters, " and ")
+	// }
 
-	for i, q := range req.Texts {
-		dReq := milvusclient.NewAnnRequest(
-			denseField,
-			defaultRRFK,
-			entity.FloatVector(denseVecs[i]),
-		).WithAnnParam(index.NewIvfAnnParam(defaultNProbe))
-		if filterExpr != "" {
-			dReq = dReq.WithFilter(filterExpr)
-		}
-		requests = append(requests, dReq)
+	// for i, q := range req.Texts {
+	// 	dReq := milvusclient.NewAnnRequest(
+	// 		denseField,
+	// 		defaultRRFK,
+	// 		entity.FloatVector(denseVecs[i]),
+	// 	).WithAnnParam(index.NewIvfAnnParam(defaultNProbe))
+	// 	if filterExpr != "" {
+	// 		dReq = dReq.WithFilter(filterExpr)
+	// 	}
+	// 	requests = append(requests, dReq)
 
-		sp := index.NewSparseAnnParam()
-		sp.WithDropRatio(defaultDropRatio)
-		sReq := milvusclient.NewAnnRequest(
-			sparseFieldText,
-			defaultRRFK,
-			entity.Text(q),
-		).WithAnnParam(sp)
-		if filterExpr != "" {
-			sReq = sReq.WithFilter(filterExpr)
-		}
-		requests = append(requests, sReq)
+	// 	sp := index.NewSparseAnnParam()
+	// 	sp.WithDropRatio(defaultDropRatio)
+	// 	sReq := milvusclient.NewAnnRequest(
+	// 		sparseFieldText,
+	// 		defaultRRFK,
+	// 		entity.Text(q),
+	// 	).WithAnnParam(sp)
+	// 	if filterExpr != "" {
+	// 		sReq = sReq.WithFilter(filterExpr)
+	// 	}
+	// 	requests = append(requests, sReq)
 
-		sp = index.NewSparseAnnParam()
-		sp.WithDropRatio(defaultDropRatio)
-		mReq := milvusclient.NewAnnRequest(
-			sparseFieldMeta,
-			defaultRRFK,
-			entity.Text(q),
-		).WithAnnParam(sp)
-		if filterExpr != "" {
-			mReq = mReq.WithFilter(filterExpr)
-		}
-		requests = append(requests, mReq)
-	}
+	// 	sp = index.NewSparseAnnParam()
+	// 	sp.WithDropRatio(defaultDropRatio)
+	// 	mReq := milvusclient.NewAnnRequest(
+	// 		sparseFieldMeta,
+	// 		defaultRRFK,
+	// 		entity.Text(q),
+	// 	).WithAnnParam(sp)
+	// 	if filterExpr != "" {
+	// 		mReq = mReq.WithFilter(filterExpr)
+	// 	}
+	// 	requests = append(requests, mReq)
+	// }
 
-	// If no valid requests (e.g., only filters were provided with no fields),
-	// we could perform a pure boolean filter query. For now, return empty.
-	if len(requests) == 0 {
-		return QueryResponse{Results: []MilvusDocument{}}, nil
-	}
+	// // If no valid requests (e.g., only filters were provided with no fields),
+	// // we could perform a pure boolean filter query. For now, return empty.
+	// if len(requests) == 0 {
+	// 	return QueryResponse{Results: []MilvusDocument{}}, nil
+	// }
 
-	// RRF ranker
-	reranker := milvusclient.NewRRFReranker().WithK(defaultRRFK)
+	// // RRF ranker
+	// reranker := milvusclient.NewRRFReranker().WithK(defaultRRFK)
 
-	// Build HybridSearch option
-	opt := milvusclient.NewHybridSearchOption(
-		req.CollectionName, defaultRRFK, requests...,
-	).WithReranker(reranker).
-		WithOutputFields(outputTextField)
-	if strings.TrimSpace(req.PartitionName) != "" {
-		opt = opt.WithPartitions(req.PartitionName)
-	}
+	// // Build HybridSearch option
+	// opt := milvusclient.NewHybridSearchOption(
+	// 	req.CollectionName, defaultRRFK, requests...,
+	// ).WithReranker(reranker).
+	// 	WithOutputFields(outputTextField)
+	// if strings.TrimSpace(req.PartitionName) != "" {
+	// 	opt = opt.WithPartitions(req.PartitionName)
+	// }
 
-	resultSets, err := m.client.HybridSearch(ctx, opt)
-	if err != nil {
-		return QueryResponse{}, fmt.Errorf("hybrid search failed: %w", err)
-	}
-	if len(resultSets) == 0 {
-		return QueryResponse{Results: []MilvusDocument{}}, nil
-	}
+	// resultSets, err := m.client.HybridSearch(ctx, opt)
+	// if err != nil {
+	// 	return QueryResponse{}, fmt.Errorf("hybrid search failed: %w", err)
+	// }
+	// if len(resultSets) == 0 {
+	// 	return QueryResponse{Results: []MilvusDocument{}}, nil
+	// }
 
-	// Aggregate results from all returned result sets
-	agg := map[int64]MilvusDocument{}
-	for _, rs := range resultSets {
-		c := rs.GetColumn(outputTextField)
-		ids, err := m.extractIDs(rs.IDs)
-		if err != nil {
-			return QueryResponse{}, fmt.Errorf("extract ids: %w", err)
-		}
-		scores := rs.Scores
+	// // Aggregate results from all returned result sets
+	// agg := map[int64]MilvusDocument{}
+	// for _, rs := range resultSets {
+	// 	c := rs.GetColumn(outputTextField)
+	// 	ids, err := m.extractIDs(rs.IDs)
+	// 	if err != nil {
+	// 		return QueryResponse{}, fmt.Errorf("extract ids: %w", err)
+	// 	}
+	// 	scores := rs.Scores
 
-		// TODO: fix this
-		var textsByIndex []string
-		if rs.Fields != nil {
-			if col := rs.Fields[outputTextField]; col != nil {
-				if vc, ok := col.(*entity.ColumnVarchar); ok {
-					textsByIndex = vc.Data()
-				}
-			}
-		}
+	// 	// TODO: fix this
+	// 	var textsByIndex []string
+	// 	if rs.Fields != nil {
+	// 		if col := rs.Fields[outputTextField]; col != nil {
+	// 			if vc, ok := col.(*entity.ColumnVarchar); ok {
+	// 				textsByIndex = vc.Data()
+	// 			}
+	// 		}
+	// 	}
 
-		for i := range ids {
-			id := ids[i]
-			score := float64(scores[i])
+	// 	for i := range ids {
+	// 		id := ids[i]
+	// 		score := float64(scores[i])
 
-			var textVal string
-			if i < len(textsByIndex) {
-				textVal = textsByIndex[i]
-			}
+	// 		var textVal string
+	// 		if i < len(textsByIndex) {
+	// 			textVal = textsByIndex[i]
+	// 		}
 
-			meta := map[string]any{
-				"collection": req.CollectionName,
-				"partition":  req.PartitionName,
-				"filters":    req.Filters,
-			}
+	// 		meta := map[string]any{
+	// 			"collection": req.CollectionName,
+	// 			"partition":  req.PartitionName,
+	// 			"filters":    req.Filters,
+	// 		}
 
-			if prev, ok := agg[id]; !ok || score > prev.Score {
-				agg[id] = Document{
-					ID:       id,
-					Text:     textVal,
-					Score:    score,
-					Metadata: meta,
-				}
-			}
-		}
-	}
+	// 		if prev, ok := agg[id]; !ok || score > prev.Score {
+	// 			agg[id] = Document{
+	// 				ID:       id,
+	// 				Text:     textVal,
+	// 				Score:    score,
+	// 				Metadata: meta,
+	// 			}
+	// 		}
+	// 	}
+	// }
 
-	// Flatten, sort, truncate
-	out := make([]Document, 0, len(agg))
-	for _, d := range agg {
-		out = append(out, d)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Score > out[j].Score })
-	if len(out) > req.TopK {
-		out = out[:req.TopK]
-	}
+	// // Flatten, sort, truncate
+	// out := make([]Document, 0, len(agg))
+	// for _, d := range agg {
+	// 	out = append(out, d)
+	// }
+	// sort.Slice(out, func(i, j int) bool { return out[i].Score > out[j].Score })
+	// if len(out) > req.TopK {
+	// 	out = out[:req.TopK]
+	// }
 
-	return QueryResponse{Results: out}, nil
+	return QueryResponse{Results: nil}, nil
 }
 
 // loadCollectionIfNeeded loads the collection (best-effort).
@@ -324,26 +321,26 @@ func (m *MilvusQueryTool) embeddingModelFromIndex(
 	ctx context.Context,
 	collection, field string,
 ) (string, error) {
-	idxDesc, err := m.client.DescribeIndex(
-		ctx,
-		milvusclient.NewDescribeIndexOption(collection).WithFieldName(field),
-	)
-	if err != nil {
-		return "", err
-	}
-	if idxDesc == nil || len(idxDesc.Indexes) == 0 {
-		return "", nil
-	}
-	keys := []string{"embedding_model", "model", "embedder"}
-	for _, idx := range idxDesc.Indexes {
-		for _, p := range idx.IndexParams {
-			for _, k := range keys {
-				if p.Key == k && strings.TrimSpace(p.Value) != "" {
-					return p.Value, nil
-				}
-			}
-		}
-	}
+	// idxDesc, err := m.client.DescribeIndex(
+	// 	ctx,
+	// 	milvusclient.NewDescribeIndexOption(collection).WithFieldName(field),
+	// )
+	// if err != nil {
+	// 	return "", err
+	// }
+	// if idxDesc == nil || len(idxDesc.Indexes) == 0 {
+	// 	return "", nil
+	// }
+	// keys := []string{"embedding_model", "model", "embedder"}
+	// for _, idx := range idxDesc.Indexes {
+	// 	for _, p := range idx.IndexParams {
+	// 		for _, k := range keys {
+	// 			if p.Key == k && strings.TrimSpace(p.Value) != "" {
+	// 				return p.Value, nil
+	// 			}
+	// 		}
+	// 	}
+	// }
 	return "", nil
 }
 
@@ -353,10 +350,11 @@ func (m *MilvusQueryTool) embedTexts(
 	model string,
 	texts []string,
 ) ([][]float32, error) {
-	if m.embedder == nil {
-		return nil, fmt.Errorf("embeddings registry not configured")
-	}
-	return m.embedder.Embed(ctx, model, texts)
+	// if m.embedder == nil {
+	// 	return nil, fmt.Errorf("embeddings registry not configured")
+	// }
+	// return m.embedder.Embed(ctx, model, texts)
+	return nil, nil
 }
 
 /*

@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vllm-models-pvc
+  namespace: vllm-ns
+spec:
+  accessModes:
+    - ReadWriteOnce # Or ReadWriteMany for shared access
+  resources:
+    requests:
+      storage: 500Gi # Tune: ~200GB for 120B fp16; less with quantization
+  storageClassName: standard # Your storage class (e.g., gp3 for AWS EBS)
