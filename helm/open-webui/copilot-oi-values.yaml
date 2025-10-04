@@ -6,32 +6,29 @@ ollama:
 pipelines:
   enabled: false
 
-# TODO: Determine cluster.local url for ollama
-ollamaUrls:
-  - "http://ollama.a1.autobahn.rinconres.com"
+ollamaNamespace: ""
 
-podLabels:
-  app.kubernetes.io/name: open-webui-rrc-copilot
-  app.kubernetes.io/part-of: rrc-copilot
+ollamaUrls:
+  - "http://ollama.{{ .Values.ollamaNamespace | default .Release.Namespace }}.svc.cluster.local:11434"
 
 image:
   repository: ghcr.io/open-webui/open-webui
   tag: ""
-  pullPolicy: "Always"
+  pullPolicy: "IfNotPresent"
 
 livenessProbe:
   httpGet:
     path: /health
     port: http
-  failureThreshold: 1
-  periodSeconds: 10
+  failureThreshold: 3
+  periodSeconds: 30
 
 readinessProbe:
   httpGet:
     path: /health
     port: http
-  failureThreshold: 1
-  periodSeconds: 10
+  failureThreshold: 3
+  periodSeconds: 30
 
 # managedCertificate:
 #   enabled: false
@@ -44,69 +41,55 @@ ingress:
   enabled: false
   class: ""
   annotations: {}
-  #   # Example for GKE Ingress
-  #   kubernetes.io/ingress.class: "gce"
-  #   kubernetes.io/ingress.global-static-ip-name: "open-webui-external-ip"   #  you need to create this address in GCP console
-  #   # Force HTTP to redirect to HTTPS
-  #   nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-  #   nginx.ingress.kubernetes.io/ssl-redirect: "true"
-  #   nginx.ingress.kubernetes.io/permanent-redirect: "https://chat.example.com"
-  #   networking.gke.io/managed-certificates: "mydomain-chat-cert"
-  #   # nginx.ingress.kubernetes.io/rewrite-target: /
-  host: "chat.example.com" # update to your real domain
-  additionalHosts: []
-  tls: false
-  existingSecret: ""
+  # host: "chat.example.com" # update to your real domain
+  # additionalHosts: []
+  # tls: false
+  # existingSecret: ""
 
 persistence:
   enabled: true
-  size: 5Gi
+  size: 10Gi
 
 # -- Service values to expose Open WebUI pods to cluster
-service:
-  type: ClusterIP
-  annotations: {}
-  port: 80
-  containerPort: 8080
-  nodePort: ""
-  labels: {}
-  loadBalancerClass: ""
-
-# -- OpenAI base API URL to use. Defaults to the Pipelines service endpoint when Pipelines are enabled, and "https://api.openai.com/v1" if Pipelines are not enabled and this value is blank
-openaiBaseApiUrl: "https://api.openai.com/v1"
+# service:
+#   type: ClusterIP
+#   annotations: {}
+#   port: 80
+#   containerPort: 8080
+#   nodePort: ""
+#   labels: {}
+#   loadBalancerClass: ""
 
 # -- OpenAI base API URLs to use. Overwrites the value in openaiBaseApiUrl if set
 # TODO: Add our proxy backend as openai compatible backend
 openaiBaseApiUrls:
-  []
-  # - "https://api.openai.com/v1"
-  # - "https://api.company.openai.com/v1"
+  - "http://vllm.vllm.svc.cluster.local:8000/v1"
+  # - "https://api.rrc-copilot.backend/v1" # as an example when we deploy our agentic backends
 
 # -- Env vars added to the Open WebUI deployment. Most up-to-date environment variables can be found here: https://docs.openwebui.com/getting-started/env-configuration/
-extraEnvVars:
+extraEnvVars: []
   # -- Default API key value for Pipelines. Should be updated in a production deployment, or be changed to the required API key if not using Pipelines
-  - name: DEFAULT_USER_ROLE
-    value: "user"
-  - name: WEBUI_NAME
-    value: "RRC-Copilot"
-  - name: ENABLE_VERSION_UPDATE_CHECK
-    value: "false"
-  # If LDAP is enabled:
-  # - name: ENABLE_LOGIN_FORM
-  #   value: "false"
-  # - name: ENABLE_OAUTH_SIGNUP
-  #   value: "true"
+  #- name: DEFAULT_USER_ROLE
+  #  value: "user"
+  #- name: WEBUI_NAME
+  #  value: "RRC-Copilot"
+  #- name: ENABLE_VERSION_UPDATE_CHECK
+  #  value: "false"
+  ## If LDAP is enabled:
+  #- name: ENABLE_LOGIN_FORM
+  #  value: "false"
+  #- name: ENABLE_OAUTH_SIGNUP
+  #  value: "true"
   # To set milvus as the vector database need:
   # - MILVUS_URI, MILVUS_DB, MILVUS_TOKEN
+  # To run this, create a user with database create/read privelages and provide token here
   # - name: VECTOR_DB
   #   value: "milvus"
   # Content extraction as docling:
   # - name: CONTENT_EXTRACTION_ENGINE
   #   value: "docling"
   # - name: DOCLING_SERVER_URL # (default: http://docling:5001)
-  #   value: "http://docling.a1.autobahn.rinconres.com"
-  # - name: PIP_OPTIONS
-  #   value: "--upgrade" # maybe have it upgrade itself each time too
+  #   value: "http://docling.crawler.svc.cluster.local:3000"
 
 # -- Env vars added to the Open WebUI deployment, common across environments. Most up-to-date environment variables can be found here: https://docs.openwebui.com/getting-started/env-configuration/ (caution: environment variables defined in both `extraEnvVars` and `commonEnvVars` will result in a conflict. Avoid duplicates)
 commonEnvVars:
@@ -124,71 +107,117 @@ extraEnvFrom:
 
 # TODO: Set up SSO or LDAP
 sso:
-  # -- **Enable SSO authentication globally** must enable to use SSO authentication
-  # @section -- SSO Configuration
   enabled: false
-  # -- Enable account creation when logging in with OAuth (distinct from regular signup)
-  # @section -- SSO Configuration
-  enableSignup: false
-  # -- Allow logging into accounts that match email from OAuth provider (considered insecure)
-  # @section -- SSO Configuration
+  # enabled: true 
+  enableSignup: true
   mergeAccountsByEmail: false
-  # -- Enable OAuth role management through access token roles claim
-  # @section -- SSO Configuration
-  enableRoleManagement: false
-  # -- Enable OAuth group management through access token groups claim
-  # @section -- SSO Configuration
-  enableGroupManagement: false
+  enableRoleManagement: true
+  enableGroupManagement: true
+
   oidc:
-    # -- Enable OIDC authentication
-    # @section -- OIDC configuration
     enabled: false
-    # -- OIDC client ID
-    # @section -- OIDC configuration
-    clientId: ""
-    # -- OIDC client secret (ignored if clientExistingSecret is set)
-    # @section -- OIDC configuration
-    clientSecret: ""
-    # -- OICD client secret from existing secret
-    # @section -- OIDC configuration
-    clientExistingSecret: ""
-    # -- OIDC client secret key from existing secret
-    # @section -- OIDC configuration
-    clientExistingSecretKey: ""
-    # -- OIDC provider well known URL
-    # @section -- OIDC configuration
-    providerUrl: ""
-    # -- Name of the provider to show on the UI
-    # @section -- OIDC configuration
-    providerName: "SSO"
-    # -- Scopes to request (space-separated).
-    # @section -- OIDC configuration
+    #enabled: true
+    clientId: "<TODO:find-app-client-id>"
+    # Prefer using an existing secret in the cluster:
+    clientExistingSecret: "openwebui-oidc"
+    clientExistingSecretKey: "TODO:find-client-secret"
+    # Or use clientSecret directly (less secure):
+    # clientSecret: "<TODO:find-app-client-secret>"
+    providerUrl: "TODO:find-<tenant-id>/v2.0/.well-known/openid-configuration"
+    providerName: "TODO:find-provider"
     scopes: "openid email profile"
 
   roleManagement:
-    # -- The claim that contains the roles (can be nested, e.g., user.roles)
-    # @section -- Role management configuration
-    rolesClaim: "roles"
-    # -- Comma-separated list of roles allowed to log in (receive open webui role user)
-    # @section -- Role management configuration
-    allowedRoles: ""
-    # -- Comma-separated list of roles allowed to log in as admin (receive open webui role admin)
-    # @section -- Role management configuration
-    adminRoles: ""
+    rolesClaim: "groups" # "roles?"
+    # Comma-separated list of group Object IDs allowed to log in
+    allowedRoles: "<llm-users-group-object-id>"
+    # Comma-separated list of group Object IDs that become admins
+    adminRoles: "<llm-admins-group-object-id>"
 
   groupManagement:
-    # -- The claim that contains the groups (can be nested, e.g., user.memberOf)
-    # @section -- SSO Configuration
+    # The claim that contains the groups (can be nested, e.g., user.memberOf)
     groupsClaim: "groups"
 
   trustedHeader:
-    # -- Enable trusted header authentication
-    # @section -- SSO trusted header authentication
     enabled: false
-    # -- Header containing the user's email address
-    # @section -- SSO trusted header authentication
+    # Header containing the user's email address
     emailHeader: ""
-    # -- Header containing the user's name (optional, used for new user creation)
-    # @section -- SSO trusted header authentication
+    # Header containing the user's name (optional, used for new user creation)
     nameHeader: ""
+
+# TODO: Commands to set up secrets
+# kubectl create secret generic openwebui-oidc \
+#   --from-literal=client-secret='<TODO:find-app-client-secret>' \
+#   -n <your-namespace>
+
+# sso:
+#   # -- **Enable SSO authentication globally** must enable to use SSO authentication
+#   # @section -- SSO Configuration
+#   enabled: false
+#   # -- Enable account creation when logging in with OAuth (distinct from regular signup)
+#   # @section -- SSO Configuration
+#   enableSignup: false
+#   # -- Allow logging into accounts that match email from OAuth provider (considered insecure)
+#   # @section -- SSO Configuration
+#   mergeAccountsByEmail: false
+#   # -- Enable OAuth role management through access token roles claim
+#   # @section -- SSO Configuration
+#   enableRoleManagement: false
+#   # -- Enable OAuth group management through access token groups claim
+#   # @section -- SSO Configuration
+#   enableGroupManagement: false
+#   oidc:
+#     # -- Enable OIDC authentication
+#     # @section -- OIDC configuration
+#     enabled: false
+#     # -- OIDC client ID
+#     # @section -- OIDC configuration
+#     clientId: ""
+#     # -- OIDC client secret (ignored if clientExistingSecret is set)
+#     # @section -- OIDC configuration
+#     clientSecret: ""
+#     # -- OICD client secret from existing secret
+#     # @section -- OIDC configuration
+#     clientExistingSecret: ""
+#     # -- OIDC client secret key from existing secret
+#     # @section -- OIDC configuration
+#     clientExistingSecretKey: ""
+#     # -- OIDC provider well known URL
+#     # @section -- OIDC configuration
+#     providerUrl: ""
+#     # -- Name of the provider to show on the UI
+#     # @section -- OIDC configuration
+#     providerName: "SSO"
+#     # -- Scopes to request (space-separated).
+#     # @section -- OIDC configuration
+#     scopes: "openid email profile"
+
+#   roleManagement:
+#     # -- The claim that contains the roles (can be nested, e.g., user.roles)
+#     # @section -- Role management configuration
+#     rolesClaim: "roles"
+#     # -- Comma-separated list of roles allowed to log in (receive open webui role user)
+#     # @section -- Role management configuration
+#     allowedRoles: ""
+#     # -- Comma-separated list of roles allowed to log in as admin (receive open webui role admin)
+#     # @section -- Role management configuration
+#     adminRoles: ""
+
+#   groupManagement:
+#     # -- The claim that contains the groups (can be nested, e.g., user.memberOf)
+#     # @section -- SSO Configuration
+#     groupsClaim: "groups"
+
+#   trustedHeader:
+#     # -- Enable trusted header authentication
+#     # @section -- SSO trusted header authentication
+#     enabled: false
+#     # -- Header containing the user's email address
+#     # @section -- SSO trusted header authentication
+#     emailHeader: ""
+#     # -- Header containing the user's name (optional, used for new user creation)
+#     # @section -- SSO trusted header authentication
+#     nameHeader: ""
+
+
 # TODO: Set up OTEL, and metrics for prometheus.

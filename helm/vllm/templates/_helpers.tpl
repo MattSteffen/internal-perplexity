@@ -1,62 +1,164 @@
 {{/*
-Expand the name of the chart.
+Define ports for the pods
 */}}
-{{- define "vllm.name" -}}
-{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
+{{- define "chart.container-port" -}}
+{{-  default "8000" .Values.containerPort }}
 {{- end }}
 
 {{/*
-Create a default fully qualified app name.
-We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
-If release name contains chart name it will be used as a full name.
+Define service name
 */}}
-{{- define "vllm.fullname" -}}
-{{- if .Values.fullnameOverride }}
-{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- $name := default .Chart.Name .Values.nameOverride }}
-{{- if contains $name .Release.Name }}
-{{- .Release.Name | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
-{{- end }}
-{{- end }}
+{{- define "chart.service-name" -}}
+{{-  if .Values.serviceName }}
+{{-    .Values.serviceName | lower | trim }}
+{{-  else }}
+"{{ .Release.Name }}-service"
+{{-  end }}
 {{- end }}
 
 {{/*
-Create chart name and version as used by the chart label.
+Define service port
 */}}
-{{- define "vllm.chart" -}}
-{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
+{{- define "chart.service-port" -}}
+{{-  if .Values.servicePort }}
+{{-    .Values.servicePort }}
+{{-  else }}
+{{-    include "chart.container-port" . }}
+{{-  end }}
 {{- end }}
 
 {{/*
-Common labels
+Define service port name
 */}}
-{{- define "vllm.labels" -}}
-helm.sh/chart: {{ include "vllm.chart" . }}
-{{ include "vllm.selectorLabels" . }}
-{{- if .Chart.AppVersion }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
-{{- end }}
-app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- define "chart.service-port-name" -}}
+"service-port"
 {{- end }}
 
 {{/*
-Selector labels
+Define container port name
 */}}
-{{- define "vllm.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "vllm.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
+{{- define "chart.container-port-name" -}}
+"container-port"
 {{- end }}
 
 {{/*
-Create the name of the service account to use
+Define deployment strategy
 */}}
-{{- define "vllm.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create }}
-{{- default (include "vllm.fullname" .) .Values.serviceAccount.name }}
-{{- else }}
-{{- default "default" .Values.serviceAccount.name }}
+{{- define "chart.strategy" -}}
+strategy:
+{{-   if not .Values.deploymentStrategy }}
+  rollingUpdate:
+    maxSurge: 100%
+    maxUnavailable: 0
+{{-   else }}
+{{      toYaml .Values.deploymentStrategy | indent 2 }}
+{{-   end }}
 {{- end }}
+
+{{/*
+Define additional ports
+*/}}
+{{- define "chart.extraPorts" }}
+{{-   with .Values.extraPorts }}
+{{      toYaml . }}
+{{-   end }}
+{{- end }}
+
+{{/*
+Define chart external ConfigMaps and Secrets
+*/}}
+{{- define "chart.externalConfigs" -}}
+{{-   with .Values.externalConfigs -}}
+{{      toYaml . }}
+{{-   end }}
+{{- end }}
+
+
+{{/*
+Define liveness et readiness probes
+*/}}
+{{- define "chart.probes" -}}
+{{-   if .Values.readinessProbe  }}
+readinessProbe:
+{{-     with .Values.readinessProbe }}
+{{-       toYaml . | nindent 2 }}
+{{-     end }}
+{{-   end }}
+{{-   if .Values.livenessProbe  }}
+livenessProbe:
+{{-     with .Values.livenessProbe }}
+{{-       toYaml . | nindent 2 }}
+{{-     end }}
+{{-   end }}
+{{- end }}
+
+{{/*
+Define resources
+*/}}
+{{- define "chart.resources" -}}
+requests:
+  memory: {{ required "Value 'resources.requests.memory' must be defined !" .Values.resources.requests.memory | quote }}
+  cpu: {{ required "Value 'resources.requests.cpu' must be defined !" .Values.resources.requests.cpu | quote }}
+  {{- if and (gt (int (index .Values.resources.requests "nvidia.com/gpu")) 0) (gt (int (index .Values.resources.limits "nvidia.com/gpu")) 0) }}
+  nvidia.com/gpu: {{ required "Value 'resources.requests.nvidia.com/gpu' must be defined !" (index .Values.resources.requests "nvidia.com/gpu") | quote }}
+  {{- end }}
+limits:
+  memory: {{ required "Value 'resources.limits.memory' must be defined !" .Values.resources.limits.memory | quote }}
+  cpu: {{ required "Value 'resources.limits.cpu' must be defined !" .Values.resources.limits.cpu | quote }}
+  {{- if and (gt (int (index .Values.resources.requests "nvidia.com/gpu")) 0) (gt (int (index .Values.resources.limits "nvidia.com/gpu")) 0) }}
+  nvidia.com/gpu: {{ required "Value 'resources.limits.nvidia.com/gpu' must be defined !" (index .Values.resources.limits "nvidia.com/gpu") | quote }}
+  {{- end }}
+{{- end }}
+
+
+{{/*
+Define User used for the main container
+*/}}
+{{- define "chart.user" }}
+{{-   if .Values.image.runAsUser  }}
+runAsUser: 
+{{-     with .Values.runAsUser }}
+{{-       toYaml . | nindent 2 }}
+{{-     end }}
+{{-   end }}
+{{- end }}
+
+{{- define "chart.extraInitImage" -}}
+"amazon/aws-cli:2.6.4"
+{{- end }}
+
+{{- define "chart.extraInitEnv" -}}
+- name: S3_ENDPOINT_URL
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Release.Name }}-secrets
+      key: s3endpoint
+- name: S3_BUCKET_NAME
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Release.Name }}-secrets
+      key: s3bucketname
+- name: AWS_ACCESS_KEY_ID
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Release.Name }}-secrets
+      key: s3accesskeyid
+- name: AWS_SECRET_ACCESS_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Release.Name }}-secrets
+      key: s3accesskey
+- name: S3_PATH
+  value: "{{ .Values.extraInit.s3modelpath }}"
+- name: AWS_EC2_METADATA_DISABLED
+  value: "{{ .Values.extraInit.awsEc2MetadataDisabled }}"
+{{- end }}
+
+{{/*
+  Define chart labels
+*/}}
+{{- define "chart.labels" -}}
+{{-   with .Values.labels -}}
+{{      toYaml . }}
+{{-   end }}
 {{- end }}
