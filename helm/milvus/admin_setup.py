@@ -7,7 +7,7 @@ import numpy as np
 
 # Initialize admin client
 admin_client = MilvusClient(
-    uri="http://10.43.73.179:19530",
+    uri="http://10.152.183.171:19530",
     token="root:Milvus",
 )
 
@@ -163,7 +163,7 @@ print("="*70)
 # Test 1: Happy reader (should only access happy collection)
 print("\n1. Happy Reader searching happy collection:")
 happy_client = MilvusClient(
-    uri="http://localhost:19530",
+    uri="http://10.152.183.171:19530",
     token="happy_reader:HappyPass123",
 )
 
@@ -195,7 +195,7 @@ except Exception as e:
 # Test 2: Sad reader (should only access sad collection)
 print("\n2. Sad Reader searching sad collection:")
 sad_client = MilvusClient(
-    uri="http://localhost:19530",
+    uri="http://10.152.183.171:19530",
     token="sad_reader:SadPass123",
 )
 
@@ -227,7 +227,7 @@ except Exception as e:
 # Test 3: Admin (should access both collections)
 print("\n3. Admin searching both collections:")
 admin_dsp_client = MilvusClient(
-    uri="http://localhost:19530",
+    uri="http://10.152.183.171:19530",
     token="dsp_admin:AdminPass123",
 )
 

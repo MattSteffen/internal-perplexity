@@ -1,0 +1,13 @@
+standalone:
+  persistence:
+    persistentVolumeClaim:
+      size: "10Gi"
+
+minio:
+  persistence:
+    size: 10Gi
+
+
+etcd:
+  persistence:
+    size: 10Gi

@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: milvus-webui
+  namespace: test    # change if your release uses another namespace
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      rewrite ^/milvus$ /milvus/ permanent;
+spec:
+  ingressClassName: public
+  rules:
+    - host: api.meatheadmathematician.com
+      http:
+        paths:
+          - path: /milvus(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: copilot-milvus        # or "milvus-webui" depending on your chart
+                port:
+                  number: 9091           # 80 if the service exposes port 80
