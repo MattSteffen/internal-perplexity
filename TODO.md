@@ -30,7 +30,8 @@ docker run -p 5001:5001 -e DOCLING_SERVE_ENABLE_UI=1 -e DOCLING_SERVE_ENABLE_REM
 ```
 
 ```bash
-curl -X POST 'http://localhost:5001/v1/convert/source' \
+# curl -X POST 'http://localhost:5001/v1/convert/source' \
+curl -X POST 'https://api.meatheadmathematician.com/test/v1/convert/source' \
   -H 'accept: application/json' \
   -H 'Content-Type: application/json' \
   -d '{
@@ -49,6 +50,21 @@ curl -X POST 'http://localhost:5001/v1/convert/source' \
         "timeout": 600,
         "prompt": "Describe this image in detail for a technical document."
       }
+    },
+    "sources": [{"kind": "http", "url": "https://arxiv.org/pdf/2501.17887"}]
+  }' > test.json
+
+curl -X POST 'https://api.meatheadmathematician.com/test/v1/convert/source' \
+  -H 'accept: application/json' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "options": {
+      "from_formats": ["pdf"],
+      "to_formats": ["md"],
+      "abort_on_error": true,
+      "do_picture_description": false,
+      "image_export_mode": "embedded",
+      "include_images": true
     },
     "sources": [{"kind": "http", "url": "https://arxiv.org/pdf/2501.17887"}]
   }' > test.json

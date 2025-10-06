@@ -38,6 +38,9 @@ DEFAULT_ARRAY_CAPACITY = 100  # Default max number of elements in an array field
 DEFAULT_ARRAY_VARCHAR_MAX_LENGTH = (
     512  # Default max length for string elements within an array
 )
+DEFAULT_SECURITY_GROUP = [
+    "public"
+]  # TODO: Ensure that public is a valid security group and all users get added to it upon creation
 # Helper mapping for JSON schema types to Milvus DataType for array elements
 JSON_TYPE_TO_MILVUS_ELEMENT_TYPE = {
     "string": DataType.VARCHAR,
@@ -116,6 +119,17 @@ def _create_base_schema(embedding_size) -> CollectionSchema:
         default_value="[]",
     )
 
+    # RBAC impelmentation
+    field_schema_security_group = FieldSchema(
+        name="security_group",
+        dtype=DataType.ARRAY,
+        element_type=DataType.VARCHAR,
+        max_capacity=20,
+        max_length=100,
+        description="The security group of the document for RBAC row-level access control",
+        default_value=DEFAULT_SECURITY_GROUP,
+    )
+
     # functions to build the full-text-search indexes
     function_full_text_search = Function(
         name="full_text_search_on_chunks",
@@ -141,6 +155,7 @@ def _create_base_schema(embedding_size) -> CollectionSchema:
         field_schema_metadata,
         field_schema_metadata_sparse_embedding,
         field_schema_benchmark_questions,
+        field_schema_security_group,
     ]
     functions = [function_full_text_search, function_full_text_search_metadata]
     return fields, functions
@@ -186,6 +201,12 @@ def create_index(client: MilvusClient):
         index_type="SPARSE_INVERTED_INDEX",
         metric_type="BM25",
         params={"inverted_index_algo": "DAAT_MAXSCORE", "bm25_k1": 1.2, "bm25_b": 0.75},
+    )
+
+    # 5. create bitmap index for security column
+    index_params.add_index(
+        field_name="security_group",
+        index_type="BITMAP",
     )
 
     return index_params
