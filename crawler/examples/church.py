@@ -1,8 +1,15 @@
 from crawler import Crawler, CrawlerConfig
-from crawler.processing import MultiSchemaExtractor, OllamaLLM
+from crawler.processing import (
+    ExtractorConfig,
+    ConverterConfig,
+    EmbedderConfig,
+    LLMConfig,
+)
+from crawler.storage import DatabaseClientConfig
 
 
 # https://user.xmission.com/~research/mormonpdf/index.htm
+# Example configuration for crawling church documents
 
 full_schema = {
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -224,16 +231,145 @@ church_config_dict = {
     "metadata_schema": metadata_schema,
 }
 
+# File paths for processing
 dir_path = "/home/ubuntu/irads-crawler/data/irads"
 short_options = ["/home/ubuntu/irads-crawler/data/irads/test.pdf"]
 
 
+def create_church_config() -> CrawlerConfig:
+    """Create type-safe configuration for church document processing.
+    
+    This uses the new Pydantic-based configuration system for better type safety
+    and validation.
+    """
+    # Define schema for the second part (summary items)
+    schema2 = {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "Document Summary Points",
+        "description": "Schema defining distinct summary aspects of a document.",
+        "type": "object",
+        "required": ["summary_item_1"],
+        "properties": {
+            "summary_item_1": {
+                "type": "string",
+                "maxLength": 15000,
+                "description": "A concise summary of the primary topic or a unique, central argument discussed in the document. Focus on the most significant general idea or contribution."
+            },
+            "summary_item_2": {
+                "type": "string",
+                "maxLength": 15000,
+                "description": "If the document explores a second distinct topic or presents another significant unique aspect, describe it here. This should cover a different core idea than summary_item_1."
+            },
+            "summary_item_3": {
+                "type": "string",
+                "maxLength": 15000,
+                "description": "If the document addresses a third distinct major theme or offers an additional unique insight, provide that summary here. Ensure it highlights a separate concept from the previous summary items."
+            },
+        },
+    }
+    
+    # Embeddings configuration
+    embeddings = EmbedderConfig.ollama(
+        model="all-minilm:v2", 
+        base_url="http://localhost:11434"
+    )
+    
+    # Vision LLM for image processing
+    vision_llm = LLMConfig.ollama(
+        model_name="gemma3:latest",
+        base_url="http://localhost:11434"
+    )
+    
+    # Main LLM for metadata extraction
+    llm = LLMConfig.ollama(
+        model_name="gemma3",
+        base_url="http://localhost:11434",
+        structured_output="tools"
+    )
+    
+    # Database configuration
+    database = DatabaseClientConfig.milvus(
+        collection="church_documents",
+        host="localhost",
+        port=19530,
+        username="root",
+        password="Milvus",
+        recreate=True,
+    )
+    
+    # Multi-schema extractor configuration
+    extractor = ExtractorConfig.multi_schema(
+        schemas=[schema1, schema2],
+        llm=llm,
+        document_library_context="Religious and church documents"
+    )
+    
+    # PyMuPDF converter configuration with image processing
+    converter = ConverterConfig.pymupdf(
+        vision_llm=vision_llm,
+        metadata={
+            "preserve_formatting": True,
+            "include_page_numbers": True,
+            "include_metadata": True,
+            "sort_reading_order": True,
+            "extract_tables": True,
+            "table_strategy": "lines_strict",
+            "image_description_prompt": "Describe this image in detail for a religious document.",
+            "image_describer": {
+                "type": "ollama",
+                "model": "gemma3:latest",
+                "base_url": "http://localhost:11434",
+            },
+        },
+    )
+    
+    # Create the complete crawler configuration
+    config = CrawlerConfig.create(
+        embeddings=embeddings,
+        llm=llm,
+        vision_llm=vision_llm,
+        database=database,
+        converter=converter,
+        extractor=extractor,
+        chunk_size=1000,
+        metadata_schema=metadata_schema,
+        temp_dir="/tmp/church",
+        benchmark=False,
+        log_level="INFO",
+    )
+    
+    return config
+
+
 def main():
-    config = CrawlerConfig.from_dict(church_config_dict)
-    config.log_level = "INFO"  # Set log level for testing
-    mycrawler = Crawler(config)  # Extractor will be created from config
+    """Main function to run the church document processing pipeline."""
+    print("🚀 Starting church document processing with type-safe configuration...")
+    
+    # Create configuration using the new type-safe approach
+    config = create_church_config()
+    
+    # Alternative: Use dictionary-based configuration for backward compatibility
+    # config = CrawlerConfig.from_dict(church_config_dict)
+    
+    print(f"📊 Configuration created:")
+    print(f"   • Collection: {config.database.collection}")
+    print(f"   • LLM: {config.llm.model_name}")
+    print(f"   • Vision LLM: {config.vision_llm.model_name}")
+    print(f"   • Chunk size: {config.chunk_size}")
+    
+    # Create and run crawler
+    mycrawler = Crawler(config)
+    print("🔄 Starting document processing...")
+    
+    # Process documents
     mycrawler.crawl(short_options)
-    # mycrawler.benchmark()  # Comment out benchmark for now
+    
+    # Run benchmark if enabled
+    if config.benchmark:
+        print("📊 Running benchmark analysis...")
+        mycrawler.benchmark()
+    
+    print("✅ Church document processing completed successfully!")
 
 
 if __name__ == "__main__":

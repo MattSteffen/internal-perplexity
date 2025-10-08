@@ -7,7 +7,7 @@ This module provides a unified Python interface for storing document chunks and 
 - **Provider-agnostic interface**: Easily switch between different vector database providers
 - **Automatic schema creation** with support for custom metadata fields
 - **Duplicate detection** based on source and chunk index
-- **Protocol-based document handling** for flexible data structures
+- **Pydantic-based models** for type safety and automatic validation
 - **Full-text search capabilities** using BM25 (Milvus)
 - **Vector similarity search** using embeddings
 - **Partition support** for data organization
@@ -17,14 +17,15 @@ This module provides a unified Python interface for storing document chunks and 
 The module consists of several key components:
 
 1. **DatabaseClient Interface**: Abstract base class defining the contract for all database implementations
-2. **DatabaseDocument Protocol**: Protocol defining the minimum interface for document data
-3. **Configuration Classes**: Typed configuration objects for different database providers
+2. **DatabaseDocument Model**: Pydantic BaseModel providing type-safe document data with validation
+3. **Configuration Models**: Pydantic-based typed configuration objects with automatic validation
 4. **Provider Implementations**: Database-specific implementations (currently Milvus)
+5. **Benchmark Models**: Type-safe models for benchmarking search performance
 
 ## Installation Requirements
 
 ```bash
-pip install pymilvus  # For Milvus support
+pip install pymilvus pydantic  # For Milvus support and type safety
 ```
 
 ## Basic Usage
@@ -95,110 +96,92 @@ client = MilvusStorage(
 
 ### 3. Working with Document Data
 
-The interface uses the `DatabaseDocument` protocol for flexible document handling:
+The interface uses the `DatabaseDocument` Pydantic model for type-safe document handling with automatic validation:
 
 ```python
-from dataclasses import dataclass
-from typing import List, Any
+from crawler.storage import DatabaseDocument
+from typing import List
 
-@dataclass
-class DocumentChunk:
-    """Example implementation of DatabaseDocument protocol"""
-    default_text: str
-    default_text_embedding: List[float]
-    default_chunk_index: int
-    default_source: str
-    default_document_id: str = ""
-    minio: str = ""
-    title: str = ""
-    author: str = ""
-
-    def __getitem__(self, key: str) -> Any:
-        return getattr(self, key)
-
-    def __setitem__(self, key: str, value: Any) -> None:
-        setattr(self, key, value)
-
-    def get(self, key: str, default: Any = None) -> Any:
-        return getattr(self, key, default)
-
-# Create document data
+# Create document data using Pydantic model
 documents = [
-    DocumentChunk(
+    DatabaseDocument(
+        default_document_id="doc-001-chunk-0",
         default_text="This is the first chunk of the document...",
         default_text_embedding=[0.1, 0.2, 0.3] * 256,  # 768-dimensional vector
         default_chunk_index=0,
         default_source="document_001.pdf",
-        minio="https://minio.example.com/bucket/document_001.pdf",
-        title="Machine Learning Fundamentals",
-        author="Dr. Jane Smith"
+        security_group=["public"],
+        default_minio="https://minio.example.com/bucket/document_001.pdf",
+        metadata={
+            "title": "Machine Learning Fundamentals",
+            "author": "Dr. Jane Smith"
+        }
     ),
-    DocumentChunk(
+    DatabaseDocument(
+        default_document_id="doc-001-chunk-1",
         default_text="This is the second chunk of the document...",
         default_text_embedding=[0.4, 0.5, 0.6] * 256,
         default_chunk_index=1,
         default_source="document_001.pdf",
-        title="Machine Learning Fundamentals",
-        author="Dr. Jane Smith"
+        security_group=["public"],
+        metadata={
+            "title": "Machine Learning Fundamentals",
+            "author": "Dr. Jane Smith"
+        }
     )
 ]
 
-# Insert data (automatically handles duplicates)
+# Insert data (automatically handles duplicates and validates data)
 client.insert_data(documents)
 ```
 
-### 4. Using Dictionary-based Documents
+**Key Benefits of Pydantic:**
+- Automatic type validation at creation time
+- Clear error messages for invalid data
+- IDE autocomplete support for all fields
+- Guaranteed required fields are present
 
-The protocol also supports regular dictionaries:
+### 4. Creating Documents from Dictionaries
+
+Pydantic models can be created from dictionaries with automatic validation:
 
 ```python
+from crawler.storage import DatabaseDocument
+from pydantic import ValidationError
+
 # Dictionary-based documents
-dict_documents = [
-    {
-        "default_text": "This is document content...",
-        "default_text_embedding": [0.1, 0.2, 0.3] * 256,
-        "default_chunk_index": 0,
-        "default_source": "document_002.pdf",
+dict_data = {
+    "default_document_id": "doc-002-chunk-0",
+    "default_text": "This is document content...",
+    "default_text_embedding": [0.1, 0.2, 0.3] * 256,
+    "default_chunk_index": 0,
+    "default_source": "document_002.pdf",
+    "security_group": ["public"],
+    "metadata": {
         "title": "Deep Learning Guide",
         "author": "Prof. John Doe",
         "keywords": ["deep learning", "neural networks"],
         "page_count": 300,
         "is_published": True
     }
-]
+}
 
-# Convert to protocol-compatible format if needed
-class DictDocument:
-    def __init__(self, data: dict):
-        self._data = data
+# Convert from dictionary with validation
+try:
+    document = DatabaseDocument.from_dict(dict_data)
+    # or equivalently:
+    # document = DatabaseDocument.model_validate(dict_data)
+    # or using constructor unpacking:
+    # document = DatabaseDocument(**dict_data)
+    
+    client.insert_data([document])
+except ValidationError as e:
+    print(f"Validation error: {e}")
 
-    @property
-    def default_text(self) -> str:
-        return self._data["default_text"]
-
-    @property
-    def default_text_embedding(self) -> List[float]:
-        return self._data["default_text_embedding"]
-
-    @property
-    def default_chunk_index(self) -> int:
-        return self._data["default_chunk_index"]
-
-    @property
-    def default_source(self) -> str:
-        return self._data["default_source"]
-
-    def __getitem__(self, key: str) -> Any:
-        return self._data[key]
-
-    def __setitem__(self, key: str, value: Any) -> None:
-        self._data[key] = value
-
-    def get(self, key: str, default: Any = None) -> Any:
-        return self._data.get(key, default)
-
-protocol_documents = [DictDocument(doc) for doc in dict_documents]
-client.insert_data(protocol_documents)
+# Convert back to dictionary
+doc_dict = document.to_dict()
+# or equivalently:
+# doc_dict = document.model_dump()
 ```
 
 ## API Reference
@@ -228,33 +211,60 @@ def check_duplicate(self, default_source: str, default_chunk_index: int) -> bool
     """Check if a document chunk already exists."""
 ```
 
-### DatabaseDocument Protocol
+### DatabaseDocument Model
 
-Documents must implement this protocol:
+Documents are represented using a Pydantic BaseModel with automatic validation:
 
 ```python
-class DatabaseDocument(Protocol):
-    # Required attributes (using prefixed field names)
-    default_text: str
-    default_text_embedding: List[float]
-    default_chunk_index: int
-    default_source: str
-
-    # Required methods for dict-like access
+class DatabaseDocument(BaseModel):
+    """Pydantic model for document data with type safety and validation."""
+    
+    # Required fields
+    default_document_id: str  # UUID for the document chunk
+    default_text: str  # Text content
+    default_text_embedding: List[float]  # Dense vector embedding
+    default_chunk_index: int  # Zero-based chunk index (validated >= 0)
+    default_source: str  # Source identifier
+    security_group: List[str]  # RBAC security groups
+    
+    # Optional fields with defaults
+    metadata: Dict[str, Any] = {}  # User-defined metadata
+    id: Optional[int] = -1  # Database primary key
+    default_metadata: Optional[str] = ""  # JSON string of metadata
+    default_minio: Optional[str] = ""  # MinIO storage URL
+    # ... other optional fields
+    
+    # Backward-compatible dict-like access
     def __getitem__(self, key: str) -> Any: ...
-    def __setitem__(self, key: str, value: Any) -> None: ...
     def get(self, key: str, default: Any = None) -> Any: ...
+    def to_dict(self) -> Dict[str, Any]: ...
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "DatabaseDocument": ...
 ```
+
+**Key Features:**
+- Automatic validation of required fields and types
+- Constraints on numeric fields (e.g., chunk_index >= 0)
+- Backward-compatible dict-like access methods
+- Type hints for IDE support
 
 ### Configuration Classes
 
-#### MilvusConfig
+#### DatabaseClientConfig (Pydantic BaseModel)
 
 ```python
-@dataclass
-class MilvusConfig(DatabaseClientConfig):
+class DatabaseClientConfig(BaseModel):
+    """Type-safe configuration for database clients with automatic validation."""
+    
+    provider: str  # Database provider (e.g., "milvus")
+    collection: str  # Collection name (min_length=1)
+    partition: Optional[str] = None
+    recreate: bool = False
+    collection_description: Optional[str] = None
+    
     host: str = "localhost"
-    port: int = 19530
+    port: int = 19530  # Validated: 1 <= port <= 65535
     username: str = "root"
     password: str = "Milvus"
 
@@ -267,19 +277,18 @@ class MilvusConfig(DatabaseClientConfig):
     def token(self) -> str:
         """Get the authentication token."""
         return f"{self.username}:{self.password}"
+    
+    @classmethod
+    def milvus(cls, collection: str, **kwargs) -> "DatabaseClientConfig":
+        """Factory method for Milvus configuration."""
+        return cls(provider="milvus", collection=collection, **kwargs)
 ```
 
-#### Base Configuration
-
-```python
-@dataclass
-class DatabaseClientConfig:
-    provider: DatabaseProvider
-    collection: str
-    partition: Optional[str] = None
-    recreate: bool = False
-    collection_description: Optional[str] = None
-```
+**Validation Features:**
+- Provider and collection cannot be empty strings
+- Port must be between 1 and 65535
+- Automatic validation on creation and assignment
+- Type checking for all fields
 
 ### MilvusStorage Implementation
 

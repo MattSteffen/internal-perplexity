@@ -1,7 +1,7 @@
 import logging
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from pydantic import BaseModel, Field
 from langchain_ollama import OllamaEmbeddings
 from typing import List, Dict, Optional
 from tqdm import tqdm
@@ -9,24 +9,48 @@ from tqdm import tqdm
 from pymilvus.client import abstract
 
 
-@dataclass
-class EmbedderConfig:
-    """Configuration for the embedder."""
+class EmbedderConfig(BaseModel):
+    """
+    Configuration for embedding model providers.
+    
+    This model provides type-safe configuration for connecting to embedding
+    services with automatic validation of parameters.
+    
+    Attributes:
+        model: Name of the embedding model to use
+        base_url: Base URL for the embedding service API
+        api_key: API key for authentication (if required)
+        provider: Provider name (e.g., 'ollama', 'openai')
+        dimension: Optional pre-configured embedding dimension (auto-detected if None)
+    """
 
-    model: str
-    base_url: str
-    api_key: str = ""
-    provider: str = "ollama"
-    dimension: Optional[int] = None  # Optional: pre-configured embedding dimension
+    model: str = Field(
+        ...,
+        min_length=1,
+        description="Name of the embedding model to use"
+    )
+    base_url: str = Field(
+        ...,
+        min_length=1,
+        description="Base URL for the embedding service API"
+    )
+    api_key: str = Field(
+        default="",
+        description="API key for authentication (if required by the provider)"
+    )
+    provider: str = Field(
+        default="ollama",
+        description="Provider name (e.g., 'ollama', 'openai')"
+    )
+    dimension: Optional[int] = Field(
+        default=None,
+        gt=0,
+        description="Optional pre-configured embedding dimension (auto-detected if None)"
+    )
 
-    def __post_init__(self):
-        """Validate configuration after initialization."""
-        if not self.model:
-            raise ValueError("Embedder model cannot be empty")
-        if not self.base_url:
-            raise ValueError("Embedder base_url cannot be empty")
-        if self.dimension is not None and self.dimension <= 0:
-            raise ValueError("Embedding dimension must be positive")
+    model_config = {
+        "validate_assignment": True,
+    }
 
     @classmethod
     def ollama(

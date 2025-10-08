@@ -1,6 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Dict, Union, Optional, Any
 import ollama
 import json
@@ -8,33 +8,74 @@ import time
 import httpx
 
 
-@dataclass
-class LLMConfig:
-    """Configuration for LLM providers."""
+class LLMConfig(BaseModel):
+    """
+    Configuration for Large Language Model providers.
+    
+    This model provides type-safe configuration for connecting to various LLM
+    services with automatic validation of parameters and connection settings.
+    
+    Attributes:
+        model_name: Name of the LLM model to use
+        base_url: Base URL for the LLM API service
+        system_prompt: Optional system prompt for the model
+        ctx_length: Context length (token limit) for the model
+        default_timeout: Default timeout in seconds for API calls
+        provider: Provider name (e.g., 'ollama', 'openai', 'vllm')
+        api_key: API key for authentication (if required by provider)
+        structured_output: Mode for structured output ('response_format' or 'tools')
+    """
 
-    model_name: str
-    base_url: str = "http://localhost:11434"
-    system_prompt: Optional[str] = None
-    ctx_length: int = 32000
-    default_timeout: float = 300.0
-    provider: str = "ollama"
-    api_key: str = ""  # For providers that require API keys
-    structured_output: str = "response_format"  # 'response_format' or 'tools'
+    model_name: str = Field(
+        ...,
+        min_length=1,
+        description="Name of the LLM model to use"
+    )
+    base_url: str = Field(
+        default="http://localhost:11434",
+        min_length=1,
+        description="Base URL for the LLM API service"
+    )
+    system_prompt: Optional[str] = Field(
+        default=None,
+        description="Optional system prompt to set model behavior"
+    )
+    ctx_length: int = Field(
+        default=32000,
+        gt=0,
+        description="Context length (token limit) for the model"
+    )
+    default_timeout: float = Field(
+        default=300.0,
+        gt=0,
+        description="Default timeout in seconds for API calls"
+    )
+    provider: str = Field(
+        default="ollama",
+        description="Provider name (e.g., 'ollama', 'openai', 'vllm')"
+    )
+    api_key: str = Field(
+        default="",
+        description="API key for authentication (if required by provider)"
+    )
+    structured_output: str = Field(
+        default="response_format",
+        description="Mode for structured output: 'response_format' or 'tools'"
+    )
 
-    def __post_init__(self):
-        """Validate configuration after initialization."""
-        if not self.model_name:
-            raise ValueError("LLM model_name cannot be empty")
-        if not self.base_url:
-            raise ValueError("LLM base_url cannot be empty")
-        if self.ctx_length <= 0:
-            raise ValueError("Context length must be positive")
-        if self.default_timeout <= 0:
-            raise ValueError("Default timeout must be positive")
-        if self.structured_output not in ["response_format", "tools"]:
+    model_config = {
+        "validate_assignment": True,
+    }
+
+    @field_validator('structured_output')
+    @classmethod
+    def validate_structured_output(cls, v: str) -> str:
+        """Validate structured output mode."""
+        if v not in ["response_format", "tools"]:
             raise ValueError(
                 "structured_output must be either 'response_format' or 'tools'"
             )
+        return v
 
     @classmethod
     def ollama(

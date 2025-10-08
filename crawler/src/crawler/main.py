@@ -1,4 +1,3 @@
-from dataclasses import dataclass, field
 import os
 import uuid
 import time
@@ -7,6 +6,7 @@ from typing import Dict, Union, List, Any, Optional
 import json
 from pathlib import Path
 from tqdm import tqdm
+from pydantic import BaseModel, Field, field_validator
 
 
 # Configure logging for the entire crawler system
@@ -100,7 +100,7 @@ try:
     )
 except ImportError:
     # When run standalone (e.g., for testing)
-    from processing import (
+    from processing import (  # pyright: ignore[reportMissingImports]
         Embedder,
         EmbedderConfig,
         get_embedder,
@@ -114,7 +114,7 @@ except ImportError:
         create_converter,
         create_extractor,
     )
-    from storage import (
+    from storage import (  # pyright: ignore[reportMissingImports]
         DatabaseClient,
         DatabaseClientConfig,
         DatabaseDocument,
@@ -243,41 +243,81 @@ Example config:
 """
 
 
-@dataclass
-class CrawlerConfig:
-    """Configuration for the document crawler."""
+class CrawlerConfig(BaseModel):
+    """Configuration for the document crawler with Pydantic validation.
+    
+    This class provides type-safe configuration management for the crawler system,
+    with automatic validation and serialization capabilities.
+    """
 
-    embeddings: EmbedderConfig
-    llm: LLMConfig
-    vision_llm: LLMConfig
-    database: DatabaseClientConfig
-    converter: ConverterConfig = field(
-        default_factory=lambda: ConverterConfig(type="pymupdf")
+    embeddings: EmbedderConfig = Field(
+        ..., description="Configuration for the embedding model"
     )
-    extractor: ExtractorConfig = field(
+    llm: LLMConfig = Field(
+        ..., description="Configuration for the main LLM used for metadata extraction"
+    )
+    vision_llm: LLMConfig = Field(
+        ..., description="Configuration for the vision LLM used for image processing"
+    )
+    database: DatabaseClientConfig = Field(
+        ..., description="Configuration for the vector database"
+    )
+    converter: ConverterConfig = Field(
+        default_factory=lambda: ConverterConfig(type="pymupdf"),
+        description="Configuration for document conversion to markdown"
+    )
+    extractor: ExtractorConfig = Field(
         default_factory=lambda: ExtractorConfig(
             type="basic", llm=LLMConfig.ollama(model_name="llama3.2:3b")
-        )
+        ),
+        description="Configuration for metadata extraction"
     )
-    chunk_size: int = 10000  # treated as maximum if using semantic chunking
-    metadata_schema: Dict[str, Any] = field(default_factory=dict)
-    temp_dir: str = "tmp/"
-    benchmark: bool = False
-    generate_benchmark_questions: bool = (
-        False  # Generate benchmark questions during metadata extraction
+    chunk_size: int = Field(
+        default=10000,
+        gt=0,
+        description="Maximum chunk size for text splitting (treated as maximum if using semantic chunking)"
     )
-    num_benchmark_questions: int = 3  # Number of benchmark questions to generate
-    log_level: str = "INFO"  # Logging level (DEBUG, INFO, WARNING, ERROR)
-    log_file: Optional[str] = None  # Optional log file path
+    metadata_schema: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="JSON schema for metadata validation"
+    )
+    temp_dir: str = Field(
+        default="tmp/",
+        min_length=1,
+        description="Temporary directory for caching processed documents"
+    )
+    benchmark: bool = Field(
+        default=False,
+        description="Whether to run benchmarking after crawling"
+    )
+    generate_benchmark_questions: bool = Field(
+        default=False,
+        description="Generate benchmark questions during metadata extraction"
+    )
+    num_benchmark_questions: int = Field(
+        default=3,
+        gt=0,
+        description="Number of benchmark questions to generate per document"
+    )
+    log_level: str = Field(
+        default="INFO",
+        description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)"
+    )
+    log_file: Optional[str] = Field(
+        default=None,
+        description="Optional log file path for persistent logging"
+    )
 
-    def __post_init__(self):
-        """Validate configuration after initialization."""
-        if self.chunk_size <= 0:
-            raise ValueError("Chunk size must be positive")
-        if self.num_benchmark_questions <= 0:
-            raise ValueError("Number of benchmark questions must be positive")
-        if self.log_level not in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
-            raise ValueError("Invalid log level")
+    model_config = {"validate_assignment": True}
+
+    @field_validator('log_level')
+    @classmethod
+    def validate_log_level(cls, v: str) -> str:
+        """Validate that log_level is one of the allowed values."""
+        allowed_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+        if v not in allowed_levels:
+            raise ValueError(f"Invalid log level. Must be one of: {', '.join(allowed_levels)}")
+        return v
 
     @classmethod
     def create(
@@ -343,6 +383,84 @@ class CrawlerConfig:
             vision_llm=vision_llm,
             database=database,
             **kwargs,
+        )
+
+    @classmethod
+    def from_dict(cls, config_dict: Dict[str, Any]) -> "CrawlerConfig":
+        """Create a CrawlerConfig from a dictionary configuration.
+        
+        This method provides backward compatibility with dictionary-based configurations
+        while leveraging Pydantic's validation capabilities.
+        
+        Args:
+            config_dict: Dictionary containing configuration parameters
+            
+        Returns:
+            Validated CrawlerConfig instance
+            
+        Example:
+            >>> config = CrawlerConfig.from_dict({
+            ...     "embeddings": {"provider": "ollama", "model": "all-minilm:v2", ...},
+            ...     "llm": {"model_name": "llama3.2:3b", ...},
+            ...     "vision_llm": {"model_name": "llava:latest", ...},
+            ...     "database": {"provider": "milvus", "collection": "docs", ...},
+            ... })
+        """
+        # Extract nested configs and convert them to Pydantic models
+        embeddings_dict = config_dict.get("embeddings", {})
+        embeddings = EmbedderConfig(**embeddings_dict)
+        
+        llm_dict = config_dict.get("llm", {})
+        llm = LLMConfig(**llm_dict)
+        
+        vision_llm_dict = config_dict.get("vision_llm", {})
+        vision_llm = LLMConfig(**vision_llm_dict)
+        
+        database_dict = config_dict.get("database", {})
+        database = DatabaseClientConfig(**database_dict)
+        
+        # Handle converter config
+        converter_dict = config_dict.get("converter", {"type": "pymupdf"})
+        converter = ConverterConfig(**converter_dict)
+        
+        # Handle extractor config
+        extractor_dict = config_dict.get("extractor", {})
+        if extractor_dict:
+            # If extractor has its own llm config, convert it
+            if "llm" in extractor_dict and isinstance(extractor_dict["llm"], dict):
+                extractor_dict["llm"] = LLMConfig(**extractor_dict["llm"])
+            extractor = ExtractorConfig(**extractor_dict)
+        else:
+            extractor = ExtractorConfig(type="basic", llm=llm)
+        
+        # Extract utility parameters
+        utils = config_dict.get("utils", {})
+        chunk_size = utils.get("chunk_size", 10000)
+        temp_dir = utils.get("temp_dir", "tmp/")
+        benchmark = utils.get("benchmark", False)
+        
+        # Extract other top-level parameters
+        metadata_schema = config_dict.get("metadata_schema", {})
+        generate_benchmark_questions = config_dict.get("generate_benchmark_questions", False)
+        num_benchmark_questions = config_dict.get("num_benchmark_questions", 3)
+        log_level = config_dict.get("log_level", "INFO")
+        log_file = config_dict.get("log_file", None)
+        
+        return cls(
+            embeddings=embeddings,
+            llm=llm,
+            vision_llm=vision_llm,
+            database=database,
+            converter=converter,
+            extractor=extractor,
+            chunk_size=chunk_size,
+            metadata_schema=metadata_schema,
+            temp_dir=temp_dir,
+            benchmark=benchmark,
+            generate_benchmark_questions=generate_benchmark_questions,
+            num_benchmark_questions=num_benchmark_questions,
+            log_level=log_level,
+            log_file=log_file,
         )
 
 

@@ -417,7 +417,7 @@ class MilvusBenchmark(DatabaseBenchmark):
                                     distance = res["distance"]
                                     result = BenchmarkResult(
                                         query=query,
-                                        expected_source=source,
+                                        expected_source=str(source),
                                         placement_order=placement,
                                         distance=distance,
                                         time_to_search=search_time,
@@ -442,7 +442,7 @@ class MilvusBenchmark(DatabaseBenchmark):
                             if not found_in_results:
                                 result = BenchmarkResult(
                                     query=query,
-                                    expected_source=source,
+                                    expected_source=str(source),
                                     found=False,
                                     time_to_search=search_time,
                                 )
@@ -461,7 +461,7 @@ class MilvusBenchmark(DatabaseBenchmark):
                             )
                             result = BenchmarkResult(
                                 query=query,
-                                expected_source=source,
+                                expected_source=str(source),
                                 found=False,
                                 time_to_search=search_time,
                             )
@@ -522,8 +522,11 @@ class MilvusBenchmark(DatabaseBenchmark):
         for k, percentage in top_k_highlights:
             self.logger.info(f"   • Top-{k}: {percentage:.1f}%")
 
+        # Convert integer keys to strings for Pydantic validation
+        results_by_doc_str_keys = {str(k): v for k, v in results_by_doc.items()}
+
         return BenchmarkRunResults(
-            results_by_doc=results_by_doc,
+            results_by_doc=results_by_doc_str_keys,
             placement_distribution=placement_distribution,
             distance_distribution=distance_distribution,
             percent_in_top_k=percent_in_top_k,

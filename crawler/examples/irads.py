@@ -1,6 +1,14 @@
 from crawler import Crawler, CrawlerConfig
-from crawler.processing import MultiSchemaExtractor, OllamaLLM
+from crawler.processing import (
+    ExtractorConfig,
+    ConverterConfig,
+    EmbedderConfig,
+    LLMConfig,
+)
+from crawler.storage import DatabaseClientConfig
 
+
+# Example configuration for crawling IRADS (Internal R&D) documents
 full_schema = {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Document Core Properties",
@@ -219,16 +227,119 @@ irad_config_dict = {
     "metadata_schema": metadata_schema,
 }
 
+# File paths for processing
 dir_path = "/home/ubuntu/irads-crawler/data/irads"
 short_options = ["/home/ubuntu/irads-crawler/data/irads/test.pdf"]
 
 
+def create_irad_config() -> CrawlerConfig:
+    """Create type-safe configuration for IRADS document processing.
+    
+    This uses the new Pydantic-based configuration system for better type safety
+    and validation.
+    """
+    # Embeddings configuration
+    embeddings = EmbedderConfig.ollama(
+        model="nomic-embed-text",
+        base_url="http://localhost:11434"
+    )
+    
+    # Vision LLM for image processing
+    vision_llm = LLMConfig.ollama(
+        model_name="gemma3:latest",
+        base_url="http://localhost:11434"
+    )
+    
+    # Main LLM for metadata extraction
+    llm = LLMConfig.ollama(
+        model_name="gemma3",
+        base_url="http://localhost:11434",
+        structured_output="tools"
+    )
+    
+    # Database configuration
+    database = DatabaseClientConfig.milvus(
+        collection="irad_documents",
+        host="localhost",
+        port=19530,
+        username="root",
+        password="Milvus",
+        recreate=True,
+    )
+    
+    # Multi-schema extractor configuration
+    extractor = ExtractorConfig.multi_schema(
+        schemas=[schema1, schema2],
+        llm=llm,
+        document_library_context=irad_library_description
+    )
+    
+    # PyMuPDF converter configuration with image processing
+    converter = ConverterConfig.pymupdf(
+        vision_llm=vision_llm,
+        metadata={
+            "preserve_formatting": True,
+            "include_page_numbers": True,
+            "include_metadata": True,
+            "sort_reading_order": True,
+            "extract_tables": True,
+            "table_strategy": "lines_strict",
+            "image_description_prompt": "Describe this image in detail for a technical document.",
+            "image_describer": {
+                "type": "ollama",
+                "model": "gemma3:latest",
+                "base_url": "http://localhost:11434",
+            },
+        },
+    )
+    
+    # Create the complete crawler configuration
+    config = CrawlerConfig.create(
+        embeddings=embeddings,
+        llm=llm,
+        vision_llm=vision_llm,
+        database=database,
+        converter=converter,
+        extractor=extractor,
+        chunk_size=1000,
+        metadata_schema=metadata_schema,
+        temp_dir="/tmp/irads",
+        benchmark=False,
+        log_level="INFO",
+    )
+    
+    return config
+
+
 def main():
-    config = CrawlerConfig.from_dict(irad_config_dict)
-    config.log_level = "INFO"  # Set log level for testing
-    mycrawler = Crawler(config)  # Extractor will be created from config
+    """Main function to run the IRADS document processing pipeline."""
+    print("🚀 Starting IRADS document processing with type-safe configuration...")
+    
+    # Create configuration using the new type-safe approach
+    config = create_irad_config()
+    
+    # Alternative: Use dictionary-based configuration for backward compatibility
+    # config = CrawlerConfig.from_dict(irad_config_dict)
+    
+    print(f"📊 Configuration created:")
+    print(f"   • Collection: {config.database.collection}")
+    print(f"   • LLM: {config.llm.model_name}")
+    print(f"   • Vision LLM: {config.vision_llm.model_name}")
+    print(f"   • Chunk size: {config.chunk_size}")
+    
+    # Create and run crawler
+    mycrawler = Crawler(config)
+    print("🔄 Starting document processing...")
+    
+    # Process documents
     mycrawler.crawl(short_options)
-    # mycrawler.benchmark()  # Comment out benchmark for now
+    
+    # Run benchmark if enabled
+    if config.benchmark:
+        print("📊 Running benchmark analysis...")
+        mycrawler.benchmark()
+    
+    print("✅ IRADS document processing completed successfully!")
 
 
 if __name__ == "__main__":

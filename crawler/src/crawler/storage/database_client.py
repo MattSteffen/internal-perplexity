@@ -4,163 +4,244 @@ import os
 import json
 import matplotlib.pyplot as plt
 
-from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, List
+from ..processing.embeddings import EmbedderConfig
 
-from typing import Any, List, Dict
-from abc import abstractmethod
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
-@dataclass
-class DatabaseDocument:
+class DatabaseDocument(BaseModel):
     """
-    Protocol defining the minimum interface for document data.
+    Pydantic model defining the interface for document data.
 
     All system fields use default_ prefix to avoid conflicts with user metadata.
-    Any object that has these attributes/methods can be used as document data.
-    This includes regular dicts, custom classes, dataclasses, etc.
+    This model provides automatic validation and serialization for document chunks.
+    
+    Attributes:
+        default_document_id: Unique identifier for the document chunk (UUID)
+        default_text: The text content of the document chunk
+        default_text_embedding: Dense vector embedding of the text
+        default_chunk_index: Index of this chunk within the document (0-based)
+        default_source: Source identifier (e.g., file path, URL)
+        security_group: List of security groups for RBAC access control
+        metadata: Additional user-defined metadata as key-value pairs
+        id: Database-assigned primary key (default: -1 before insertion)
+        default_metadata: JSON string representation of metadata
+        default_minio: URL to the original document in MinIO storage
+        default_text_sparse_embedding: Sparse embedding for BM25 full-text search
+        default_metadata_sparse_embedding: Sparse embedding of metadata for BM25 search
+        default_benchmark_questions: List of benchmark questions for testing
     """
 
     # Required attributes - these must exist (using prefixed field names)
-    default_document_id: str
-    default_text: str
-    default_text_embedding: List[float]
-    default_chunk_index: int
-    default_source: str
-    metadata: Dict[str, any] = field(default_factory=dict)
-
-    id: Optional[int] = -1
-    default_metadata: Optional[str] = ""
-    default_minio: Optional[str] = ""
-    default_text_sparse_embedding: Optional[List[float]] = field(default_factory=list)
-    default_metadata_sparse_embedding: Optional[List[float]] = field(
-        default_factory=list
+    default_document_id: str = Field(
+        ...,
+        description="Unique identifier for the document chunk (UUID format)"
     )
-    default_benchmark_questions: Optional[List[str]] = field(default_factory=list)
+    default_text: str = Field(
+        ...,
+        description="The text content of the document chunk"
+    )
+    default_text_embedding: List[float] = Field(
+        ...,
+        description="Dense vector embedding of the text content"
+    )
+    default_chunk_index: int = Field(
+        ...,
+        ge=0,
+        description="Zero-based index of this chunk within the parent document"
+    )
+    default_source: str = Field(
+        ...,
+        description="Source identifier (file path, URL, etc.)"
+    )
+    security_group: List[str] = Field(
+        default_factory=lambda: ["public"],
+        description="List of security groups for RBAC row-level access control"
+    )
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="User-defined metadata as key-value pairs"
+    )
 
-    # Required methods for dict-like access
+    # Optional attributes with defaults
+    id: Optional[int] = Field(
+        default=-1,
+        description="Database-assigned primary key (auto-generated on insert)"
+    )
+    default_metadata: Optional[str] = Field(
+        default="",
+        description="JSON string representation of the metadata field"
+    )
+    default_minio: Optional[str] = Field(
+        default="",
+        description="URL to the original document in MinIO object storage"
+    )
+    default_text_sparse_embedding: Optional[List[float]] = Field(
+        default_factory=list,
+        description="Sparse vector embedding for BM25 full-text search on text"
+    )
+    default_metadata_sparse_embedding: Optional[List[float]] = Field(
+        default_factory=list,
+        description="Sparse vector embedding for BM25 full-text search on metadata"
+    )
+    default_benchmark_questions: Optional[List[str]] = Field(
+        default_factory=list,
+        description="List of benchmark questions generated for testing retrieval"
+    )
+    
+    model_config = {
+        "extra": "forbid",  # Prevent extra fields to maintain schema integrity
+        "validate_assignment": True,  # Validate when fields are assigned after initialization
+    }
+
+    # Dict-like access methods for backward compatibility
     def __getitem__(self, key: str) -> Any:
-        match key:
-            case "default_text":
-                return self.default_text
-            case "default_text_embedding":
-                return self.default_text_embedding
-            case "default_chunk_index":
-                return self.default_chunk_index
-            case "default_minio":
-                return self.default_minio
-            case "default_document_id":
-                return self.default_document_id
-            case "default_metadata":
-                return self.default_metadata
-            case "default_metadata_sparse_embedding":
-                return self.default_metadata_sparse_embedding
-            case "default_source":
-                return self.default_source
-            case "default_benchmark_questions":
-                return self.default_benchmark_questions
-            case _:
-                return self.metadata.get(key)
+        """
+        Enable dict-like access to fields.
+        Falls back to metadata for unknown keys.
+        """
+        try:
+            return getattr(self, key)
+        except AttributeError:
+            return self.metadata.get(key)
 
     def get(self, key: str, default: Any = None) -> Any:
-        val = self.__getitem__(key)
-        if val is not None:
-            return val
-        else:
+        """
+        Get a field value with a default fallback.
+        
+        Args:
+            key: Field name to retrieve
+            default: Default value if field doesn't exist
+            
+        Returns:
+            Field value or default
+        """
+        try:
+            val = self.__getitem__(key)
+            return val if val is not None else default
+        except Exception:
             return default
 
-    def to_dict(self) -> Dict[str, any]:
-        return {
-            "default_document_id": self.default_document_id,
-            "default_minio": self.default_minio,
-            "default_text": self.default_text,
-            "default_text_embedding": self.default_text_embedding,
-            "default_chunk_index": self.default_chunk_index,
-            "default_metadata": self.default_metadata,
-            "default_source": self.default_source,
-            "default_benchmark_questions": self.default_benchmark_questions,
-            "metadata": self.metadata,
-        }
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Convert to dictionary representation.
+        Uses Pydantic's model_dump for serialization.
+        
+        Returns:
+            Dictionary representation of the document
+        """
+        return self.model_dump()
 
     @classmethod
-    def from_dict(cls, data: Dict[str, any]) -> "DatabaseDocument":
-        id = data.get("id")
-        default_text = data.get("default_text")
-        default_text_embedding = data.get("default_text_embedding")
-        default_chunk_index = data.get("default_chunk_index")
-        default_minio = data.get("default_minio")
-        default_document_id = data.get("default_document_id")
-        default_metadata = data.get("default_metadata")
-        default_metadata_sparse_embedding = data.get(
-            "default_metadata_sparse_embedding"
-        )
-        default_source = data.get("default_source")
-        default_benchmark_questions = data.get("default_benchmark_questions")
-        metadata = data.get("metadata")
-        if any(
-            [
-                default_text is None,
-                default_text_embedding is None,
-                default_chunk_index is None,
-                default_source is None,
-                default_document_id is None,
-                default_metadata is None,
-                default_metadata_sparse_embedding is None,
-                id is None,
-            ]
-        ):
-            raise ValueError("missing data")
-        return cls(
-            id=id,
-            default_text=default_text,
-            default_text_embedding=default_text_embedding,
-            default_chunk_index=default_chunk_index,
-            default_source=default_source,
-            default_document_id=default_document_id,
-            default_minio=default_minio,
-            default_metadata=default_metadata,
-            default_metadata_sparse_embedding=default_metadata_sparse_embedding,
-            metadata=metadata,
-            default_benchmark_questions=default_benchmark_questions,
-        )
+    def from_dict(cls, data: Dict[str, Any]) -> "DatabaseDocument":
+        """
+        Create a DatabaseDocument from a dictionary.
+        Uses Pydantic's validation for type checking.
+        
+        Args:
+            data: Dictionary containing document data
+            
+        Returns:
+            DatabaseDocument instance
+            
+        Raises:
+            ValidationError: If required fields are missing or invalid
+        """
+        return cls.model_validate(data)
 
     def to_string(self) -> str:
-        # TODO: Nicely format the string for llm input
-        return json.dumps(self.to_dict(), indent=4)
+        """
+        Convert to formatted JSON string.
+        Useful for LLM input or debugging.
+        
+        Returns:
+            Pretty-printed JSON string
+        """
+        return self.model_dump_json(indent=4)
 
 
-@dataclass
-class DatabaseClientConfig:
-    """Base configuration for database clients."""
+class DatabaseClientConfig(BaseModel):
+    """
+    Base configuration for database clients.
+    
+    This model provides type-safe configuration for connecting to vector databases.
+    All connection parameters are validated at creation time.
+    
+    Attributes:
+        provider: Database provider name (e.g., "milvus")
+        collection: Name of the database collection/table
+        partition: Optional partition name within the collection
+        recreate: Whether to drop and recreate the collection if it exists
+        collection_description: Optional description of the collection
+        host: Database host address
+        port: Database port number (1-65535)
+        username: Authentication username
+        password: Authentication password
+    """
 
-    provider: str  # milvus
-    collection: str
-    partition: Optional[str] = None
-    recreate: bool = False
-    collection_description: Optional[str] = None
+    provider: str = Field(
+        ...,
+        min_length=1,
+        description="Database provider name (e.g., 'milvus')"
+    )
+    collection: str = Field(
+        ...,
+        min_length=1,
+        description="Name of the database collection or table"
+    )
+    partition: Optional[str] = Field(
+        default=None,
+        description="Optional partition name for data organization within the collection"
+    )
+    recreate: bool = Field(
+        default=False,
+        description="If True, drop and recreate the collection if it already exists"
+    )
+    collection_description: Optional[str] = Field(
+        default=None,
+        description="Optional human-readable description of the collection"
+    )
+    host: str = Field(
+        default="localhost",
+        description="Database server hostname or IP address"
+    )
+    port: int = Field(
+        default=19530,
+        ge=1,
+        le=65535,
+        description="Database server port number (must be between 1 and 65535)"
+    )
+    username: str = Field(
+        default="root",
+        description="Database authentication username"
+    )
+    password: str = Field(
+        default="Milvus",
+        description="Database authentication password"
+    )
 
-    host: str = "localhost"
-    port: int = 19530
-    username: str = "root"
-    password: str = "Milvus"
-
-    def __post_init__(self):
-        """Validate configuration after initialization."""
-        if not self.provider:
-            raise ValueError("Database provider cannot be empty")
-        if not self.collection:
-            raise ValueError("Database collection cannot be empty")
-        if self.port <= 0 or self.port > 65535:
-            raise ValueError("Port must be between 1 and 65535")
+    model_config = {
+        "validate_assignment": True,  # Validate when fields are assigned after initialization
+    }
 
     @property
     def uri(self) -> str:
-        """Get the connection URI."""
+        """
+        Get the connection URI for the database.
+        
+        Returns:
+            Connection URI in format http://host:port
+        """
         return f"http://{self.host}:{self.port}"
 
     @property
     def token(self) -> str:
-        """Get the authentication token."""
+        """
+        Get the authentication token.
+        
+        Returns:
+            Authentication token in format username:password
+        """
         return f"{self.username}:{self.password}"
 
     @classmethod
@@ -175,7 +256,25 @@ class DatabaseClientConfig:
         recreate: bool = False,
         collection_description: Optional[str] = None,
     ) -> "DatabaseClientConfig":
-        """Create Milvus database configuration."""
+        """
+        Create a Milvus-specific database configuration.
+        
+        This is a convenience factory method for creating Milvus configurations
+        with sensible defaults.
+        
+        Args:
+            collection: Name of the Milvus collection
+            host: Milvus server hostname (default: localhost)
+            port: Milvus server port (default: 19530)
+            username: Authentication username (default: root)
+            password: Authentication password (default: Milvus)
+            partition: Optional partition name
+            recreate: Whether to recreate the collection
+            collection_description: Optional collection description
+            
+        Returns:
+            DatabaseClientConfig configured for Milvus
+        """
         return cls(
             provider="milvus",
             collection=collection,
@@ -273,45 +372,109 @@ class DatabaseClient(ABC):
         pass
 
 
-from typing import Any, Dict, List, Optional
+class BenchmarkResult(BaseModel):
+    """
+    Results for a single query in a benchmark run.
+    
+    This model captures the performance metrics for a single search query,
+    including whether the expected document was found and where it ranked.
+    
+    Attributes:
+        query: The search query text
+        expected_source: The expected document source that should be found
+        placement_order: Position where the expected document was found (1-indexed, None if not found)
+        distance: Similarity distance/score for the result
+        time_to_search: Time taken to execute the search in seconds
+        found: Whether the expected document was found in the results
+    """
 
-
-@dataclass
-class BenchmarkResult:
-    """Data for a single query in a benchmark run."""
-
-    query: str
-    expected_source: str
-    placement_order: Optional[int] = None
-    distance: Optional[float] = None
-    time_to_search: float = 0.0
-    found: bool = False
+    query: str = Field(
+        ...,
+        description="The search query text that was executed"
+    )
+    expected_source: str = Field(
+        ...,
+        description="The expected document source identifier that should be retrieved"
+    )
+    placement_order: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="1-indexed position where the expected document was found (None if not found)"
+    )
+    distance: Optional[float] = Field(
+        default=None,
+        description="Similarity distance or score for the retrieved result"
+    )
+    time_to_search: float = Field(
+        default=0.0,
+        ge=0,
+        description="Time taken to execute the search query in seconds"
+    )
+    found: bool = Field(
+        default=False,
+        description="Whether the expected document was found in the search results"
+    )
 
     def to_dict(self) -> Dict[str, Any]:
-        """Converts the dataclass instance to a dictionary."""
-        return {
-            "query": self.query,
-            "expected_source": self.expected_source,
-            "placement_order": self.placement_order,
-            "distance": self.distance,
-            "time_to_search": self.time_to_search,
-            "found": self.found,
-        }
+        """
+        Convert to dictionary representation.
+        
+        Returns:
+            Dictionary containing all benchmark result fields
+        """
+        return self.model_dump()
 
 
-@dataclass
-class BenchmarkRunResults:
-    """Aggregated results from a benchmark run."""
+class BenchmarkRunResults(BaseModel):
+    """
+    Aggregated results from a complete benchmark run.
+    
+    This model contains all the metrics and statistics collected during
+    a benchmark run across multiple documents and queries.
+    
+    Attributes:
+        results_by_doc: Mapping of document source to list of benchmark results
+        placement_distribution: Histogram of placement positions (position -> count)
+        distance_distribution: List of all similarity distances from results
+        percent_in_top_k: Percentage of queries found in top-k results (k -> percentage)
+        search_time_distribution: List of all search times in seconds
+    """
 
-    results_by_doc: Dict[str, List[BenchmarkResult]]
-    placement_distribution: Dict[int, int]
-    distance_distribution: List[float]
-    percent_in_top_k: Dict[int, float]
-    search_time_distribution: List[float]
+    results_by_doc: Dict[str, List[BenchmarkResult]] = Field(
+        ...,
+        description="Mapping of document source identifiers to their benchmark results"
+    )
+    placement_distribution: Dict[int, int] = Field(
+        ...,
+        description="Distribution of placement positions: position (1-indexed) -> frequency count"
+    )
+    distance_distribution: List[float] = Field(
+        ...,
+        description="List of all similarity distances/scores from the benchmark"
+    )
+    percent_in_top_k: Dict[int, float] = Field(
+        ...,
+        description="Percentage of queries found in top-k results: k -> percentage (0-100)"
+    )
+    search_time_distribution: List[float] = Field(
+        ...,
+        description="List of all search execution times in seconds"
+    )
+
+    model_config = {
+        "validate_assignment": True,
+    }
 
     def to_dict(self) -> Dict[str, Any]:
-        """Converts the dataclass instance to a JSON-serializable dictionary."""
-        # Convert integer keys in distributions to strings for JSON compatibility
+        """
+        Convert to JSON-serializable dictionary representation.
+        
+        Integer dictionary keys are converted to strings for JSON compatibility.
+        BenchmarkResult objects are also converted to dictionaries.
+        
+        Returns:
+            Dictionary representation with all data serialized
+        """
         return {
             "results_by_doc": {
                 source: [result.to_dict() for result in results]

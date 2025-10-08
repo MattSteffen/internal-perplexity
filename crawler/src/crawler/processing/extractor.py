@@ -1,33 +1,55 @@
 import logging
 import time
 import json
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional, Union
 from abc import ABC, abstractmethod
+from pydantic import BaseModel, Field, field_validator
 from .llm import LLM, LLMConfig, schema_to_openai_tools
-from dataclasses import dataclass
-from typing import Optional
 
 
-@dataclass
-class ExtractorConfig:
-    """Configuration for document extractors."""
+class ExtractorConfig(BaseModel):
+    """
+    Configuration for document metadata extractors.
+    
+    This model provides type-safe configuration for different extraction
+    strategies with automatic validation of required parameters.
+    
+    Attributes:
+        type: Extractor type ('basic', 'multi_schema')
+        llm: LLM configuration for metadata extraction
+        metadata_schema: JSON schema defining fields to extract
+        document_library_context: Optional context about the document library
+    """
 
-    type: str = "basic"
-    llm: Optional[LLMConfig] = None
-    metadata_schema: Optional[Dict[str, Any]] = (
-        None  # JSON schema for metadata validation
+    type: str = Field(
+        default="basic",
+        min_length=1,
+        description="Extractor type: 'basic' or 'multi_schema'"
     )
-    document_library_context: Optional[str] = ""
+    llm: Optional["LLMConfig"] = Field(
+        default=None,
+        description="LLM configuration for metadata extraction"
+    )
+    metadata_schema: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = Field(
+        default=None,
+        description="JSON schema defining metadata fields to extract (dict for basic, list of dicts for multi_schema)"
+    )
+    document_library_context: Optional[str] = Field(
+        default="",
+        description="Optional context about the document library for better extraction"
+    )
 
-    def __post_init__(self):
-        """Validate configuration after initialization."""
-        if not self.type:
+    model_config = {
+        "validate_assignment": True,
+    }
+
+    @field_validator('type')
+    @classmethod
+    def validate_type(cls, v: str) -> str:
+        """Validate extractor type."""
+        if not v:
             raise ValueError("Extractor type cannot be empty")
-
-        # Validate that LLM is provided for extractors that need it
-        llm_requiring_types = ["basic", "multi_schema"]
-        if self.type in llm_requiring_types and self.llm is None:
-            raise ValueError(f"Extractor type '{self.type}' requires LLM configuration")
+        return v
 
     @classmethod
     def basic(

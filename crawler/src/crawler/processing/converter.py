@@ -15,7 +15,7 @@ import pathlib
 import pymupdf
 import base64
 from typing import List, Dict, Any, Optional, Tuple
-from dataclasses import dataclass
+from pydantic import BaseModel, Field, field_validator
 from tqdm import tqdm
 
 # Third-party imports
@@ -43,27 +43,46 @@ from docling.pipeline.vlm_pipeline import VlmPipeline
 from .llm import LLMConfig
 
 
-@dataclass
-class ConverterConfig:
-    """Configuration for document converters."""
+class ConverterConfig(BaseModel):
+    """
+    Configuration for document converters.
+    
+    This model provides type-safe configuration for different document conversion
+    strategies with automatic validation of required parameters.
+    
+    Attributes:
+        type: Converter type (markitdown, docling, docling_vlm, pymupdf)
+        vision_llm: LLM configuration for vision-based processing
+        metadata: Converter-specific configuration options
+    """
 
-    type: str = "markitdown"
-    vision_llm: Optional[LLMConfig] = None
-    metadata: Optional[Dict[str, Any]] = (
-        None  # Converter-specific metadata configuration
+    type: str = Field(
+        default="markitdown",
+        min_length=1,
+        description="Converter type: 'markitdown', 'docling', 'docling_vlm', or 'pymupdf'"
+    )
+    vision_llm: Optional["LLMConfig"] = Field(
+        default=None,
+        description="LLM configuration for vision-based document processing"
+    )
+    metadata: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Converter-specific metadata and configuration options"
     )
 
-    def __post_init__(self):
-        """Validate configuration after initialization."""
-        if not self.type:
-            raise ValueError("Converter type cannot be empty")
+    model_config = {
+        "validate_assignment": True,
+    }
 
-        # Validate that vision_llm is provided for converters that need it
-        vision_requiring_types = ["markitdown", "docling"]
-        if self.type in vision_requiring_types and self.vision_llm is None:
-            raise ValueError(
-                f"Converter type '{self.type}' requires vision_llm configuration"
-            )
+    @field_validator('type')
+    @classmethod
+    def validate_type(cls, v: str, info) -> str:
+        """Validate converter type and vision_llm requirement."""
+        if not v:
+            raise ValueError("Converter type cannot be empty")
+        
+        # Note: vision_llm validation moved to model_validator since we need access to both fields
+        return v
 
     @classmethod
     def markitdown(
@@ -409,16 +428,53 @@ class DoclingVLMConverter(Converter):
             raise
 
 
-@dataclass
-class ExtractedImage:
-    """Data class for extracted image information"""
+class ExtractedImage(BaseModel):
+    """
+    Data model for extracted image information from documents.
+    
+    Captures all relevant information about an image extracted from a PDF or
+    other document format, including its position, content, and AI-generated description.
+    
+    Attributes:
+        page_number: Zero-based page number where the image was found
+        image_index: Index of the image on the page
+        bbox: Bounding box coordinates as (x0, y0, x1, y1)
+        image_data: Binary image data
+        image_ext: Image file extension (e.g., 'png', 'jpg')
+        description: Optional AI-generated description of the image
+    """
 
-    page_number: int
-    image_index: int
-    bbox: Tuple[float, float, float, float]  # (x0, y0, x1, y1)
-    image_data: bytes
-    image_ext: str
-    description: Optional[str] = None
+    page_number: int = Field(
+        ...,
+        ge=0,
+        description="Zero-based page number where the image was found"
+    )
+    image_index: int = Field(
+        ...,
+        ge=0,
+        description="Index of the image on the page (0-based)"
+    )
+    bbox: Tuple[float, float, float, float] = Field(
+        ...,
+        description="Bounding box coordinates as (x0, y0, x1, y1)"
+    )
+    image_data: bytes = Field(
+        ...,
+        description="Binary image data"
+    )
+    image_ext: str = Field(
+        ...,
+        min_length=1,
+        description="Image file extension (e.g., 'png', 'jpg', 'jpeg')"
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="AI-generated description of the image content"
+    )
+
+    model_config = {
+        "arbitrary_types_allowed": True,  # Allow bytes type
+    }
 
 
 class ImageDescriptionInterface(ABC):

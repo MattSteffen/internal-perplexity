@@ -11,7 +11,7 @@ import time
 import json
 import jsonschema
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from pydantic import BaseModel, Field
 from typing import Dict, List, Any, Optional, Union
 from pathlib import Path
 import httpx
@@ -52,15 +52,46 @@ class ValidationError(Exception):
     pass
 
 
-@dataclass
-class ValidationResult:
-    """Result of a single validation check."""
+class ValidationResult(BaseModel):
+    """
+    Result of a single validation check.
+    
+    This model captures the outcome of a configuration validation test,
+    including timing information and detailed results.
+    
+    Attributes:
+        test_name: Name of the validation test
+        success: Whether the test passed
+        message: Human-readable message describing the result
+        details: Optional dictionary with additional test details
+        duration: Optional time taken to run the test in seconds
+    """
 
-    test_name: str
-    success: bool
-    message: str
-    details: Optional[Dict[str, Any]] = None
-    duration: Optional[float] = None
+    test_name: str = Field(
+        ...,
+        description="Name of the validation test that was run"
+    )
+    success: bool = Field(
+        ...,
+        description="Whether the validation test passed (True) or failed (False)"
+    )
+    message: str = Field(
+        ...,
+        description="Human-readable message describing the validation result"
+    )
+    details: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Optional dictionary containing additional test details and metrics"
+    )
+    duration: Optional[float] = Field(
+        default=None,
+        ge=0,
+        description="Time taken to run the test in seconds (optional)"
+    )
+
+    model_config = {
+        "validate_assignment": True,
+    }
 
 
 class ConfigValidator:

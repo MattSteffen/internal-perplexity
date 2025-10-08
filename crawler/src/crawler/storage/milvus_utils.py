@@ -119,7 +119,9 @@ def _create_base_schema(embedding_size) -> CollectionSchema:
         default_value="[]",
     )
 
-    # RBAC impelmentation
+    # RBAC implementation
+    # Note: Milvus does not support default values for ARRAY fields
+    # The default security group must be set at the application level when inserting documents
     field_schema_security_group = FieldSchema(
         name="security_group",
         dtype=DataType.ARRAY,
@@ -127,7 +129,6 @@ def _create_base_schema(embedding_size) -> CollectionSchema:
         max_capacity=20,
         max_length=100,
         description="The security group of the document for RBAC row-level access control",
-        default_value=DEFAULT_SECURITY_GROUP,
     )
 
     # functions to build the full-text-search indexes

@@ -19,7 +19,4 @@ __all__ = [
     # validation
     "ConfigValidator",
     "ValidationError",
-    # loading
-    "load_config_from_file",
-    "load_config_from_env",
 ]

@@ -2,6 +2,8 @@
 
 This directory contains the core logic for processing documents, from initial conversion to content extraction and embedding generation. The system is designed to be modular, allowing for different implementations of converters, extractors, and language models.
 
+All configuration models use Pydantic BaseModels for type safety and automatic validation.
+
 ## Overview
 
 The document processing system transforms raw files into structured, searchable data through a multi-stage pipeline:
@@ -55,7 +57,7 @@ This module provides a standardized interface for interacting with Large Languag
   - Structured JSON output via `response_format` or `tools`
   - Request timeouts and detailed logging
 - **`VllmLLM`**: Interacts with models served via vLLM using the OpenAI-compatible `/v1/chat/completions` API. Supports the same structured-output modes (`response_format` json_schema and `tools`) with schema parsing.
-- **`LLMConfig`**: A dataclass for configuring LLM clients, specifying the model, URL, system prompt, structured-output mode, and other parameters.
+- **`LLMConfig`**: A Pydantic BaseModel for configuring LLM clients, specifying the model, URL, system prompt, structured-output mode, and other parameters with automatic validation.
 
 ### `embeddings.py`
 
@@ -63,7 +65,50 @@ This module is responsible for generating vector embeddings from text chunks.
 
 - **`Embedder` (Abstract Base Class)**: Defines the interface for embedding models, including methods to generate an embedding and retrieve the model's vector dimension.
 - **`OllamaEmbedder`**: Uses `langchain_ollama` to generate embeddings from models hosted on an Ollama server.
-- **`EmbedderConfig`**: A dataclass for configuring the embedding model, provider, and connection details.
+- **`EmbedderConfig`**: A Pydantic BaseModel for configuring the embedding model, provider, and connection details with automatic validation of model name, URL, and dimension.
+
+---
+
+## Pydantic Configuration Models
+
+All configuration classes in the processing module use Pydantic BaseModels for enhanced type safety and validation:
+
+### Benefits
+
+- **Automatic Validation**: All fields are validated at creation time
+- **Type Safety**: Runtime type checking prevents configuration errors
+- **Field Constraints**: Min/max values, string lengths, numeric ranges
+- **Clear Error Messages**: Validation errors include detailed information
+- **IDE Support**: Full autocomplete and type hints
+- **Serialization**: Easy conversion to/from JSON and dictionaries
+
+### Configuration Models
+
+- `LLMConfig`: Validates model names, URLs, timeouts, context lengths
+- `EmbedderConfig`: Validates model, base URL, and embedding dimension
+- `ConverterConfig`: Validates converter type and vision LLM requirements
+- `ExtractorConfig`: Validates extractor type and LLM configuration
+- `ExtractedImage`: Validates page numbers, indices, and image data
+
+### Example Validation
+
+```python
+from crawler.processing import LLMConfig
+from pydantic import ValidationError
+
+# Valid configuration
+config = LLMConfig.ollama(model_name="llama3.2")
+
+# Invalid configuration will raise ValidationError
+try:
+    bad_config = LLMConfig(
+        model_name="",  # Empty string not allowed
+        ctx_length=-1,  # Must be positive
+    )
+except ValidationError as e:
+    print(f"Validation error: {e}")
+    # Output shows which fields are invalid and why
+```
 
 ---
 
