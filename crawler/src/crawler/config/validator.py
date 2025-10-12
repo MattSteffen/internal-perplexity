@@ -9,6 +9,7 @@ import asyncio
 import logging
 import time
 import json
+from crawler.main import CrawlerConfig
 import jsonschema
 from abc import ABC, abstractmethod
 from pydantic import BaseModel, Field
@@ -28,11 +29,12 @@ try:
     from .config_defaults import DEFAULT_METADATA_SCHEMA
 except ImportError:
     # When run standalone (e.g., for testing)
-    from processing.embeddings import EmbedderConfig, get_embedder
-    from processing.llm import LLMConfig, get_llm
-    from processing.converter import ConverterConfig
-    from storage.database_client import DatabaseClientConfig
-    from storage.database_utils import get_db
+    from processing.embeddings import EmbedderConfig, get_embedder  # pyright: ignore[reportMissingImports]
+    from processing.llm import LLMConfig, get_llm  # pyright: ignore[reportMissingImports]
+    from processing.converter import ConverterConfig  # pyright: ignore[reportMissingImports]
+    from storage.database_client import DatabaseClientConfig  # pyright: ignore[reportMissingImports]
+    from storage.database_utils import get_db  # pyright: ignore[reportMissingImports]
+    from config_defaults import DEFAULT_METADATA_SCHEMA  # pyright: ignore[reportMissingImports]
 
     try:
         from .config_defaults import DEFAULT_METADATA_SCHEMA
@@ -43,7 +45,7 @@ except ImportError:
         # Add the parent directory to the path for standalone imports
         parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
         sys.path.insert(0, parent_dir)
-        from config_defaults import DEFAULT_METADATA_SCHEMA
+        from config_defaults import DEFAULT_METADATA_SCHEMA  # pyright: ignore[reportMissingImports]
 
 
 class ValidationError(Exception):

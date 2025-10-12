@@ -1,6 +1,7 @@
 import os
 import time
 import json
+import copy
 import random
 import logging
 from typing import Any, Dict, List, Optional
@@ -102,7 +103,7 @@ class MilvusBenchmark(DatabaseBenchmark):
             return None
 
     def search(
-        self, queries: List[str], filters: Optional[List[str]] = None
+        self, queries: List[str], filters: Optional[List[str]] = []
     ) -> List[Dict[str, Any]]:
         """
         Performs a hybrid search in Milvus using the given queries and filters with comprehensive logging.
@@ -114,7 +115,14 @@ class MilvusBenchmark(DatabaseBenchmark):
         search_start_time = time.time()
         self.logger.info(f"🔍 Starting hybrid search for {len(queries)} queries...")
         self.logger.debug(f"Filters: {filters}")
+        filters = copy.deepcopy(filters)
+        print("FILTERS: ", filters)
 
+        filters.insert(0, f"array_contains_any(security_group, {list(self.milvus_client.describe_user(self.db_config.username).get('roles', []))})")
+        filter_str = " and ".join(filters)
+        self.logger.debug(f"Filter string: {filter_str}")
+        print("SEARCHING WITH FILTERS: ", filter_str)
+        
         search_requests = []
         embedding_failures = 0
 
@@ -128,7 +136,7 @@ class MilvusBenchmark(DatabaseBenchmark):
                         data=[embedding],
                         anns_field="default_text_embedding",
                         param={"metric_type": "COSINE", "params": {"nprobe": 10}},
-                        expr=" and ".join(filters) if filters else None,
+                        expr=filter_str,
                         limit=10,
                     )
                 )
@@ -144,7 +152,7 @@ class MilvusBenchmark(DatabaseBenchmark):
                     data=[query],
                     anns_field="default_text_sparse_embedding",
                     param={"drop_ratio_search": 0.2},
-                    expr=" and ".join(filters) if filters else None,
+                    expr=filter_str,
                     limit=10,
                 )
             )
@@ -153,7 +161,7 @@ class MilvusBenchmark(DatabaseBenchmark):
                     data=[query],
                     anns_field="default_metadata_sparse_embedding",
                     param={"drop_ratio_search": 0.2},
-                    expr=" and ".join(filters) if filters else None,
+                    expr=filter_str,
                     limit=10,
                 )
             )

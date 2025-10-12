@@ -1,5 +1,25 @@
 # TODO
 
+- In the collection description, we should add the metadata schema and the converter config.
+  - Make it parsable and usable by the crawler.
+  - Also for the OI model.
+
+Desired workflow:
+
+- Server for Crawler
+  - Endpoints:
+    - PUT /upload {documents: [bytes or something], collection: collection_name, authorized_roles: [], config: {extra config for stuff that can be configurable even after collection is created}}
+      - Auth header requried
+    - POST/PATCH /collection {collection: collection_name, config: {}} creates the collection, indexes, etc
+- Server for admin
+
+  - ## Endpoints:
+
+- Security:
+
+  - How to enforce read access to search functions that are guaranteed to filter by permission?
+    - Only user BD has read access. No one except that exact search function can log in as BD and admin type users. Kind of like an NPE cert.
+
 - [x] refactor configs and all types to using pydantic
   - [x] Test to make sure it runs
 - [x] Enable permissions, create users, test row level RBAC
@@ -8,6 +28,7 @@
     - Do the LLMs exist
     - Can the user connect to milvus and is authorized to write to the collection in quesiton
 - Refactor
+
   - director should not have so many nested folders. Inside src/crawler should have:
     - config
     - vector_db
@@ -16,6 +37,7 @@
     - extractor
 
 - [ ] make a rest server
+
   - [ ] Registry of collections, be able to load and know what metadata to extract. Essentially save the configs used.
   - [ ] Must authenticate user, be able to correctly assign groups to the document
   - api
@@ -54,13 +76,13 @@
     - [ ] insert into db
       - [ ] do i stick with milvus?
 
-
-
 How to refactor the converter into a standalone package
 Below is a clean, extensible API design for your converter layer that’s easy to use, test, and extend. It standardizes creation and invocation, introduces a strong interface, typed results, and a plugin-style registry.
 
 Everyday usage (TL;DR)
+
 - Create a converter:
+
   - From a discriminated Pydantic config union via factory
   - Or by name via the registry
 
@@ -69,14 +91,17 @@ Everyday usage (TL;DR)
   - Get a rich result object (markdown + assets + stats)
   - Optionally batch convert
 
-1) Best API to create a converter
+1. Best API to create a converter
+
 - Option A (preferred): Discriminated union config + factory
+
   - You define a Pydantic config per backend. The factory returns the correct implementation based on the type discriminator.
 
 - Option B: Registry by name
   - Useful for plugin/provider injection or loading from dynamic config (e.g., YAML/JSON).
 
 Example
+
 ```python
 from processing.converters import (
   create_converter,
@@ -99,6 +124,7 @@ print(result.markdown)
 ```
 
 Or via registry
+
 ```python
 from processing.converters import (
   registry,
@@ -113,13 +139,14 @@ result = converter.convert(
 )
 ```
 
+2. Best API to use a converter (convert a document)
 
-2) Best API to use a converter (convert a document)
 - Single convert (sync/async)
 - Optional progress callback
 - Optional batch
 
 Example with progress callback
+
 ```python
 from processing.converters import (
   create_converter,
@@ -151,6 +178,7 @@ print(result.markdown[:1000])
 ```
 
 Async + batch
+
 ```python
 import asyncio
 from processing.converters import create_converter, MarkItDownConfig, DocumentInput
@@ -169,57 +197,64 @@ async def main():
 asyncio.run(main())
 ```
 
-
 Proposed file/folder structure
+
 - Keep the converters as a subpackage with clear, focused modules.
 
 processing/
-  converters/
-    __init__.py               # Public API exports
-    base.py                   # Converter interface, exceptions
-    types.py                  # DocumentInput, ConvertOptions, results, events
-    configs.py                # Discriminated union config models
-    factory.py                # create_converter(config: ConverterConfig)
-    registry.py               # Plugin registry for converters by name
-    markitdown.py             # MarkItDownConverter
-    docling.py                # DoclingConverter
-    docling_vlm.py            # DoclingVLMConverter
-    pymupdf.py                # PyMuPDFConverter and ImageDescriber impls
-  # other modules: llm/, extractor/, embeddings/
+converters/
+**init**.py # Public API exports
+base.py # Converter interface, exceptions
+types.py # DocumentInput, ConvertOptions, results, events
+configs.py # Discriminated union config models
+factory.py # create_converter(config: ConverterConfig)
+registry.py # Plugin registry for converters by name
+markitdown.py # MarkItDownConverter
+docling.py # DoclingConverter
+docling_vlm.py # DoclingVLMConverter
+pymupdf.py # PyMuPDFConverter and ImageDescriber impls
 
+# other modules: llm/, extractor/, embeddings/
 
 Types and functions you should have
 
 - Core interface and lifecycle
+
   - Converter (abstract): convert, aconvert, convert_many, aconvert_many, close
   - Capabilities introspection
   - Support checks for input types/mime
 
 - Input and options
+
   - DocumentInput: supports path, bytes, file-like; plus filename/mime hints
   - ConvertOptions: toggles for metadata/images/tables/page_range/etc.
 
 - Results
+
   - ConvertedDocument: markdown + assets (images, tables) + metadata + stats
   - Asset models: ImageAsset, TableAsset
   - ConversionStats: timings, counts
 
 - Events
+
   - ProgressEvent: stage, page, total_pages, message, metrics
   - ProgressCallback: Callable[[ProgressEvent], None]
 
 - Configs (discriminated union)
+
   - MarkItDownConfig
   - DoclingConfig
   - DoclingVLMConfig
   - PyMuPDFConfig
 
 - Factories/registry
+
   - create_converter(config: ConverterConfig) -> Converter
   - registry.register(name: str, builder: Callable[..., Converter])
-  - registry.create(name: str, **kwargs) -> Converter
+  - registry.create(name: str, \*\*kwargs) -> Converter
 
 - Exceptions
+
   - ConversionError
   - UnsupportedFormatError
   - DependencyMissingError
@@ -229,10 +264,10 @@ Types and functions you should have
   - mime detection helper (optional)
   - page range parsing (optional)
 
-
 A well-rounded interface each implementation must implement
 
 base.py
+
 ```python
 from __future__ import annotations
 
@@ -337,6 +372,7 @@ class Converter(abc.ABC):
 ```
 
 types.py
+
 ```python
 from __future__ import annotations
 
@@ -458,6 +494,7 @@ class Capabilities(BaseModel):
 ```
 
 configs.py
+
 ```python
 from __future__ import annotations
 
@@ -507,6 +544,7 @@ ConverterConfig = Annotated[
 ```
 
 factory.py
+
 ```python
 from __future__ import annotations
 
@@ -532,6 +570,7 @@ def create_converter(config: ConverterConfig) -> Converter:
 ```
 
 registry.py
+
 ```python
 from __future__ import annotations
 
@@ -557,6 +596,7 @@ registry = _Registry()
 Example of an implementation adhering to the interface
 
 markitdown.py
+
 ```python
 from __future__ import annotations
 
@@ -628,6 +668,7 @@ class MarkItDownConverter(Converter):
 ```
 
 Why this API?
+
 - Strong typing via Pydantic discriminators keeps configuration safe and self-documenting.
 - A single, minimal interface for implementations (convert/aconvert, supports, capabilities).
 - A rich result object separates concerns (markdown vs. assets vs. stats).
@@ -636,9 +677,57 @@ Why this API?
 - Batch and async methods are standardized (implementors can override for efficiency).
 
 Notes on migration from your current code
+
 - Move provider-specific fields out of a generic ConverterConfig into specific config classes (MarkItDownConfig, DoclingConfig, PyMuPDFConfig).
 - Retain your existing ExtractedImage semantics by mapping it to ImageAsset.
 - Keep your PyMuPDF image describer as a pluggable option under PyMuPDFConfig.image_describer and/or ConvertOptions.describe_images/image_prompt.
 - Maintain your logging but channel user-facing progress through ProgressEvent callbacks.
 
 This keeps creation simple, usage ergonomic, and implementation details isolated, while giving you a consistent, type-safe API across backends.
+
+Launch docling with:
+
+```bash
+docker run -p 5001:5001 -e DOCLING_SERVE_ENABLE_UI=1 -e DOCLING_SERVE_ENABLE_REMOTE_SERVICES=1 quay.io/docling-project/docling-serve
+```
+
+```bash
+# curl -X POST 'http://localhost:5001/v1/convert/source' \
+curl -X POST 'https://api.meatheadmathematician.com/test/v1/convert/source' \
+  -H 'accept: application/json' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "options": {
+      "from_formats": ["pdf"],
+      "to_formats": ["md"],
+      "abort_on_error": true,
+      "do_picture_description": true,
+      "image_export_mode": "embedded",
+      "include_images": true,
+      "picture_description_api": {
+        "url": "http://host.docker.internal:11434/v1/chat/completions",
+        "params": {
+          "model": "granite3.2-vision:latest"
+        },
+        "timeout": 600,
+        "prompt": "Describe this image in detail for a technical document."
+      }
+    },
+    "sources": [{"kind": "http", "url": "https://arxiv.org/pdf/2501.17887"}]
+  }' > test.json
+
+curl -X POST 'https://api.meatheadmathematician.com/test/v1/convert/source' \
+  -H 'accept: application/json' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "options": {
+      "from_formats": ["pdf"],
+      "to_formats": ["md"],
+      "abort_on_error": true,
+      "do_picture_description": false,
+      "image_export_mode": "embedded",
+      "include_images": true
+    },
+    "sources": [{"kind": "http", "url": "https://arxiv.org/pdf/2501.17887"}]
+  }' > test.json
+```

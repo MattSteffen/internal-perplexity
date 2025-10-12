@@ -77,21 +77,13 @@ def setup_crawler_logging(
 
 try:
     # When run as part of the crawler package
-    from .processing import (
-        Embedder,
-        EmbedderConfig,
-        get_embedder,
-        Extractor,
-        ExtractorConfig,
-        LLM,
-        LLMConfig,
-        get_llm,
-        Converter,
-        ConverterConfig,
-        create_converter,
-        create_extractor,
-    )
-    from .storage import (
+    from .converter import Converter, ConverterConfig, create_converter
+
+    from .llm.embeddings import Embedder, EmbedderConfig, get_embedder
+    from .extractor.extractor import MetadataExtractor, MetadataExtractorConfig
+    from .llm.llm import LLM, LLMConfig, get_llm
+    from .chunker import Chunker, ChunkingConfig
+    from .vector_db import (
         DatabaseClient,
         DatabaseClientConfig,
         DatabaseDocument,
@@ -100,21 +92,27 @@ try:
     )
 except ImportError:
     # When run standalone (e.g., for testing)
-    from processing import (  # pyright: ignore[reportMissingImports]
+    from .llm.embeddings import (
         Embedder,
         EmbedderConfig,
         get_embedder,
-        Extractor,
-        ExtractorConfig,
+    )
+    from .extractor.extractor import (
+        MetadataExtractor,
+        MetadataExtractorConfig,
+    )
+    from .llm.llm import (
         LLM,
         LLMConfig,
         get_llm,
+    )
+    from .converter import (
         Converter,
         ConverterConfig,
         create_converter,
-        create_extractor,
     )
-    from storage import (  # pyright: ignore[reportMissingImports]
+    from .chunker import Chunker, ChunkingConfig
+    from .vector_db import (  # pyright: ignore[reportMissingImports]
         DatabaseClient,
         DatabaseClientConfig,
         DatabaseDocument,
@@ -245,7 +243,7 @@ Example config:
 
 class CrawlerConfig(BaseModel):
     """Configuration for the document crawler with Pydantic validation.
-    
+
     This class provides type-safe configuration management for the crawler system,
     with automatic validation and serialization capabilities.
     """
@@ -264,59 +262,65 @@ class CrawlerConfig(BaseModel):
     )
     converter: ConverterConfig = Field(
         default_factory=lambda: ConverterConfig(type="pymupdf"),
-        description="Configuration for document conversion to markdown"
+        description="Configuration for document conversion to markdown",
     )
-    extractor: ExtractorConfig = Field(
-        default_factory=lambda: ExtractorConfig(
+    extractor: MetadataExtractorConfig = Field(
+        default_factory=lambda: MetadataExtractorConfig(
             type="basic", llm=LLMConfig.ollama(model_name="llama3.2:3b")
         ),
-        description="Configuration for metadata extraction"
+        description="Configuration for metadata extraction",
+    )
+    chunking: ChunkingConfig = Field(
+        default_factory=lambda: ChunkingConfig.create(chunk_size=10000),
+        description="Configuration for text chunking",
     )
     chunk_size: int = Field(
         default=10000,
         gt=0,
-        description="Maximum chunk size for text splitting (treated as maximum if using semantic chunking)"
+        description="Maximum chunk size for text splitting (deprecated, use chunking.chunk_size instead)",
     )
     metadata_schema: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="JSON schema for metadata validation"
+        default_factory=dict, description="JSON schema for metadata validation"
     )
     temp_dir: str = Field(
         default="tmp/",
         min_length=1,
-        description="Temporary directory for caching processed documents"
+        description="Temporary directory for caching processed documents",
     )
     benchmark: bool = Field(
-        default=False,
-        description="Whether to run benchmarking after crawling"
+        default=False, description="Whether to run benchmarking after crawling"
     )
     generate_benchmark_questions: bool = Field(
         default=False,
-        description="Generate benchmark questions during metadata extraction"
+        description="Generate benchmark questions during metadata extraction",
     )
     num_benchmark_questions: int = Field(
         default=3,
         gt=0,
-        description="Number of benchmark questions to generate per document"
+        description="Number of benchmark questions to generate per document",
     )
     log_level: str = Field(
         default="INFO",
-        description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)"
+        description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
     )
     log_file: Optional[str] = Field(
-        default=None,
-        description="Optional log file path for persistent logging"
+        default=None, description="Optional log file path for persistent logging"
     )
-
+    security_groups: Optional[List[str]] = Field(
+        default=None,
+        description="List of security groups for RBAC access control. If provided, the user must have this role to see the documents.",
+    )
     model_config = {"validate_assignment": True}
 
-    @field_validator('log_level')
+    @field_validator("log_level")
     @classmethod
     def validate_log_level(cls, v: str) -> str:
         """Validate that log_level is one of the allowed values."""
         allowed_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
         if v not in allowed_levels:
-            raise ValueError(f"Invalid log level. Must be one of: {', '.join(allowed_levels)}")
+            raise ValueError(
+                f"Invalid log level. Must be one of: {', '.join(allowed_levels)}"
+            )
         return v
 
     @classmethod
@@ -327,7 +331,8 @@ class CrawlerConfig(BaseModel):
         vision_llm: LLMConfig,
         database: DatabaseClientConfig,
         converter: Optional[ConverterConfig] = None,
-        extractor: Optional[ExtractorConfig] = None,
+        extractor: Optional[MetadataExtractorConfig] = None,
+        chunking: Optional[ChunkingConfig] = None,
         chunk_size: int = 10000,
         metadata_schema: Optional[Dict[str, Any]] = None,
         temp_dir: str = "tmp/",
@@ -336,6 +341,7 @@ class CrawlerConfig(BaseModel):
         num_benchmark_questions: int = 3,
         log_level: str = "INFO",
         log_file: Optional[str] = None,
+        security_groups: Optional[List[str]] = None,
     ) -> "CrawlerConfig":
         """Create a CrawlerConfig with type-safe parameters."""
         return cls(
@@ -344,7 +350,8 @@ class CrawlerConfig(BaseModel):
             vision_llm=vision_llm,
             database=database,
             converter=converter or ConverterConfig(type="pymupdf"),
-            extractor=extractor or ExtractorConfig(type="basic", llm=llm),
+            extractor=extractor or MetadataExtractorConfig(type="basic", llm=llm),
+            chunking=chunking or ChunkingConfig.create(chunk_size=chunk_size),
             chunk_size=chunk_size,
             metadata_schema=metadata_schema or {},
             temp_dir=temp_dir,
@@ -353,6 +360,7 @@ class CrawlerConfig(BaseModel):
             num_benchmark_questions=num_benchmark_questions,
             log_level=log_level,
             log_file=log_file,
+            security_groups=security_groups,
         )
 
     @classmethod
@@ -365,6 +373,7 @@ class CrawlerConfig(BaseModel):
         base_url: str = "http://localhost:11434",
         host: str = "localhost",
         port: int = 19530,
+        security_groups: Optional[List[str]] = None,
         **kwargs,
     ) -> "CrawlerConfig":
         """Create a default configuration using Ollama models."""
@@ -382,22 +391,23 @@ class CrawlerConfig(BaseModel):
             llm=llm,
             vision_llm=vision_llm,
             database=database,
+            security_groups=security_groups,
             **kwargs,
         )
 
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any]) -> "CrawlerConfig":
         """Create a CrawlerConfig from a dictionary configuration.
-        
+
         This method provides backward compatibility with dictionary-based configurations
         while leveraging Pydantic's validation capabilities.
-        
+
         Args:
             config_dict: Dictionary containing configuration parameters
-            
+
         Returns:
             Validated CrawlerConfig instance
-            
+
         Example:
             >>> config = CrawlerConfig.from_dict({
             ...     "embeddings": {"provider": "ollama", "model": "all-minilm:v2", ...},
@@ -409,43 +419,54 @@ class CrawlerConfig(BaseModel):
         # Extract nested configs and convert them to Pydantic models
         embeddings_dict = config_dict.get("embeddings", {})
         embeddings = EmbedderConfig(**embeddings_dict)
-        
+
         llm_dict = config_dict.get("llm", {})
         llm = LLMConfig(**llm_dict)
-        
+
         vision_llm_dict = config_dict.get("vision_llm", {})
         vision_llm = LLMConfig(**vision_llm_dict)
-        
+
         database_dict = config_dict.get("database", {})
         database = DatabaseClientConfig(**database_dict)
-        
+
         # Handle converter config
         converter_dict = config_dict.get("converter", {"type": "pymupdf"})
         converter = ConverterConfig(**converter_dict)
-        
+
         # Handle extractor config
         extractor_dict = config_dict.get("extractor", {})
         if extractor_dict:
             # If extractor has its own llm config, convert it
             if "llm" in extractor_dict and isinstance(extractor_dict["llm"], dict):
                 extractor_dict["llm"] = LLMConfig(**extractor_dict["llm"])
-            extractor = ExtractorConfig(**extractor_dict)
+            extractor = MetadataExtractorConfig(**extractor_dict)
         else:
-            extractor = ExtractorConfig(type="basic", llm=llm)
-        
+            extractor = MetadataExtractorConfig(type="basic", llm=llm)
+
+        # Handle chunking config
+        chunking_dict = config_dict.get("chunking", {})
+        if chunking_dict:
+            chunking = ChunkingConfig(**chunking_dict)
+        else:
+            # Use legacy chunk_size if no chunking config provided
+            chunk_size = config_dict.get("chunk_size", 10000)
+            chunking = ChunkingConfig.create(chunk_size=chunk_size)
+
         # Extract utility parameters
         utils = config_dict.get("utils", {})
         chunk_size = utils.get("chunk_size", 10000)
         temp_dir = utils.get("temp_dir", "tmp/")
         benchmark = utils.get("benchmark", False)
-        
+
         # Extract other top-level parameters
         metadata_schema = config_dict.get("metadata_schema", {})
-        generate_benchmark_questions = config_dict.get("generate_benchmark_questions", False)
+        generate_benchmark_questions = config_dict.get(
+            "generate_benchmark_questions", False
+        )
         num_benchmark_questions = config_dict.get("num_benchmark_questions", 3)
         log_level = config_dict.get("log_level", "INFO")
         log_file = config_dict.get("log_file", None)
-        
+        security_groups = config_dict.get("security_groups", None)
         return cls(
             embeddings=embeddings,
             llm=llm,
@@ -453,6 +474,7 @@ class CrawlerConfig(BaseModel):
             database=database,
             converter=converter,
             extractor=extractor,
+            chunking=chunking,
             chunk_size=chunk_size,
             metadata_schema=metadata_schema,
             temp_dir=temp_dir,
@@ -461,6 +483,7 @@ class CrawlerConfig(BaseModel):
             num_benchmark_questions=num_benchmark_questions,
             log_level=log_level,
             log_file=log_file,
+            security_groups=security_groups,
         )
 
 
@@ -469,10 +492,11 @@ class Crawler:
         self,
         config: CrawlerConfig,
         converter: Converter = None,
-        extractor: Extractor = None,
+        extractor: MetadataExtractor = None,
         vector_db: DatabaseClient = None,
         embedder: Embedder = None,
         llm: LLM = None,
+        chunker: Chunker = None,
     ) -> None:
         self.config = config
         self.llm = llm
@@ -480,6 +504,7 @@ class Crawler:
         self.converter = converter
         self.extractor = extractor
         self.vector_db = vector_db
+        self.chunker = chunker
 
         self.benchmarker = None
 
@@ -499,13 +524,17 @@ class Crawler:
             self.embedder = get_embedder(self.config.embeddings)
 
         if self.extractor is None:
-            self.extractor = create_extractor(self.config.extractor, self.llm)
+            self.extractor = MetadataExtractor(
+                config=self.config.extractor, llm=self.llm
+            )
 
         if self.vector_db is None:
+            # TODO: This must have properly formatted collection description.
             self.vector_db = get_db(
                 self.config.database,
                 self.embedder.get_dimension(),
                 self.config.metadata_schema,
+                self.config.extractor.context,
             )
             if self.config.benchmark:
                 self.benchmarker = get_db_benchmark(
@@ -514,9 +543,11 @@ class Crawler:
 
         if self.converter is None:
             # Use the converter config directly
-            self.converter = create_converter(
-                self.config.converter.type, self.config.converter
-            )
+            self.converter = create_converter(self.config.converter)
+
+        if self.chunker is None:
+            # Use the chunking config directly
+            self.chunker = Chunker(self.config.chunking)
 
     def _get_filepaths(self, path: Union[str, list[str]]) -> List[str]:
         """
@@ -701,7 +732,7 @@ class Crawler:
                 # Chunk the text
                 chunk_start = time.time()
                 self.logger.info("✂️  Chunking text...")
-                chunks = self.extractor.chunk_text(markdown, self.config.chunk_size)
+                chunks = self.chunker.chunk_text(markdown)
                 chunk_time = time.time() - chunk_start
                 self.logger.info(
                     f"✅ Created {len(chunks)} chunks in {chunk_time:.2f}s (avg {len(chunks)/chunk_time:.1f} chunks/sec)"
@@ -740,6 +771,7 @@ class Crawler:
                                 default_chunk_index=i,
                                 default_source=os.path.basename(filepath),
                                 metadata=sanitized_metadata,
+                                security_group=self.config.security_groups,
                             )
 
                             entities.append(doc)

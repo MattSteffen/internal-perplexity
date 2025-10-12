@@ -1,0 +1,11 @@
+{
+  "converter": "PyMuPDF with Ollama VLM",
+  "source_file": "/Users/mattsteffen/projects/llm/internal-perplexity/crawler/src/tests/converter/image.pdf",
+  "conversion_time": "20251010_121325",
+  "output_length": 996,
+  "images_count": 1,
+  "tables_count": 0,
+  "processing_time_sec": 0.7152450084686279,
+  "images_described": 1,
+  "markdown_file": "/Users/mattsteffen/projects/llm/internal-perplexity/crawler/src/tests/converter/test_outputs/PyMuPDF_with_Ollama_VLM/image_20251010_121325.md"
+}

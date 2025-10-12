@@ -1,0 +1,11 @@
+{
+  "converter": "Docling API with VLM",
+  "source_file": "/Users/mattsteffen/projects/llm/internal-perplexity/crawler/src/tests/converter/multicolumn.pdf",
+  "conversion_time": "20251010_121340",
+  "output_length": 7819,
+  "images_count": 0,
+  "tables_count": 0,
+  "processing_time_sec": 10.025454998016357,
+  "images_described": 0,
+  "markdown_file": "/Users/mattsteffen/projects/llm/internal-perplexity/crawler/src/tests/converter/test_outputs/Docling_API_with_VLM/multicolumn_20251010_121340.md"
+}

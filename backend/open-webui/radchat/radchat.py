@@ -1,13 +1,41 @@
 """
 title: Radchat Function
 author: Rincon [mjst, kca]
-version: 0.1
+version: 0.2
 requirements: pymilvus, ollama
+# Note, make sure that the tasks from settings.interface are not using this model.
+TODO:
+**TODAY**
+- Document Rendering: the heading and markdown formatting is not nice.
+  - For example: the title is `###` and then the text starts with `#`
+  - Maybe I need to wrap in xml tags <document_data> and <document_text>
+- Make sure the full system prompt has a good set of markdown formatting.
+  - Don't intermix and inter layer the heading `#` and `##` everywhere.
+  - The crawler seems to use `#` in too many places like in the milvus description.
+**LATER**
+- Make sure tool calls properly emit the fact that they are being called.
+- User with auth:
+  - The pipe function accepts __user__.
+  - `from open_webui.models.users import Users`, `user = Users.get_user_by_id(__user__["id"])`, then use this as the auth stuff for the milvus client etc.
+- Citations:
+  - await __event_emitter__({
+        "type": "citation",
+        "data": {
+            "document": [content],                    # Array of content strings
+            "metadata": [                             # Array of metadata objects
+                {
+                    "date_accessed": datetime.now().isoformat(),
+                    "source": title,
+                    "author": "Author Name",          # Optional
+                    "publication_date": "2024-01-01", # Optional
+                    "url": "https://source-url.com"   # Optional
+                }
+            ],
+            "source": {"name": title, "url": url}    # Primary source info
+        }
+    })
+  - https://docs.openwebui.com/features/plugin/tools/development
 """
-
-from pydantic import BaseModel, Field
-from typing import Optional
-
 
 import os
 import uuid
@@ -26,38 +54,88 @@ from pymilvus import (
 )
 
 
-# --- Configuration ---
-# Using environment variables for configuration improves security and flexibility.
-OLLAMA_BASE_URL = "http://ollama.a1.autobahn.rinconres.com"  # os.getenv(
-#     "OLLAMA_BASE_URL", "http://ollama.a1.autobahn.rinconres.com"
-# )
-OLLAMA_EMBEDDING_MODEL = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
-OLLAMA_LLM_MODEL = os.getenv("OLLAMA_LLM_MODEL", "gemma3:latest")
-MILVUS_TOKEN = os.getenv("MILVUS_TOKEN", "root:Milvus")
-COLLECTION_NAME = os.getenv("COLLECTION_NAME", "all_irads")
-MILVUS_HOST = os.getenv("MILVUS_HOST", "10.43.210.111")
-MILVUS_PORT = os.getenv("MILVUS_PORT", "19530")
+# -------------------------------
+# --- Config Component Models ---
+# -------------------------------
 
-# --- Constants ---
-OUTPUT_FIELDS = [
-    "source",
-    "chunk_index",
-    "metadata",
-    "title",
-    "author",
-    "date",
-    "keywords",
-    "unique_words",
-    "text",
-]
-MAX_TOOL_CALLS = 5
-REQUEST_TIMEOUT = 300
-# Milvus search parameters
-NPROBE = 10
-SEARCH_LIMIT = 5
-HYBRID_SEARCH_LIMIT = 10
-RRF_K = 100
-DROP_RATIO = 0.2
+
+class OllamaConfig(BaseModel):
+    base_url: str = Field(
+        default="http://localhost:11434"
+        # default="http://host.docker.internal:11434"
+        # default="http://ollama.a1.autobahn.rinconres.com"
+        # default=os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
+    )
+    embedding_model: str = Field(
+        default=os.getenv("OLLAMA_EMBEDDING_MODEL", "all-minilm:v2")
+    )
+    llm_model: str = Field(default=os.getenv("OLLAMA_LLM_MODEL", "gpt-oss:20b"))
+    request_timeout: int = Field(
+        default=int(os.getenv("OLLAMA_REQUEST_TIMEOUT", "300"))
+    )
+    context_length: int = Field(
+        default=int(os.getenv("OLLAMA_CONTEXT_LENGTH", "32000"))
+    )
+
+
+class MilvusConfig(BaseModel):
+    host: str = Field(default=os.getenv("MILVUS_HOST", "localhost"))
+    port: str = Field(default=os.getenv("MILVUS_PORT", "19530"))
+    username: str = Field(default=os.getenv("MILVUS_USERNAME", "matt"))
+    password: str = Field(default=os.getenv("MILVUS_PASSWORD", "steffen"))
+    collection_name: str = Field(default=os.getenv("IRAD_COLLECTION_NAME", "arxiv3"))
+
+
+class SearchConfig(BaseModel):
+    nprobe: int = Field(default=int(os.getenv("MILVUS_NPROBE", "10")))
+    search_limit: int = Field(default=int(os.getenv("MILVUS_SEARCH_LIMIT", "5")))
+    hybrid_limit: int = Field(
+        default=int(os.getenv("MILVUS_HYBRID_SEARCH_LIMIT", "10"))
+    )
+    rrf_k: int = Field(default=int(os.getenv("MILVUS_RRF_K", "100")))
+    drop_ratio: float = Field(default=float(os.getenv("MILVUS_DROP_RATIO", "0.2")))
+    output_fields: List[str] = Field(
+        default=[
+            "metadata",
+            "default_text",
+            "default_document_id",
+            "default_chunk_index",
+            "default_source",
+        ]
+    )
+
+
+class AgentConfig(BaseModel):
+    max_tool_calls: int = Field(default=int(os.getenv("AGENT_MAX_TOOL_CALLS", "5")))
+    default_role: str = Field(default=os.getenv("AGENT_DEFAULT_ROLE", "system"))
+    logging_level: str = Field(default=os.getenv("AGENT_LOGGING_LEVEL", "INFO"))
+
+
+# -------------------------------
+# --- Unified Config Manager ---
+# -------------------------------
+
+
+class RadchatConfig(BaseModel):
+    ollama: OllamaConfig = Field(default_factory=OllamaConfig)
+    milvus: MilvusConfig = Field(default_factory=MilvusConfig)
+    search: SearchConfig = Field(default_factory=SearchConfig)
+    agent: AgentConfig = Field(default_factory=AgentConfig)
+
+    def update_from_valves(self, valves: "Pipe.UserValves"):
+        """
+        Override runtime configuration from user-provided valves (e.g. in Pipe).
+        """
+        if hasattr(valves, "MILVUS_USERNAME"):
+            self.milvus.username = valves.MILVUS_USERNAME
+        if hasattr(valves, "MILVUS_PASSWORD"):
+            self.milvus.password = valves.MILVUS_PASSWORD
+        if hasattr(valves, "COLLECTION_NAME"):
+            self.milvus.collection_name = valves.COLLECTION_NAME
+
+
+# Instantiate a global, immutable base config
+CONFIG = RadchatConfig()
 
 # --- Logging ---
 logging.basicConfig(
@@ -66,19 +144,42 @@ logging.basicConfig(
 
 
 # --- Pydantic Models for Type Safety ---
-class MilvusDocument(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    source: str
-    chunk_index: int
-    metadata: Optional[str] = ""
+class MilvusDocumentMetadata(BaseModel):
     title: Optional[str] = ""
     author: Optional[Union[List[str], str]] = Field(default_factory=list)
     date: Optional[int] = 0
     keywords: Optional[List[str]] = Field(default_factory=list)
     unique_words: Optional[List[str]] = Field(default_factory=list)
-    text: Optional[str] = ""
-    distance: Optional[float] = None
+
+    model_config = {
+        "extra": "allow",
+        "validate_assignment": True,
+    }
+
+
+class MilvusDocument(BaseModel):
+    id: Optional[Any] = -1
+    default_document_id: str
+    default_text: str
+    default_chunk_index: int
+    default_source: str
+    security_group: List[str] = Field(default_factory=lambda: ["public"])
+    metadata: MilvusDocumentMetadata = Field(default_factory=MilvusDocumentMetadata)
+    distance: Optional[float] = 1.0
+
+    model_config = {
+        "extra": "forbid",
+        "validate_assignment": True,
+    }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "MilvusDocument":
+        """Create a document from a dict (with validation)."""
+        return cls.model_validate(data)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Dump the model as a dict."""
+        return self.model_dump()
 
 
 # --- Tool Schemas ---
@@ -109,62 +210,111 @@ SearchInputSchema = {
 
 
 # --- Core Functions ---
-def connect_milvus(token: str = "") -> Optional[MilvusClient]:
-    uri = f"http://{MILVUS_HOST}:{MILVUS_PORT}"
+def connect_milvus(
+    username: str = None,
+    password: str = None,
+    collection_name: str = None,
+) -> Optional[MilvusClient]:
+    username = username or CONFIG.milvus.username
+    password = password or CONFIG.milvus.password
+    collection_name = collection_name or CONFIG.milvus.collection_name
+    uri = f"http://{CONFIG.milvus.host}:{CONFIG.milvus.port}"
     try:
-        client = MilvusClient(uri=uri, token=token)
-        if not client.has_collection(collection_name=COLLECTION_NAME):
-            logging.error(f"Error: Collection '{COLLECTION_NAME}' does not exist.")
+        client = MilvusClient(uri=uri, token=f"{username}:{password}")
+        if not client.has_collection(collection_name=collection_name):
+            logging.error(f"Error: Collection '{collection_name}' does not exist.")
             return None
-        client.load_collection(collection_name=COLLECTION_NAME)
-        logging.info(f"Collection '{COLLECTION_NAME}' loaded.")
+        client.load_collection(collection_name=collection_name)
+        logging.info(f"Collection '{collection_name}' loaded.")
         return client
     except Exception as e:
         logging.error(
-            f"Error connecting to or loading Milvus collection '{COLLECTION_NAME}': {e}"
+            f"Error connecting to or loading Milvus collection '{collection_name}': {e}"
         )
         return None
 
 
-def get_embedding(text: str) -> Optional[List[float]]:
+def get_embedding(text: str | list[str]) -> Optional[List[float]]:
+    """
+    Gets embedding for a single text string.
+
+    Args:
+        text: Text to embed or list of texts to embed
+
+    Returns:
+        Embedding vector or None if failed
+    """
     try:
-        client = ollama.Client(host=OLLAMA_BASE_URL)
-        response = client.embeddings(model=OLLAMA_EMBEDDING_MODEL, prompt=text)
-        return response.get("embedding")
+        client = ollama.Client(host=CONFIG.ollama.base_url)
+        response = client.embed(model=CONFIG.ollama.embedding_model, input=text)
+        return response.get("embeddings")
     except Exception as e:
-        logging.error(f"Error getting embedding from Ollama ({OLLAMA_BASE_URL}): {e}")
+        logging.error(
+            f"Error getting embedding from Ollama ({CONFIG.ollama.base_url}): {e}"
+        )
         return None
 
 
 def perform_search(
-    client: MilvusClient, queries: list[str] = [], filters: list[str] = []
+    client: MilvusClient,
+    queries: list[str] = [],
+    filters: list[str] = [],
+    collection_name: str = None,
+    username: str = None,
 ) -> list[MilvusDocument]:
+    """
+    Performs hybrid search (dense + sparse embeddings) on the Milvus collection.
+
+    Args:
+        client: MilvusClient instance
+        queries: List of query strings for semantic search
+        filters: List of filter expressions (will not be mutated)
+        collection_name: Name of the collection to search
+        username: Username for role-based access control
+
+    Returns:
+        List of matching MilvusDocument objects
+    """
+    collection_name = collection_name or CONFIG.milvus.collection_name
+    username = username or CONFIG.milvus.username
+
     search_requests = []
-    filter_expr = " and ".join(filters) if filters else ""
+
+    # Build filter expression without mutating the original list
+    user_roles = list(client.describe_user(user_name=username).get("roles", []))
+    security_filter = f"array_contains_any(security_group, {user_roles})"
+
+    # Combine security filter with user filters
+    all_filters = [security_filter] + filters
+    filter_expr = " and ".join(all_filters)
 
     search_configs = [
         {
-            "field": "text_sparse_embedding",
-            "param": {"drop_ratio_search": DROP_RATIO},
+            "field": "default_text_sparse_embedding",
+            "param": {"drop_ratio_search": CONFIG.search.drop_ratio},
             "data_transform": lambda q: [q],
         },
         {
-            "field": "metadata_sparse_embedding",
-            "param": {"drop_ratio_search": DROP_RATIO},
+            "field": "default_metadata_sparse_embedding",
+            "param": {"drop_ratio_search": CONFIG.search.drop_ratio},
             "data_transform": lambda q: [q],
         },
     ]
 
     for query in queries:
-        embedding = get_embedding(query)
-        if embedding:
+        embeddings = get_embedding(query)
+        if embeddings:
+            # TODO: get the params from the index describe in the collection
             search_requests.append(
                 AnnSearchRequest(
-                    data=[embedding],
-                    anns_field="text_embedding",
-                    param={"metric_type": "COSINE", "params": {"nprobe": NPROBE}},
+                    data=embeddings,
+                    anns_field="default_text_embedding",
+                    param={
+                        "metric_type": "COSINE",
+                        "params": {"nprobe": CONFIG.search.nprobe},
+                    },
                     expr=filter_expr,
-                    limit=SEARCH_LIMIT,
+                    limit=CONFIG.search.search_limit,
                 )
             )
 
@@ -175,157 +325,206 @@ def perform_search(
                     anns_field=config["field"],
                     param=config["param"],
                     expr=filter_expr,
-                    limit=SEARCH_LIMIT,
+                    limit=CONFIG.search.search_limit,
                 )
             )
 
     if not search_requests:
-        if len(filters) > 0:
-            return perform_query(filters, client)
+        if len(all_filters) > 0:
+            return perform_query(all_filters, client, collection_name)
         return []
 
     result = client.hybrid_search(
-        collection_name=COLLECTION_NAME,
+        collection_name=collection_name,
         reqs=search_requests,
-        ranker=RRFRanker(k=RRF_K),
-        output_fields=OUTPUT_FIELDS,
-        limit=HYBRID_SEARCH_LIMIT,
+        ranker=RRFRanker(k=CONFIG.search.rrf_k),
+        output_fields=CONFIG.search.output_fields,
+        limit=CONFIG.search.hybrid_limit,
     )
 
-    return [
-        MilvusDocument(**doc["entity"], distance=doc["distance"]) for doc in result[0]
-    ]
+    return consolidate_documents(
+        [MilvusDocument(**doc["entity"], distance=doc["distance"]) for doc in result[0]]
+    )
 
 
-def perform_query(filters: list[str], client: MilvusClient) -> List[MilvusDocument]:
+def perform_query(
+    filters: list[str],
+    client: MilvusClient,
+    collection_name: str = None,
+) -> List[MilvusDocument]:
+    collection_name = collection_name or CONFIG.milvus.collection_name
     query_results = client.query(
-        collection_name=COLLECTION_NAME,
+        collection_name=collection_name,
         filter=" and ".join(filters),
-        output_fields=OUTPUT_FIELDS,
+        output_fields=CONFIG.search.output_fields,
         limit=100,
     )
-    return [MilvusDocument(**doc) for doc in query_results]
+    return consolidate_documents([MilvusDocument(**doc) for doc in query_results])
 
 
 def get_metadata(client: MilvusClient) -> list[str]:
-    """gets all the entries in the database (firts 1000) and their title + authors + date, returns those."""
-    all_docs = perform_query([], client)
+    """
+    Gets all the entries in the database (first 1000) and their title + authors + date.
+
+    Args:
+        client: MilvusClient instance
+
+    Returns:
+        List of formatted metadata strings
+    """
+    all_docs = consolidate_documents(perform_query([], client))
     data = []
     for doc in all_docs:
-        data.append(f"Title: {doc.title}\nAuthors: {doc.author}\nDate: {doc.date}")
+        data.append(
+            f"Title: {doc.metadata.title}\nAuthors: {doc.metadata.author}\nDate: {doc.metadata.date}"
+        )
     return data
 
 
-def document_to_markdown(document: MilvusDocument) -> str:
+def render_document(document: MilvusDocument, include_text: bool = True) -> str:
+    """
+    Renders a MilvusDocument to markdown format.
+
+    Args:
+        document: The document to render
+        include_text: If True, includes the full document text. If False, only metadata.
+
+    Returns:
+        Markdown-formatted string representation of the document
+    """
     parts = []
-    if document.title:
-        parts.append(f"### {document.title}")
-    if document.author:
-        authors = document.author
+
+    # Title
+    if document.metadata.title:
+        parts.append(f"### {document.metadata.title}")
+
+    # Authors
+    if document.metadata.author:
+        authors = document.metadata.author
         if isinstance(authors, list):
             parts.append(f"**Authors:** {', '.join(authors)}")
         else:
             parts.append(f"**Authors:** {authors}")
-    if document.date:
-        parts.append(f"**Date:** {document.date}")
-    if document.source:
-        parts.append(f"**Source:** `{document.source}` (Chunk: {document.chunk_index})")
 
-    # Dynamically render other fields, excluding those already handled or empty.
-    fields_to_ignore = {"title", "author", "date", "source", "chunk_index", "text"}
+    # Date
+    if document.metadata.date:
+        parts.append(f"**Date:** {document.metadata.date}")
 
-    other_data = []
-    for key, value in document.model_dump().items():
+    # Source
+    if document.default_source:
+        parts.append(
+            f"**Source:** `{document.default_source}` (Chunk: {document.default_chunk_index})"
+        )
+
+    # Dynamically render other metadata fields, excluding those already handled or empty
+    fields_to_ignore = {
+        "title",
+        "author",
+        "date",
+        "keywords",
+        "unique_words",
+    }
+
+    other_metadata = []
+    for key, value in document.metadata.model_dump().items():
         if key not in fields_to_ignore and value:
             key_title = key.replace("_", " ").title()
             if isinstance(value, list):
                 value_str = "`, `".join(map(str, value))
-                other_data.append(f"**{key_title}:** `{value_str}`")
+                other_metadata.append(f"**{key_title}:** `{value_str}`")
             else:
-                other_data.append(f"**{key_title}:** {value}")
+                other_metadata.append(f"**{key_title}:** {value}")
 
-    if other_data:
-        parts.extend(other_data)
+    if other_metadata:
+        parts.extend(other_metadata)
 
-    if document.text:
-        parts.append("\n---\n" + document.text)
-
-    return "\n".join(parts)
-
-
-def prettify_doc(document: MilvusDocument) -> str:
-    parts = []
-    if document.title:
-        parts.append(f"### {document.title}")
-    if document.author:
-        authors = document.author
-        if isinstance(authors, list):
-            parts.append(f"**Authors:** {', '.join(authors)}")
-        else:
-            parts.append(f"**Authors:** {authors}")
-    if document.date:
-        parts.append(f"**Date:** {document.date}")
-    if document.source:
-        parts.append(f"**Source:** `{document.source}` (Chunk: {document.chunk_index})")
-
-    # Dynamically render other fields, excluding those already handled or empty.
-    fields_to_ignore = {"title", "author", "date", "source", "chunk_index", "text"}
-
-    other_data = []
-    for key, value in document.model_dump().items():
-        if key not in fields_to_ignore and value:
-            key_title = key.replace("_", " ").title()
-            if isinstance(value, list):
-                value_str = "`, `".join(map(str, value))
-                other_data.append(f"**{key_title}:** `{value_str}`")
-            else:
-                other_data.append(f"**{key_title}:** {value}")
+    # Include full text if requested
+    if include_text and document.default_text:
+        parts.append("\n---\n" + document.default_text)
 
     return "\n".join(parts)
 
 
 def consolidate_documents(documents: List[MilvusDocument]) -> List[MilvusDocument]:
     """
-    Consolidates documents with the same source, combining their text and metadata,
+    Consolidates documents with the same document_id, combining their text and metadata,
     and sorts the results by distance.
+
+    Groups by default_document_id and combines:
+    - Text chunks in order
+    - Unique keywords
+    - Unique words
+    - Unique authors
+    - Uses minimum distance
     """
     if not documents:
         return []
 
-    source_groups = defaultdict(list)
+    # Group by document_id instead of source
+    doc_groups = defaultdict(list)
     for doc in documents:
-        source_groups[doc.source].append(doc)
+        doc_groups[doc.default_document_id].append(doc)
 
     consolidated_docs = []
-    for source, docs in source_groups.items():
-        sorted_chunks = sorted(docs, key=lambda d: d.chunk_index)
+    for doc_id, docs in doc_groups.items():
+        # Sort chunks by index to maintain reading order
+        sorted_chunks = sorted(docs, key=lambda d: d.default_chunk_index)
         base_doc = sorted_chunks[0]
 
-        combined_text = "\n\n---\n\n".join([d.text for d in sorted_chunks if d.text])
+        # Combine text chunks with separator
+        combined_text = "\n\n---\n\n".join(
+            [d.default_text for d in sorted_chunks if d.default_text]
+        )
 
-        # Combine list-based fields
+        # Combine unique keywords
         combined_keywords = sorted(
-            list(set(kw for d in sorted_chunks for kw in d.keywords))
-        )
-        combined_unique_words = sorted(
-            list(set(word for d in sorted_chunks for word in d.unique_words))
+            list(set(kw for d in sorted_chunks for kw in (d.metadata.keywords or [])))
         )
 
+        # Combine unique words
+        combined_unique_words = sorted(
+            list(
+                set(
+                    word
+                    for d in sorted_chunks
+                    for word in (d.metadata.unique_words or [])
+                )
+            )
+        )
+
+        # Combine unique authors
+        all_authors = []
+        for d in sorted_chunks:
+            if d.metadata.author:
+                if isinstance(d.metadata.author, list):
+                    all_authors.extend(d.metadata.author)
+                else:
+                    all_authors.append(d.metadata.author)
+        combined_authors = sorted(list(set(all_authors))) if all_authors else []
+
+        # Use minimum distance across all chunks
         min_distance = min(
             (d.distance for d in sorted_chunks if d.distance is not None), default=None
         )
 
-        # Create a new consolidated document
+        # Create consolidated document
         consolidated_data = base_doc.model_dump()
         consolidated_data.update(
             {
-                "text": combined_text,
-                "keywords": combined_keywords,
-                "unique_words": combined_unique_words,
+                "default_text": combined_text,
                 "distance": min_distance,
-                "chunk_index": 0,  # Represents the consolidated document
+                "default_chunk_index": 0,  # Represents the consolidated document
             }
         )
+
+        # Update metadata with combined fields
+        updated_metadata = consolidated_data["metadata"].copy()
+        updated_metadata["keywords"] = combined_keywords
+        updated_metadata["unique_words"] = combined_unique_words
+        updated_metadata["author"] = (
+            combined_authors if combined_authors else updated_metadata.get("author")
+        )
+        consolidated_data["metadata"] = updated_metadata
 
         consolidated_docs.append(MilvusDocument(**consolidated_data))
 
@@ -337,24 +536,107 @@ def consolidate_documents(documents: List[MilvusDocument]) -> List[MilvusDocumen
 
 
 def build_citations(documents: List[MilvusDocument]) -> list:
+    """
+    Builds citation objects from documents for display in the UI.
+
+    Args:
+        documents: List of documents to create citations from
+
+    Returns:
+        List of citation dictionaries
+    """
     consolidated_docs = consolidate_documents(documents)
 
     citations = []
     for doc in consolidated_docs:
         citations.append(
             {
-                "source": {"name": doc.source, "url": ""},
-                "document": [prettify_doc(doc)],
-                "metadata": doc.model_dump(exclude={"text", "distance"}),
+                "source": {"name": doc.default_source, "url": ""},
+                "document": [render_document(doc, include_text=False)],
+                "metadata": doc.model_dump(exclude={"default_text", "distance"}),
                 "distance": doc.distance,
             }
         )
     return citations
 
 
+# --- Testable Component Functions ---
+def generate_response(
+    messages: List[Dict[str, Any]],
+    tools: List[Dict[str, Any]],
+    model: str = None,
+    stream: bool = True,
+):
+    """
+    Generates a response from the LLM with tool calling support.
+
+    Args:
+        messages: Conversation history
+        tools: Available tools for the model
+        model: Model name to use
+        stream: Whether to stream the response
+
+    Yields:
+        Streaming chunks or tool call information
+    """
+    model = model or CONFIG.ollama.llm_model
+    ollama_client = ollama.Client(
+        host=CONFIG.ollama.base_url, timeout=CONFIG.ollama.request_timeout
+    )
+    # Don't await - chat() with stream=True returns an async generator
+    response_stream = ollama_client.chat(
+        model=model,
+        messages=messages,
+        tools=tools,
+        options={"num_ctx": CONFIG.ollama.context_length},
+        stream=stream,
+    )
+    # Now await the generator
+    for chunk in response_stream:
+        yield chunk
+
+
+def build_response(
+    content: str,
+    documents: List[MilvusDocument],
+    model: str = None,
+) -> Dict[str, Any]:
+    """
+    Builds the final response object with content and citations.
+
+    Args:
+        content: Generated response content
+        documents: Source documents for citations
+        model: Model name used
+
+    Returns:
+        Complete response dictionary
+    """
+    model = model or CONFIG.ollama.llm_model
+    return {
+        "id": str(uuid.uuid4()),
+        "object": "chat.completion.final",
+        "created": int(time.time()),
+        "model": model,
+        "citations": build_citations(documents),
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": content},
+                "finish_reason": "stop",
+            }
+        ],
+    }
+
+
 def to_openai_chunk(ollama_chunk: ollama.ChatResponse) -> dict:
     """Converts an Ollama streaming chunk to the OpenAI format."""
-    message = ollama_chunk.message
+    delta = {}
+    if ollama_chunk.message.thinking:
+        delta["thinking"] = ollama_chunk.message.thinking
+    else:
+        delta["content"] = ollama_chunk.message.content
+
     finish_reason = ollama_chunk.done_reason
 
     return {
@@ -365,7 +647,7 @@ def to_openai_chunk(ollama_chunk: ollama.ChatResponse) -> dict:
         "choices": [
             {
                 "index": 0,
-                "delta": {"content": message.content},
+                "delta": delta,
                 "finish_reason": finish_reason,
             }
         ],
@@ -373,11 +655,15 @@ def to_openai_chunk(ollama_chunk: ollama.ChatResponse) -> dict:
 
 
 class Pipe:
-    class Valves(BaseModel):
-        COLLECTION_NAME: str = Field(default=COLLECTION_NAME)
+    class UserValves(BaseModel):
+        COLLECTION_NAME: str = Field(
+            default_factory=lambda: CONFIG.milvus.collection_name
+        )
+        MILVUS_USERNAME: str = Field(default_factory=lambda: CONFIG.milvus.username)
+        MILVUS_PASSWORD: str = Field(default_factory=lambda: CONFIG.milvus.password)
 
     def __init__(self):
-        self.valves = self.Valves()
+        self.user_valves = self.UserValves()
         self.citations = False
 
     async def pipe(
@@ -386,12 +672,17 @@ class Pipe:
         __event_emitter__=None,
         __user__: dict = None,
     ):
-        """Orchestrates a streaming agentic loop."""
+        """Orchestrates a streaming agentic loop with real-time citations."""
 
         messages = body.get("messages", [])
-        milvus_client = connect_milvus(MILVUS_TOKEN)
+        # TODO: Replace with __user__ data from ldap
+        milvus_client = connect_milvus(
+            username=self.user_valves.MILVUS_USERNAME,
+            password=self.user_valves.MILVUS_PASSWORD,
+            collection_name=self.user_valves.COLLECTION_NAME,
+        )
         if not milvus_client:
-            yield {"error": "Unable to connect to the knowledge database."}
+            yield {"error": "Unable to connect to the vector database."}
             return
 
         await __event_emitter__(
@@ -404,26 +695,75 @@ class Pipe:
                 },
             }
         )
+
+        # Initial document retrieval
         initial_search_results = perform_search(
-            client=milvus_client, queries=[messages[-1].get("content")]
+            client=milvus_client,
+            queries=[messages[-1].get("content")],
+            username=self.user_valves.MILVUS_USERNAME,
         )
+
+        # Consolidate initial search results by document_id
+        consolidated_initial_results = consolidate_documents(initial_search_results)
+
         preliminary_context = "\n\n".join(
-            [document_to_markdown(d) for d in initial_search_results]
+            [
+                render_document(d, include_text=True)
+                for d in consolidated_initial_results
+            ]
         )
+        print(
+            "RENDERED DOC WITHOUT TEXT:",
+            render_document(consolidated_initial_results[0], include_text=False),
+        )
+        print(
+            "RENDERED DOC WITH TEXT:",
+            render_document(consolidated_initial_results[0], include_text=True),
+        )
+        print("\n\n")
+
+        # Emit initial citations immediately (using consolidated documents)
+        seen_doc_ids = set()
+        for doc in consolidated_initial_results:
+            if doc.default_document_id not in seen_doc_ids:
+                seen_doc_ids.add(doc.default_document_id)
+                await __event_emitter__(
+                    {
+                        "type": "citation",
+                        "data": {
+                            "source": {"name": doc.default_source, "url": ""},
+                            "document": [render_document(doc, include_text=False)],
+                            "metadata": doc.model_dump(
+                                exclude={"default_text", "distance"}
+                            ),
+                            "distance": doc.distance,
+                        },
+                    }
+                )
 
         try:
             schema_info = str(
-                milvus_client.describe_collection(COLLECTION_NAME).get("fields", {})
+                milvus_client.describe_collection(self.user_valves.COLLECTION_NAME).get(
+                    "description", ""
+                )
             )
         except Exception as e:
             logging.error(f"Failed to describe collection: {e}")
             schema_info = "{}"
 
-        meta = get_metadata(milvus_client)
+        print(
+            "schema info:",
+            milvus_client.describe_collection(self.user_valves.COLLECTION_NAME).get(
+                "description", ""
+            ),
+        )
+        # print("preliminary context:", preliminary_context)
+        # print("metadata:", get_metadata(milvus_client))
+
         system_prompt = (
             SystemPrompt.replace("<<database_schema>>", schema_info)
             .replace("<<preliminary_context>>", preliminary_context)
-            .replace("<<database_metadata>>", "\n\n".join(meta))
+            .replace("<<database_metadata>>", "\n\n".join(get_metadata(milvus_client)))
         )
 
         if messages and messages[0]["role"] == "system":
@@ -433,12 +773,11 @@ class Pipe:
             all_messages = [{"role": "system", "content": system_prompt}] + messages
 
         available_tools = {"search": perform_search}
-        all_sources = initial_search_results
-        ollama_client = ollama.AsyncClient(host=OLLAMA_BASE_URL, timeout=300)
+        all_sources = consolidated_initial_results
         final_content = ""
 
-        for i in range(MAX_TOOL_CALLS):
-            logging.info(f"Agent loop iteration {i+1}/{MAX_TOOL_CALLS}")
+        for i in range(CONFIG.agent.max_tool_calls):
+            logging.info(f"Agent loop iteration {i+1}/{CONFIG.agent.max_tool_calls}")
             await __event_emitter__(
                 {
                     "type": "status",
@@ -449,17 +788,18 @@ class Pipe:
                     },
                 }
             )
-            stream = await ollama_client.chat(
-                model=OLLAMA_LLM_MODEL,
+
+            # Use generate_response function
+            # print("all messages:", all_messages)
+            stream = generate_response(
                 messages=all_messages,
                 tools=[SearchInputSchema],
-                options={"num_ctx": 32000},
+                model=CONFIG.ollama.llm_model,
                 stream=True,
             )
 
             tool_calls: list[ollama.Message.ToolCall] = []
-            async for chunk in stream:
-                print("Got chunk", chunk.message)
+            for chunk in stream:
                 if new_tool_calls := chunk.message.tool_calls:
                     logging.info(f"Tool calls received: {new_tool_calls}")
                     tool_calls.extend(new_tool_calls)
@@ -501,14 +841,54 @@ class Pipe:
                 function_args = tool.function.arguments
 
                 if func := available_tools.get(function_name):
+                    print(f"Tool found: {function_name}")
                     try:
-                        tool_output = func(client=milvus_client, **function_args)
-                        all_sources.extend(tool_output)
+                        tool_output = func(
+                            client=milvus_client,
+                            **function_args,
+                            username=self.user_valves.MILVUS_USERNAME,
+                        )
+
+                        # Consolidate tool output by document_id
+                        consolidated_tool_output = consolidate_documents(tool_output)
+                        print(f"Consolidated tool output: {consolidated_tool_output}")
+                        all_sources.extend(consolidated_tool_output)
+
+                        # Emit citations immediately for new documents
+                        for doc in consolidated_tool_output:
+                            if doc.default_document_id not in seen_doc_ids:
+                                seen_doc_ids.add(doc.default_document_id)
+                                await __event_emitter__(
+                                    {
+                                        "type": "citation",
+                                        "data": {
+                                            "source": {
+                                                "name": doc.default_source,
+                                                "url": "",
+                                            },
+                                            "document": [
+                                                render_document(doc, include_text=False)
+                                            ],
+                                            "metadata": doc.model_dump(
+                                                exclude={"default_text", "distance"}
+                                            ),
+                                            "distance": doc.distance,
+                                        },
+                                    }
+                                )
+
                         all_messages.append(
                             {
                                 "role": "tool",
-                                "content": "\n\n".join(
-                                    [document_to_markdown(d) for d in tool_output]
+                                "content": (
+                                    "\n\n".join(
+                                        [
+                                            render_document(d, include_text=True)
+                                            for d in consolidated_tool_output
+                                        ]
+                                    )
+                                    if len(consolidated_tool_output) > 0
+                                    else "No documents found"
                                 ),
                                 "name": function_name,
                             }
@@ -522,296 +902,163 @@ class Pipe:
                                 "name": function_name,
                             }
                         )
+                else:
+                    print(f"Tool not found: {function_name}")
+                    # Tool not found - add error response to maintain message flow
+                    error_msg = f"Error: Tool '{function_name}' not found. Available tools: {', '.join(available_tools.keys())}"
+                    logging.error(error_msg)
+                    all_messages.append(
+                        {
+                            "role": "tool",
+                            "content": error_msg,
+                            "name": function_name,
+                        }
+                    )
 
-        for cit in build_citations(all_sources):
-            await __event_emitter__(
-                {
-                    "type": "citation",
-                    "data": cit,
-                }
-            )
-        yield {
-            "id": str(uuid.uuid4()),
-            "object": "chat.completion.final",
-            "created": int(time.time()),
-            "model": OLLAMA_LLM_MODEL,
-            # "sources": build_citations(all_sources),
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {"role": "assistant", "content": final_content},
-                    "finish_reason": "stop",
-                }
-            ],
-        }
+        # Use build_response function
+        yield build_response(final_content, all_sources, CONFIG.ollama.llm_model)
 
 
-SystemPrompt = """
-You are a specialized document retrieval assistant for an internal research and development (IRAD) document collection. Your SOLE PURPOSE is to help users find and extract information from this specific document collection. You cannot and will not provide information from outside this collection.
+SystemPrompt = """# Role and Task
 
-## Core Principles:
-- **Document-Only Responses**: All answers must be grounded in the retrieved documents
-- **Explicit Source Attribution**: Always cite which documents inform your response
-- **Acknowledge Limitations**: If information isn't in the collection, clearly state this
-- **No External Knowledge**: Never supplement with information not found in the documents
+You are a specialized document retrieval assistant. Your task is to help users find and extract information from an internal research and development (IRAD) document collection covering signal processing, AI, and ML topics.
 
-## Document Collection Context:
+## Context
 
-**Content Focus**: Internal R&D documents covering signal processing, Artificial Intelligence (AI), and Machine Learning (ML)
+You have access to a document database through a search tool. The database contains:
 
 **Database Schema**:
-```json
+<database_schema>
 <<database_schema>>
-```
+</database_schema>
 
-**Available Documents**:
-```
+**Available Documents** (comprehensive sample):
+<available_documents>
 <<database_metadata>>
-```
+</available_documents>
 
-## Available Tool:
+**Preliminary Context**:
+<preliminary_context>
+<<preliminary_context>>
+</preliminary_context>
 
-**`search`** - Retrieves relevant documents from the collection
-- `queries` (list[str]): Semantic search terms for finding conceptually similar content
-- `filters` (list[str]): Milvus filter expressions for metadata-based filtering
-- Returns: List of matching document chunks with metadata
+## Available Tools
 
-## Query Processing Strategy:
+### search Tool
 
-**1. Information Available Check**: First check if the user's question can be answered from:
-   - Previous search results in this conversation
-   - The document metadata provided above
-   - If yes, answer directly without searching
+Retrieves relevant documents from the collection.
 
-**2. Query Classification**:
-   - **Semantic Search**: User seeks topical/conceptual information → Use `queries` parameter
-   - **Metadata Filtering**: User wants documents by specific criteria → Use `filters` parameter  
-   - **Hybrid Search**: Combines both semantic and metadata needs → Use both parameters
+**Parameters**:
+- `queries` (list[str], optional): Semantic search terms for finding conceptually similar content
+- `filters` (list[str], optional): Milvus filter expressions for metadata-based filtering
 
-**3. Search Decision Matrix**:
-   - Documents about a topic/concept → `queries: ["topic"]`, `filters: []`
-   - Documents by author/date/title → `queries: []`, `filters: ["criteria"]`
-   - Topic + specific criteria → `queries: ["topic"]`, `filters: ["criteria"]`
+**Returns**: List of matching document chunks with metadata
 
-## Response Guidelines:
-In the case that the user is looking for details about the IRADs in question:
-**When Documents Are Found**:
-- Synthesize information from retrieved documents into a coherent answer
-- Include specific details, quotes, or key findings relevant to the query
-- If documents partially address the query, acknowledge what's covered and what's missing
+## Instructions
 
-In the case that the user is looking for generic details from the database:
-**When documents are found**:
-- Be brief with your responses (`how many irads were written by <some-author>` -> `10, their titles are: <list the irads>`)
-- Do not provide too many details unless requested
+### Step 1: Check Available Information
 
-In All Cases:
-**When No Documents Are Found**:
-- State clearly: "I could not find any documents in the collection that address [specific query]"
-- Do not speculate or provide information from outside the collection
-- Optionally suggest related search terms if appropriate
+Before calling the search tool, check if you can answer from:
+1. Preliminary context provided above
+2. Previous search results in this conversation
+3. Document metadata shown above
 
-**Important Constraints**:
-- Never provide information not contained in the retrieved documents
-- Never say "I don't know" - instead specify that the information isn't in the document collection
-- Always be explicit about the source and scope of your knowledge
-- If asked about topics outside the collection scope (signal processing, AI, ML R&D), clearly state the collection's limitations
+If yes, answer directly without searching.
 
+### Step 2: Decide on Search Strategy
 
-## 4. Constructing Filter Expressions:
+**Semantic Search** (use `queries`):
+- User asks about concepts, topics, or content
+- Example: "What papers discuss transformer architectures?"
 
-- **Syntax Reference:** You MUST strictly adhere to the Milvus boolean expression syntax when creating filter strings for the `filters` parameter of the `search` tool or the `query` parameter of the `filter` tool. The detailed syntax rules, available operators (`==`, `>`, `!=`, `<`, `>=`, `<=`, `IN`, `NOT IN`, `LIKE`, `ARRAY_CONTAINS`, `ARRAY_CONTAINS_ALL`, `ARRAY_CONTAINS_ANY`, `ARRAY_LENGTH`), handling of strings (use double quotes `"`), numbers, and special functions are provided in the documentation below.
+**Metadata Filtering** (use `filters`):
+- User asks for documents by author, date, or title
+- Example: "Show me all documents by Dr. Smith from 2023"
 
-- **Use the Schema:** Always refer to the `database_schema` provided above to ensure you are using correct field names and comparing values of the appropriate type. Pay special attention to ARRAY fields (`author`, `keywords`, `unique_words`) which require specific ARRAY operators.
+**Hybrid Search** (use both):
+- Combines topical and metadata requirements
+- Example: "Find recent papers about neural networks by Dr. Reed"
 
-- **Critical Field Types:**
-  - `author`: ARRAY of VARCHAR - use `ARRAY_CONTAINS`, `ARRAY_CONTAINS_ANY`, `ARRAY_CONTAINS_ALL`
-  - `keywords`: ARRAY of VARCHAR - use `ARRAY_CONTAINS`, `ARRAY_CONTAINS_ANY`, `ARRAY_CONTAINS_ALL`
-  - `unique_words`: ARRAY of VARCHAR - use `ARRAY_CONTAINS`, `ARRAY_CONTAINS_ANY`, `ARRAY_CONTAINS_ALL`
-  - `date`: INT64 representing year (YYYY format) - use numeric comparisons
-  - `title`: VARCHAR - use string comparisons and `LIKE` for pattern matching
-  - `text`: VARCHAR - use string comparisons and `LIKE` for pattern matching
+### Step 3: Construct Filter Expressions
+System tips for constructing filters for the search tool
 
-- **Documentation:**
+- The metadata field is a JSON field. Access keys with JSON path syntax: metadata["key"]
+- Join conditions by adding multiple strings to filters. The system ANDs them together:
+  - filters = ["cond1", "cond2"] becomes "cond1 and cond2"
+  - If you need OR, put it inside a single string with parentheses: "(condA or condB)"
+- Do not include security_group filters; they are added automatically.
+- Do not use array_contains* on metadata. Use json_contains* for metadata arrays.
+- JSON escaping is required inside the tool call:
+  - Strings in the filters array must escape all internal double quotes with backslashes
+  - Example of correct escaping:
+    - "json_contains(metadata[\"author\"], \"Jane Doe\")"
+    - "metadata[\"date\"] >= 2020"
+    - "metadata[\"title\"] LIKE \"%graph%\""
+  - Incorrect (will fail): "json_contains(metadata["author"], \"Jane Doe\")"
 
-  ```markdown
-  Milvus supports rich boolean expressions over scalar and ARRAY fields:
- 
-  | Operator / Function | Meaning | Use Case |
-  |---------------------|---------|----------|
-  | `==`, `!=`, `>`, `<` | Standard numeric/string comparisons | Numbers, strings, years |
-  | `>=`, `<=` | Greater/less than or equal to | Numbers, years |
-  | `IN`, `NOT IN` | Membership test for lists | String/numeric values |
-  | `LIKE` | SQL-style wildcard for strings (`%`, `_`) | Text pattern matching |
-  | `ARRAY_CONTAINS` | Checks if array contains specific value | Single author, keyword, etc. |
-  | `ARRAY_CONTAINS_ALL` | Checks if array contains all specified values | Multiple required items |
-  | `ARRAY_CONTAINS_ANY` | Checks if array contains any of specified values | Any of several options |
-  | `ARRAY_LENGTH` | Filters by array length | Arrays with certain sizes |
-  | `AND`, `OR`, `NOT` | Boolean connectors | Combining conditions |
+Schema-aligned examples
 
-  ## Examples Based on Your Schema:
-
-  ### Author Filtering (ARRAY field):
-  -- Find documents by a specific author
-  "ARRAY_CONTAINS(author, \"John Smith\")"
- 
-  -- Find documents with any of several authors
-  "ARRAY_CONTAINS_ANY(author, [\"John Smith\", \"Jane Doe\", \"Bob Wilson\"])"
- 
-  -- Find documents authored by both specific authors
-  "ARRAY_CONTAINS_ALL(author, [\"John Smith\", \"Jane Doe\"])"
- 
-  -- Find documents with multiple authors
-  "ARRAY_LENGTH(author) > 1"
-
-  ### Date Filtering (INT64 field - year format):
-  -- Documents from a specific year
-  "date == 2023"
- 
-  -- Documents from recent years
-  "date >= 2020"
- 
-  -- Documents from a range of years
-  "date >= 2015 AND date <= 2023"
- 
-  -- Documents from specific years
-  "date IN [2020, 2021, 2022, 2023]"
-
-  ### Keywords Filtering (ARRAY field):
-  -- Documents with specific keyword
-  "ARRAY_CONTAINS(keywords, \"artificial intelligence\")"
- 
-  -- Documents with any AI-related keywords
-  "ARRAY_CONTAINS_ANY(keywords, [\"AI\", \"machine learning\", \"neural networks\"])"
-
-  ### Title and Text Filtering (VARCHAR fields):
-  -- Title contains specific word
-  "title LIKE \"%Guide%\""
- 
-  -- Text contains pattern
-  "text LIKE \"%machine learning%\""
-
-  ### Combined Examples:
-  -- Recent documents by specific author with AI keywords
-  "date >= 2020 AND ARRAY_CONTAINS(author, \"John Smith\") AND ARRAY_CONTAINS_ANY(keywords, [\"AI\", \"artificial intelligence\"])"
- 
-  -- Documents with multiple authors from last 5 years
-  "ARRAY_LENGTH(author) > 1 AND date >= 2019"
- 
-  -- Documents with specific title pattern and recent date
-  "title LIKE \"%Analysis%\" AND date >= 2022"
- 
-  -- Documents by multiple specific authors OR containing specific keywords
-  "ARRAY_CONTAINS_ANY(author, [\"Smith\", \"Johnson\"]) OR ARRAY_CONTAINS(keywords, \"research\")"
-  ```
-
-**Important Notes:**
-- NEVER use `json_contains` on ARRAY fields - use `ARRAY_CONTAINS` instead
-- The `date` field stores years as integers (e.g., 2023), not date strings
-- ARRAY fields (`author`, `keywords`, `unique_words`) are nullable, so check for NULL if needed
-- Always use double quotes for string values in filters
-- When filtering ARRAY fields, the comparison value should match the element type (VARCHAR for these arrays)
-
-## 5. Responding to the User:
-
-**Processing Search Results**:
-- Never output raw search results directly to the user
-- Synthesize information from the returned document chunks into clear, natural language responses
-- Extract and highlight key findings, relevant snippets, and important details that address the user's specific query
-- Include relevant metadata (author, title, date) when it adds value to the response
-
-**When Documents Are Found**:
-- Provide a comprehensive answer based on the retrieved content
-- Quote specific passages when they directly answer the question
-- Explain how the documents relate to the user's query
-- If documents partially address the query, clearly state what is covered and what remains unanswered
-- End with: "**Sources**: [List document titles used]"
-
-**When No Documents Are Found**:
-- State explicitly: "I could not find any documents in the collection that address [specific query topic]"
-- Do not speculate or provide information from outside the collection
-- Do not simply say "I don't know" - be specific about what's missing from the collection
-- If appropriate, suggest alternative search terms or related topics that might be in the collection
-
-**Quality Standards**:
-- Responses must be grounded entirely in the retrieved documents
-- Maintain professional, helpful tone while staying within document boundaries
-- If retrieved documents don't provide sufficient information to fully answer the question, acknowledge this limitation explicitly
-- Never supplement document content with external knowledge, even if it seems helpful
+- Author (array of strings):
+  - "json_contains(metadata[\"author\"], \"John Doe\")"
+  - "json_contains_any(metadata[\"author\"], [\"John Doe\", \"Jane Smith\"])"
+- Date (integer year):
+  - "metadata[\"date\"] >= 2021"
+  - "metadata[\"date\"] IN [2020, 2021, 2022]"
+- Keywords (array of strings):
+  - "json_contains(metadata[\"keywords\"], \"machine learning\")"
+  - "json_contains_any(metadata[\"keywords\"], [\"AI\", \"ML\"])"
+- Title/description/summaries (strings):
+  - "metadata[\"title\"] LIKE \"%Analysis%\""
 
 
-## 6. Examples:
+**Important**: 
+- Use `array_contains*` for array fields (author, keywords)
+- Date is an integer year (e.g., 2023), not a date string
+- Always use double quotes for string values
 
-- **User Query:** "What are the latest advancements in AI for signal processing?"
-  - **Tool Call:**
-    ```json
-    {
-      "queries": ["latest advancements in AI for signal processing"],
-      "filters": []
-    }
-    ```
+### Step 4: Synthesize and Respond
 
-- **User Query:** "Find documents about neural networks in legal research from 2023 with AI keywords."
-  - **Tool Call:**
-    ```json
-    {
-      "queries": ["neural networks in legal research"],
-      "filters": ["date == 2023 AND ARRAY_CONTAINS_ANY(keywords, [\"AI\", \"artificial intelligence\", \"neural networks\"])"]
-    }
-    ```
+**When answering content questions** (e.g., "What are the key findings?"):
+- Synthesize information from retrieved documents into clear, coherent answers
+- Quote specific passages when directly relevant
+- Include metadata (author, title, date) when it adds context
+- If documents partially answer, state what's covered and what's missing
 
-- **User Query:** "Show me all documents written by Dr. Evelyn Reed."
-  - **Tool Call:**
-    ```json
-    {
-      "queries": [],
-      "filters": ["ARRAY_CONTAINS(author, \"Dr. Evelyn Reed\")"]
-    }
-    ```
+**When answering metadata queries** (e.g., "How many papers by Dr. Smith?"):
+- Be concise and direct
+- List titles/counts without unnecessary elaboration
+- Provide details only if requested
 
-- **User Query:** "Find documents containing quantum computing applications in healthcare from the last 3 years."
-  - **Tool Call:**
-    ```json
-    {
-      "queries": ["quantum computing applications healthcare"],
-      "filters": ["date >= 2022"]
-    }
-    ```
+**When information is not found**:
+- State explicitly: "I could not find any documents in the collection that address [topic]"
+- Do not speculate or use external knowledge
+- Suggest alternative search terms if appropriate
 
-- **User Query:** "Get documents by either John Smith or Jane Doe that mention machine learning."
-  - **Tool Call:**
-    ```json
-    {
-      "queries": ["machine learning"],
-      "filters": ["ARRAY_CONTAINS_ANY(author, [\"John Smith\", \"Jane Doe\"])"]
-    }
-    ```
+## Constraints
 
-- **User Query:** "Show research papers with multiple authors from 2020-2023."
-  - **Tool Call:**
-    ```json
-    {
-      "queries": ["research papers"],
-      "filters": ["ARRAY_LENGTH(author) > 1 AND date >= 2020 AND date <= 2023"]
-    }
-    ```
+1. **Document-grounded only**: All responses must come from retrieved documents
+2. **No external knowledge**: Never supplement with information outside the collection
+3. **Explicit limitations**: Clearly state when information isn't available
+4. **Source attribution**: Reference which documents informed your response
 
-- **User Query:** "Find documents with titles containing 'Analysis' published after 2021."
-  - **Tool Call:**
-    ```json
-    {
-      "queries": [],
-      "filters": ["title LIKE \"%Analysis%\" AND date > 2021"]
-    }
-    ```
+## Examples
 
-## Preliminary Context Handling:
-Context: <<preliminary_context>>
+**User**: "What are the latest advancements in AI for signal processing?"
+**Action**: `search(queries=["latest advancements AI signal processing"], filters=[])`
 
-**Usage Instructions**:
-- If preliminary context fully answers the user's query, use it directly and cite the sources
-- If preliminary context is incomplete or requires filtering, use it to inform your search strategy
-- If preliminary context is irrelevant, proceed with fresh search based on user query
+**User**: "Show me all documents by Dr. Reed"
+**Action**: `search(queries=[], filters=["json_contains(metadata[\"author\"], \"Dr. Reed\")"])`
 
-Remember: Your value lies in accurate retrieval and synthesis of information from this specific document collection. Stay within these bounds to provide reliable, grounded responses.
+**User**: "Find recent neural network papers from 2022 or later"
+**Action**: `search(queries=["neural networks"], filters=["date >= 2022"])`
+
+**User**: "What papers by Dr. Smith mention transformers?"
+**Action**: `search(queries=["transformers"], filters=["json_contains(metadata[\"author\"], \"Dr. Smith\")"])`
+
+**User**: "How many IRADs did Dr. Johnson write?"
+**Response**: If already in preliminary context or previous results, answer directly without searching.
+
+---
+
+Your value lies in accurate retrieval and synthesis from this specific document collection. Stay within these bounds for reliable, grounded responses.
 """

@@ -8,10 +8,23 @@ if TYPE_CHECKING:
 
 
 def get_db(
-    config: DatabaseClientConfig, dimension: int, metadata: Dict[str, any]
+    config: DatabaseClientConfig,
+    dimension: int,
+    metadata: Dict[str, any],
+    library_context: str,
 ) -> DatabaseClient:
+    """
+    Get a database client based on the provider.
+    Args:
+        config: Configuration for the database client.
+        dimension: Dimension of the embeddings.
+        metadata: Metadata schema for the database client.
+        library_context: Library context for the database client.
+    Returns:
+        A DatabaseClient object.
+    """
     if config.provider == "milvus":
-        return MilvusDB(config, dimension, metadata)
+        return MilvusDB(config, dimension, metadata, library_context)
     raise ValueError(f"unsupported database provider: {config.provider}")
 
 

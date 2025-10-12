@@ -4,7 +4,7 @@ import os
 import json
 import matplotlib.pyplot as plt
 
-from ..processing.embeddings import EmbedderConfig
+from ..llm.embeddings import EmbedderConfig
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -17,14 +17,14 @@ class DatabaseDocument(BaseModel):
     This model provides automatic validation and serialization for document chunks.
     
     Attributes:
+        id: Database-assigned primary key (default: -1 before insertion)
+        metadata: Additional user-defined metadata as key-value pairs
+        security_group: List of security groups for RBAC access control
         default_document_id: Unique identifier for the document chunk (UUID)
         default_text: The text content of the document chunk
         default_text_embedding: Dense vector embedding of the text
         default_chunk_index: Index of this chunk within the document (0-based)
         default_source: Source identifier (e.g., file path, URL)
-        security_group: List of security groups for RBAC access control
-        metadata: Additional user-defined metadata as key-value pairs
-        id: Database-assigned primary key (default: -1 before insertion)
         default_metadata: JSON string representation of metadata
         default_minio: URL to the original document in MinIO storage
         default_text_sparse_embedding: Sparse embedding for BM25 full-text search

@@ -22,12 +22,12 @@ try:
     from ..main import CrawlerConfig
 except ImportError:
     # When run standalone (e.g., for testing)
-    from processing.embeddings import EmbedderConfig
-    from processing.llm import LLMConfig
-    from processing.converter import ConverterConfig
-    from processing.extractor import ExtractorConfig
-    from storage.database_client import DatabaseClientConfig
-    from main import CrawlerConfig
+    from processing.embeddings import EmbedderConfig  # pyright: ignore[reportMissingImports]
+    from processing.llm import LLMConfig  # pyright: ignore[reportMissingImports]
+    from processing.converter import ConverterConfig  # pyright: ignore[reportMissingImports]
+    from processing.extractor import ExtractorConfig  # pyright: ignore[reportMissingImports]
+    from storage.database_client import DatabaseClientConfig  # pyright: ignore[reportMissingImports]
+    from main import CrawlerConfig  # pyright: ignore[reportMissingImports]
 
 
 def load_config_from_file(config_path: str) -> CrawlerConfig:
