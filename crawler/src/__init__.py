@@ -5,19 +5,41 @@ This package provides a modular system for crawling, processing, and indexing do
 into vector databases for retrieval-augmented generation (RAG) applications.
 """
 
-# Re-export main classes from submodules for convenience
-from .crawler.main import Crawler, CrawlerConfig, RESERVED, sanitize_metadata
-from .crawler.processing import (
-    Converter, ConverterConfig, create_converter,
-    Extractor, BasicExtractor, MultiSchemaExtractor,
-    LLM, LLMConfig, get_llm,
-    Embedder, EmbedderConfig, get_embedder
+# Re-export main classes from submodules for convenience, based on new file structure
+
+from .crawler.main import Crawler, CrawlerConfig, sanitize_metadata
+
+from .crawler.converter import (
+    Converter,
+    ConverterConfig,
+    create_converter,
 )
-from .crawler.storage import (
-    DatabaseClient, DatabaseClientConfig, DatabaseDocument,
-    MilvusDB, get_db, get_db_benchmark
+
+from .crawler.extractor import (
+    Extractor,
+    ExtractorConfig,
+    create_extractor,
 )
-from .crawler.config_defaults import *
+
+from .crawler.llm.embeddings import (
+    Embedder,
+    EmbedderConfig,
+    get_embedder,
+)
+from .crawler.llm.llm import (
+    LLM,
+    LLMConfig,
+    get_llm,
+)
+
+from .crawler.vector_db import (
+    DatabaseClient,
+    DatabaseClientConfig,
+    DatabaseDocument,
+    get_db,
+    get_db_benchmark,
+)
+
 
 __version__ = "0.1.0"
 

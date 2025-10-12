@@ -1,11 +1,76 @@
-from .main import Crawler, CrawlerConfig
-from .config import *
+"""
+Crawler - Document Processing and Vector Database System
+
+This package provides a modular system for crawling, processing, and indexing documents
+into vector databases for retrieval-augmented generation (RAG) applications.
+"""
+
+# Re-export main classes from submodules for convenience, based on new file structure
+
+from .main import Crawler, CrawlerConfig, sanitize_metadata
+
+from .converter import (
+    Converter,
+    ConverterConfig,
+    create_converter,
+)
+
+from .extractor import (
+    MetadataExtractor,
+    MetadataExtractorConfig,
+)
+
+from .llm.embeddings import (
+    Embedder,
+    EmbedderConfig,
+    get_embedder,
+)
+from .llm.llm import (
+    LLM,
+    LLMConfig,
+    get_llm,
+)
+
+from .vector_db import (
+    DatabaseClient,
+    DatabaseClientConfig,
+    DatabaseDocument,
+    get_db,
+    get_db_benchmark,
+)
+
+
+__version__ = "0.1.0"
 
 __all__ = [
-    # crawler.py
+    # Core classes
     "Crawler",
     "CrawlerConfig",
-    # config package
+    "RESERVED",
+    "sanitize_metadata",
+
+    # Processing components
+    "Converter",
+    "ConverterConfig",
+    "create_converter",
+    "MetadataExtractor",
+    "MetadataExtractorConfig",
+    "LLM",
+    "LLMConfig",
+    "get_llm",
+    "Embedder",
+    "EmbedderConfig",
+    "get_embedder",
+
+    # Storage components
+    "DatabaseClient",
+    "DatabaseClientConfig",
+    "DatabaseDocument",
+    "MilvusDB",
+    "get_db",
+    "get_db_benchmark",
+
+    # Default configurations
     "DEFAULT_OLLAMA_EMBEDDINGS",
     "DEFAULT_OLLAMA_LLM",
     "DEFAULT_OLLAMA_VISION_LLM",
@@ -16,10 +81,4 @@ __all__ = [
     "DEFAULT_BENCHMARK",
     "DEFAULT_METADATA_SCHEMA",
     "DEFAULT_EXTRACTOR_CONFIG",
-    # validation
-    "ConfigValidator",
-    "ValidationError",
-    # loading
-    "load_config_from_file",
-    "load_config_from_env",
 ]

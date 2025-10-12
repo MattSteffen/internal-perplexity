@@ -1,11 +1,13 @@
 from crawler import Crawler, CrawlerConfig
-from crawler.processing import (
-    ExtractorConfig,
-    ConverterConfig,
-    EmbedderConfig,
-    LLMConfig,
+from crawler.extractor import (
+    MetadataExtractorConfig,
+    MetadataExtractor,
 )
-from crawler.storage import DatabaseClientConfig, MilvusBenchmark
+from crawler.llm.embeddings import EmbedderConfig
+from crawler.llm.llm import LLMConfig
+from crawler.converter import PyMuPDFConfig
+from crawler.chunker import ChunkingConfig
+from crawler.vector_db import DatabaseClientConfig, MilvusBenchmark
 
 # Schema definitions for ArXiv document metadata extraction
 schema1 = {
@@ -111,8 +113,8 @@ def create_arxiv_config():
         collection="arxiv3",
         host="localhost",
         port=19530,
-        username="root",
-        password="Milvus",
+        username="matt",
+        password="steffen",
         recreate=True,
     )
 
@@ -126,12 +128,15 @@ def create_arxiv_config():
     )
 
     # Multi-schema extractor configuration
-    extractor = ExtractorConfig.multi_schema(
-        schemas=[schema1, schema2], llm=llm, document_library_context=""
+    extractor = MetadataExtractorConfig(
+        schema=metadata_schema,
+        llm=llm,
+        context="A sequence of papers on topics related to clustering.",
     )
 
     # PyMuPDF converter configuration with image processing
-    converter = ConverterConfig.pymupdf(
+    converter = PyMuPDFConfig(
+        type="pymupdf",
         vision_llm=vision_llm,
         metadata={
             "preserve_formatting": True,
@@ -141,13 +146,11 @@ def create_arxiv_config():
             "extract_tables": True,
             "table_strategy": "lines_strict",
             "image_description_prompt": "Describe this image in detail for a technical document.",
-            "image_describer": {
-                "type": "ollama",
-                "model": "granite3.2-vision:latest",
-                "base_url": "http://localhost:11434",
-            },
+            "image_describer": vision_llm,
         },
     )
+
+    chunking = ChunkingConfig.create(chunk_size=1000)
 
     # Create the complete crawler configuration
     config = CrawlerConfig.create(
@@ -157,10 +160,11 @@ def create_arxiv_config():
         database=database,
         converter=converter,
         extractor=extractor,
-        chunk_size=1000,
+        chunking=chunking,
         metadata_schema=metadata_schema,
         benchmark=True,
         log_level="DEBUG",
+        security_groups=["read_only"],
     )
 
     return config
@@ -178,9 +182,7 @@ def search_louvain_clustering():
     )
 
     # Perform search
-    search_results = search_benchmark.search(
-        queries=["louvain clustering"], filters=None
-    )
+    search_results = search_benchmark.search(queries=["louvain clustering"], filters=[])
 
     print(f"\n📊 Search Results: Found {len(search_results)} matches")
     print("-" * 60)

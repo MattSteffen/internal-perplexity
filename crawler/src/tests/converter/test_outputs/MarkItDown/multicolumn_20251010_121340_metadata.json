@@ -1,0 +1,11 @@
+{
+  "converter": "MarkItDown",
+  "source_file": "/Users/mattsteffen/projects/llm/internal-perplexity/crawler/src/tests/converter/multicolumn.pdf",
+  "conversion_time": "20251010_121340",
+  "output_length": 7150,
+  "images_count": 0,
+  "tables_count": 0,
+  "processing_time_sec": 0.06243014335632324,
+  "images_described": 0,
+  "markdown_file": "/Users/mattsteffen/projects/llm/internal-perplexity/crawler/src/tests/converter/test_outputs/MarkItDown/multicolumn_20251010_121340.md"
+}
