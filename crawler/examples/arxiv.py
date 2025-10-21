@@ -6,6 +6,7 @@ from crawler.extractor import (
 from crawler.llm.embeddings import EmbedderConfig
 from crawler.llm.llm import LLMConfig
 from crawler.converter import PyMuPDFConfig
+from crawler.converter.types import ConvertOptions
 from crawler.chunker import ChunkingConfig
 from crawler.vector_db import DatabaseClientConfig, MilvusBenchmark
 
@@ -137,17 +138,20 @@ def create_arxiv_config():
     # PyMuPDF converter configuration with image processing
     converter = PyMuPDFConfig(
         type="pymupdf",
-        vision_llm=vision_llm,
-        metadata={
-            "preserve_formatting": True,
-            "include_page_numbers": True,
-            "include_metadata": True,
-            "sort_reading_order": True,
-            "extract_tables": True,
-            "table_strategy": "lines_strict",
-            "image_description_prompt": "Describe this image in detail for a technical document.",
-            "image_describer": vision_llm,
-        },
+        vlm_config=vision_llm,
+        convert_options=ConvertOptions.from_dict(
+            {
+                "include_page_numbers": False,
+                "include_metadata": True,
+                "reading_order": True,
+                "extract_tables": True,
+                "table_strategy": "lines_strict",
+                "describe_images": True,
+                "include_images": True,
+                "image_prompt": "Describe this image in detail for a technical document.",
+                "timeout_sec": 600,
+            }
+        ),
     )
 
     chunking = ChunkingConfig.create(chunk_size=1000)
@@ -163,7 +167,6 @@ def create_arxiv_config():
         chunking=chunking,
         metadata_schema=metadata_schema,
         benchmark=True,
-        log_level="DEBUG",
         security_groups=["read_only"],
     )
 
@@ -272,13 +275,12 @@ def main():
 
     # Create configuration using the new type-safe approach
     config = create_arxiv_config()
-    config.log_level = "INFO"  # Set log level for testing
 
     print(f"📊 Configuration created:")
     print(f"   • Collection: {config.database.collection}")
     print(f"   • LLM: {config.llm.model_name}")
     print(f"   • Vision LLM: {config.vision_llm.model_name}")
-    print(f"   • Chunk size: {config.chunk_size}")
+    print(f"   • Chunk size: {config.chunking.chunk_size}")
     print(f"   • Benchmark: {config.benchmark}")
 
     # Create and run crawler

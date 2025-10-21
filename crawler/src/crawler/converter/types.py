@@ -11,13 +11,15 @@ from typing import Any, Callable, Dict, Optional, Tuple, List, Union, IO
 from pydantic import BaseModel, Field, model_validator
 from pathlib import Path
 
+from ..document import Document
+
 
 BBox = Tuple[float, float, float, float]
 
 
 class DocumentInput(BaseModel):
     """Represents a document input from various sources."""
-    
+
     source: str = Field(..., description="Source type: 'path', 'bytes', or 'fileobj'")
     path: Optional[Path] = None
     bytes_data: Optional[bytes] = None
@@ -41,14 +43,19 @@ class DocumentInput(BaseModel):
         return self
 
     @classmethod
-    def from_path(cls, p: Union[str, Path], mime_type: Optional[str] = None) -> "DocumentInput":
+    def from_path(
+        cls, p: Union[str, Path], mime_type: Optional[str] = None
+    ) -> "DocumentInput":
         """Create DocumentInput from a file path."""
         p = Path(p)
         return cls(source="path", path=p, filename=p.name, mime_type=mime_type)
 
     @classmethod
     def from_bytes(
-        cls, data: bytes, filename: Optional[str] = None, mime_type: Optional[str] = None
+        cls,
+        data: bytes,
+        filename: Optional[str] = None,
+        mime_type: Optional[str] = None,
     ) -> "DocumentInput":
         """Create DocumentInput from bytes data."""
         return cls(
@@ -60,15 +67,35 @@ class DocumentInput(BaseModel):
 
     @classmethod
     def from_fileobj(
-        cls, f: IO[bytes], filename: Optional[str] = None, mime_type: Optional[str] = None
+        cls,
+        f: IO[bytes],
+        filename: Optional[str] = None,
+        mime_type: Optional[str] = None,
     ) -> "DocumentInput":
         """Create DocumentInput from a file-like object."""
         return cls(source="fileobj", fileobj=f, filename=filename, mime_type=mime_type)
 
+    @classmethod
+    def from_document(cls, document: Document) -> "DocumentInput":
+        """Create DocumentInput from a Document object."""
+        # If document has content, use bytes source
+        if document.content is not None:
+            return cls.from_bytes(
+                data=document.content,
+                filename=(
+                    document.source.split("/")[-1]
+                    if "/" in document.source
+                    else document.source
+                ),
+            )
+        # Otherwise, assume source is a file path
+        else:
+            return cls.from_path(document.source)
+
 
 class ConvertOptions(BaseModel):
     """Options for controlling document conversion behavior."""
-    
+
     include_metadata: bool = True
     include_page_numbers: bool = True
     include_images: bool = True
@@ -80,10 +107,15 @@ class ConvertOptions(BaseModel):
     page_range: Optional[Tuple[int, int]] = None  # inclusive 1-based range
     timeout_sec: Optional[float] = None
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ConvertOptions":
+        """Create ConvertOptions from a dictionary."""
+        return cls(**data)
+
 
 class ImageAsset(BaseModel):
     """Represents an extracted image from a document."""
-    
+
     page_number: int = Field(..., ge=0)
     bbox: Optional[BBox] = None
     ext: str
@@ -97,7 +129,7 @@ class ImageAsset(BaseModel):
 
 class TableAsset(BaseModel):
     """Represents an extracted table from a document."""
-    
+
     page_number: int = Field(..., ge=0)
     bbox: Optional[BBox] = None
     rows: int = 0
@@ -107,7 +139,7 @@ class TableAsset(BaseModel):
 
 class ConversionStats(BaseModel):
     """Statistics about a conversion operation."""
-    
+
     total_pages: int = 0
     processed_pages: int = 0
     text_blocks: int = 0
@@ -120,7 +152,7 @@ class ConversionStats(BaseModel):
 
 class ConvertedDocument(BaseModel):
     """Result of a document conversion operation."""
-    
+
     source_name: Optional[str] = None
     markdown: str
     metadata: Dict[str, Any] = Field(default_factory=dict)
@@ -132,7 +164,7 @@ class ConvertedDocument(BaseModel):
 
 class ProgressEvent(BaseModel):
     """Event emitted during conversion progress."""
-    
+
     stage: str
     page: Optional[int] = None
     total_pages: Optional[int] = None
@@ -142,7 +174,7 @@ class ProgressEvent(BaseModel):
 
 class Capabilities(BaseModel):
     """Describes what a converter can handle."""
-    
+
     name: str
     supports_pdf: bool = True
     supports_docx: bool = True

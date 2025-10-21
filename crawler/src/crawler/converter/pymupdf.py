@@ -8,7 +8,6 @@ for PDF processing with image extraction, table detection, and AI-powered descri
 from __future__ import annotations
 
 import base64
-import logging
 import time
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple, Union, IO
@@ -22,7 +21,6 @@ from .types import (
     DocumentInput,
     ConvertOptions,
     ConvertedDocument,
-    ProgressEvent,
     Capabilities,
     ImageAsset,
     TableAsset,
@@ -31,23 +29,24 @@ from .types import (
 )
 from pydantic import BaseModel, Field
 from typing import Literal, Optional, Dict, Any
+from ..llm.llm import LLMConfig
 
 
 class PyMuPDFConfig(BaseModel):
     """Configuration for PyMuPDF converter."""
-    
+
     type: Literal["pymupdf"]
-    image_describer: Optional[Dict[str, Any]] = Field(
-        default=None, 
-        description="Image describer configuration: {type, model, base_url}"
+    vlm_config: Optional[LLMConfig] = Field(
+        default=None,
+        description="VLM configuration",
     )
-    default_table_strategy: str = Field(
-        default="lines_strict", 
-        description="Default table extraction strategy"
+    convert_options: Optional[ConvertOptions] = Field(
+        default=None,
+        description="Conversion options",
     )
 
 
-class ImageDescriptionInterface(ABC):
+class VLMInterface(ABC):
     """Abstract interface for image description services."""
 
     @abstractmethod
@@ -68,18 +67,18 @@ class ImageDescriptionInterface(ABC):
         pass
 
 
-class OllamaImageDescriber(ImageDescriptionInterface):
-    """Implementation for Ollama API image description."""
+class OllamaVLM(VLMInterface):
+    """Implementation for Ollama API VLM."""
 
     def __init__(
         self, model_name: str = "llava", base_url: str = "http://localhost:11434"
     ):
-        """Initialize Ollama image describer."""
+        """Initialize Ollama VLM."""
         # Validate inputs early to fail fast
         if not isinstance(model_name, str) or not model_name.strip():
-            raise ValueError("OllamaImageDescriber requires a non-empty model_name")
+            raise ValueError("OllamaVLM requires a non-empty model_name")
         if not isinstance(base_url, str) or not base_url.strip():
-            raise ValueError("OllamaImageDescriber requires a non-empty base_url")
+            raise ValueError("OllamaVLM requires a non-empty base_url")
 
         self.model_name = model_name
         self.base_url = base_url.rstrip("/")
@@ -87,6 +86,7 @@ class OllamaImageDescriber(ImageDescriptionInterface):
         # Try to import requests
         try:
             import requests
+
             self.requests = requests
         except ImportError:
             raise ImportError(
@@ -129,7 +129,9 @@ class OllamaImageDescriber(ImageDescriptionInterface):
                 if description:
                     return description
                 else:
-                    return f"[No description returned from Ollama for {image_ext} image]"
+                    return (
+                        f"[No description returned from Ollama for {image_ext} image]"
+                    )
             else:
                 return f"[Error getting description from Ollama: HTTP {response.status_code}]"
 
@@ -137,7 +139,7 @@ class OllamaImageDescriber(ImageDescriptionInterface):
             return f"[Error describing image: {str(e)}]"
 
 
-class DummyImageDescriber(ImageDescriptionInterface):
+class DummyVLM(VLMInterface):
     """Dummy implementation for testing."""
 
     def describe_image(
@@ -154,10 +156,10 @@ class PyMuPDFConverter(Converter):
     def __init__(self, config: PyMuPDFConfig):
         """Initialize the PyMuPDF converter."""
         super().__init__(config)
-        self.logger = logging.getLogger(self.__class__.__name__)
-        
+        self.config = config
+
         # Initialize image describer
-        self.image_describer = self._create_image_describer()
+        self.vlm = self._create_vlm()
 
     @property
     def name(self) -> str:
@@ -195,27 +197,19 @@ class PyMuPDFConverter(Converter):
         on_progress: Optional[callable] = None,
     ) -> ConvertedDocument:
         """Convert a PDF file to markdown with comprehensive content extraction."""
-        if options is None:
-            options = ConvertOptions()
-
-        if on_progress:
-            on_progress(
-                ProgressEvent(stage="start", message="Starting PyMuPDF conversion")
-            )
+        options = self.config.convert_options
 
         convert_start_time = time.time()
         doc_name = doc.filename or "unknown"
 
         try:
-            self.logger.info(f"🔄 Starting PDF conversion: {doc_name}")
-            self.logger.info(f"📄 Opening document with PyMuPDF...")
-
             # Get file path for PyMuPDF
             if doc.source == "path":
                 filepath = str(doc.path)
             else:
                 # For bytes or fileobj, we need to write to a temporary file
                 import tempfile
+
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                     if doc.source == "bytes":
                         tmp.write(doc.bytes_data)
@@ -225,7 +219,6 @@ class PyMuPDFConverter(Converter):
 
             with pymupdf.open(filepath) as pdf_doc:
                 total_pages = len(pdf_doc)
-                self.logger.info(f"📊 Document opened successfully - {total_pages} pages")
 
                 markdown_content = []
                 stats = ConversionStats(
@@ -240,72 +233,50 @@ class PyMuPDFConverter(Converter):
 
                 # Add document header
                 markdown_content.append(f"# Document: {doc_name}\n\n")
-                self.logger.debug("📝 Added document header")
 
                 # Add metadata if requested
                 if options.include_metadata:
                     metadata = pdf_doc.metadata
                     if metadata and any(metadata.values()):
-                        self.logger.info("📋 Adding document metadata...")
                         markdown_content.append("## Document Metadata\n\n")
                         for key, value in metadata.items():
                             if value:
                                 markdown_content.append(f"- **{key}**: {value}\n")
                         markdown_content.append("\n")
-                        self.logger.debug("✅ Document metadata added")
 
-                # Process pages with progress tracking
+                # Process pages
                 for page_num in range(total_pages):
                     page_start_time = time.time()
                     page = pdf_doc[page_num]
-
-                    if on_progress:
-                        on_progress(
-                            ProgressEvent(
-                                stage="processing",
-                                page=page_num + 1,
-                                total_pages=total_pages,
-                                message=f"Processing page {page_num + 1}/{total_pages}"
-                            )
-                        )
-
-                    self.logger.debug(f"📄 Processing page {page_num + 1}/{total_pages}")
 
                     if options.include_page_numbers:
                         markdown_content.append(f"## Page {page_num + 1}\n\n")
 
                     # Extract all content types
-                    self.logger.debug("📝 Extracting text blocks...")
                     text_blocks = self._get_text_blocks_with_positions(page, options)
                     stats.text_blocks += len(text_blocks)
 
-                    self.logger.debug("🖼️  Extracting images...")
                     images = self._extract_images_from_page(page, options)
                     stats.images += len(images)
 
-                    self.logger.debug("📊 Extracting tables...")
                     tables = self._extract_tables_from_page(page, options)
                     stats.tables += len(tables)
 
                     # Describe images with progress tracking
                     if images and options.describe_images:
-                        self.logger.info(f"🖼️  Describing {len(images)} images on page {page_num + 1}...")
                         for i, image in enumerate(images):
                             try:
-                                self.logger.debug(f"🔍 Describing image {i+1}/{len(images)} (Page {page_num + 1})")
-                                description = self.image_describer.describe_image(
+                                description = self.vlm.describe_image(
                                     image.data,
                                     image.ext,
                                     options.image_prompt or self.DEFAULT_IMAGE_PROMPT,
                                 )
                                 image.description = description
                                 stats.images_described += 1
-                                self.logger.debug(f"✅ Image {i+1} described successfully")
                             except Exception as e:
-                                self.logger.error(f"❌ Failed to describe image {i+1} on page {page_num + 1}: {e}")
-                                image.description = f"[Error describing image: {str(e)}]"
-                    else:
-                        self.logger.debug("ℹ️  No images found on this page or image description disabled")
+                                image.description = (
+                                    f"[Error describing image: {str(e)}]"
+                                )
 
                     # Merge and sort all content
                     merged_content = self._merge_content_by_position(
@@ -336,9 +307,7 @@ class PyMuPDFConverter(Converter):
                     markdown_content.extend(page_markdown)
                     markdown_content.append("\n")  # Add space between pages
 
-                    page_time = time.time() - page_start_time
                     stats.processed_pages += 1
-                    self.logger.debug(f"✅ Page {page_num + 1} processed in {page_time:.2f}s")
 
                 # Clean up temporary file if created
                 if doc.source != "path":
@@ -351,34 +320,6 @@ class PyMuPDFConverter(Converter):
                 total_time = time.time() - convert_start_time
                 stats.total_time_sec = total_time
 
-                if on_progress:
-                    on_progress(
-                        ProgressEvent(
-                            stage="finish",
-                            message="PyMuPDF conversion completed",
-                            metrics={
-                                "total_time_sec": total_time,
-                                "output_length": len(result_markdown),
-                                "pages_processed": stats.processed_pages,
-                                "images_found": stats.images,
-                                "tables_found": stats.tables,
-                            }
-                        )
-                    )
-
-                self.logger.info("=== PDF Conversion completed successfully ===")
-                self.logger.info("📊 Conversion Statistics:")
-                self.logger.info(f"   • Total pages processed: {stats.processed_pages}")
-                self.logger.info(f"   • Text blocks extracted: {stats.text_blocks}")
-                self.logger.info(f"   • Images found: {stats.images}")
-                self.logger.info(f"   • Images described: {stats.images_described}")
-                if stats.images - stats.images_described > 0:
-                    self.logger.warning(f"   • Failed image descriptions: {stats.images - stats.images_described}")
-                self.logger.info(f"   • Tables extracted: {stats.tables}")
-                self.logger.info(f"   • Total processing time: {total_time:.2f}s")
-                self.logger.info(f"   • Average time per page: {total_time/stats.total_pages:.2f}s")
-                self.logger.info(f"   • Output length: {len(result_markdown)} characters")
-
                 return ConvertedDocument(
                     source_name=doc.filename,
                     markdown=result_markdown,
@@ -388,35 +329,23 @@ class PyMuPDFConverter(Converter):
                 )
 
         except Exception as e:
-            self.logger.error(f"❌ PDF conversion failed for {doc_name}: {e}")
             raise
 
-    def _create_image_describer(self) -> ImageDescriptionInterface:
-        """Create and configure the image describer based on configuration."""
-        config = self.config  # type: PyMuPDFConfig
-        
-        describer_config = config.image_describer or {}
-        if not isinstance(describer_config, dict):
-            raise ValueError("image_describer config must be a dictionary if provided")
+    def _create_vlm(self) -> VLMInterface:
+        """Create and configure the VLM based on configuration."""
+        config = self.config.vlm_config
 
-        describer_type = describer_config.get("type", "ollama")
+        if config.provider == "ollama":
+            return OllamaVLM(model_name=config.model_name, base_url=config.base_url)
 
-        if describer_type == "ollama":
-            model_name = describer_config.get("model", "granite3.2-vision:latest")
-            base_url = describer_config.get("base_url", "http://localhost:11434")
-            # Validate essential params
-            if not model_name or not isinstance(model_name, str):
-                raise ValueError("image_describer.model must be a non-empty string")
-            if not base_url or not isinstance(base_url, str):
-                raise ValueError("image_describer.base_url must be a non-empty string")
-            return OllamaImageDescriber(model_name=model_name, base_url=base_url)
+        if config.provider == "dummy":
+            return DummyVLM()
 
-        if describer_type == "dummy":
-            return DummyImageDescriber()
+        raise ValueError(f"Unsupported vlm provider: {config.provider}")
 
-        raise ValueError(f"Unsupported image_describer.type: {describer_type}")
-
-    def _extract_tables_from_page(self, page: pymupdf.Page, options: ConvertOptions) -> List[TableAsset]:
+    def _extract_tables_from_page(
+        self, page: pymupdf.Page, options: ConvertOptions
+    ) -> List[TableAsset]:
         """Extract tables from a page using PyMuPDF's table detection."""
         tables = []
 
@@ -445,12 +374,11 @@ class PyMuPDFConverter(Converter):
                         )
                     )
 
-                except Exception as e:
-                    self.logger.warning(f"Error extracting table {table_index}: {e}")
+                except Exception:
                     continue
 
-        except Exception as e:
-            self.logger.warning(f"Error finding tables on page {page.number}: {e}")
+        except Exception:
+            pass
 
         return tables
 
@@ -493,8 +421,8 @@ class PyMuPDFConverter(Converter):
             try:
                 page_tables = page.find_tables(strategy=options.table_strategy)
                 table_areas = [table.bbox for table in page_tables]
-            except Exception as e:
-                self.logger.warning(f"Error finding table areas: {e}")
+            except Exception:
+                pass
 
         text_blocks = []
         for block in blocks:
@@ -548,7 +476,9 @@ class PyMuPDFConverter(Converter):
 
         return intersection / area1 if area1 > 0 else 0.0
 
-    def _extract_images_from_page(self, page: pymupdf.Page, options: ConvertOptions) -> List[ImageAsset]:
+    def _extract_images_from_page(
+        self, page: pymupdf.Page, options: ConvertOptions
+    ) -> List[ImageAsset]:
         """Extract all images from a page."""
         extracted_images = []
 
@@ -581,10 +511,7 @@ class PyMuPDFConverter(Converter):
 
                 extracted_images.append(extracted_image)
 
-            except Exception as e:
-                self.logger.error(
-                    f"Error extracting image {img_index} from page {page.number}: {e}"
-                )
+            except Exception:
                 continue
 
         return extracted_images
@@ -629,6 +556,11 @@ class PyMuPDFConverter(Converter):
             )
 
         # Sort by vertical position (top to bottom), then horizontal (left to right)
-        all_content.sort(key=lambda x: (x["bbox"][1] if x["bbox"] else 0, x["bbox"][0] if x["bbox"] else 0))
+        all_content.sort(
+            key=lambda x: (
+                x["bbox"][1] if x["bbox"] else 0,
+                x["bbox"][0] if x["bbox"] else 0,
+            )
+        )
 
         return all_content

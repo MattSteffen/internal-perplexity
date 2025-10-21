@@ -1,8 +1,8 @@
 # TODO
 
-- In the collection description, we should add the metadata schema and the converter config.
-  - Make it parsable and usable by the crawler.
-  - Also for the OI model.
+- [ ] Document should be a class that is imported in converter, chunker, extractor, and vector db.
+  - [ ] It should have functions: convert, chunk, extract, and store which export the necessary object to the other modules.
+- [ ] Make sure configs for each module are properly initiated and used
 
 Desired workflow:
 

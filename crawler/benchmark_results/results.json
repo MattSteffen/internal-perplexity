@@ -1,334 +1,352 @@
 {
     "results_by_doc": {
-        "461407246271071439": [
+        "461407246271071595": [
             {
-                "query": "Page 1 MedDiT: A Knowledge-Controlled Diffusion Transformer Framework for Dynamic Medical Image Generation in Virtual Simulated Patient Yanzeng Li1,2, Cheng Zeng3, Jinchao Zhang2*, Jie Zhou2, Lei Zou1* 1Wangxuan Institute of",
-                "expected_source": "461407246271071439",
+                "query": "Transformer Framework for Dynamic Medical Image Generation in Virtual Simulated Patient Yanzeng Li1,2, Cheng Zeng3, Jinchao Zhang2*, Jie Zhou2, Lei Zou1* 1Wangxuan Institute of Computer Technology, Peking University 2Pattern Recognition",
+                "expected_source": "461407246271071595",
                 "placement_order": 1,
                 "distance": 0.028892889618873596,
-                "time_to_search": 0.06756901741027832,
+                "time_to_search": 0.09923696517944336,
                 "found": true
             }
         ],
-        "461407246271071441": [
+        "461407246271071597": [
             {
-                "query": "represented, effectively mitigating is- sues such as hallucination during medical conversations (Li et al. 2024a). In addition to its conversational capabilities, MedDiT incorporates a series of well-tuned Diffusion Trans- former",
-                "expected_source": "461407246271071441",
+                "query": "The core of MedDiT\u2019s functionality is the inte- gration of patient Knowledge Graphs (KGs) (Fensel et al. 2020; Gyrard et al. 2018). These KGs meticulously describe patient attributes and symptoms,",
+                "expected_source": "461407246271071597",
                 "placement_order": 1,
                 "distance": 0.02906123921275139,
-                "time_to_search": 0.037110090255737305,
+                "time_to_search": 0.03033304214477539,
                 "found": true
             }
         ],
-        "461407246271071442": [
+        "461407246271071598": [
             {
-                "query": "that correspond to the specified patient attributes within the KGs, providing a realistic and varied set of scenarios for students to engage with. Essentially, MedDiT is a multi-agent system that",
-                "expected_source": "461407246271071442",
+                "query": "a multi-agent system that inte- grates KG agent, chat agent, and image generation agent. This integration is centered around KG data, facilitating in- teraction and enabling the system to dynamically",
+                "expected_source": "461407246271071598",
                 "placement_order": 1,
                 "distance": 0.029050705954432487,
-                "time_to_search": 0.042027950286865234,
+                "time_to_search": 0.03842902183532715,
                 "found": true
             }
         ],
-        "461407246271071443": [
+        "461407246271071599": [
             {
                 "query": "Through a practical demonstration, we showcase MedDiT\u2019s ability to simulate diverse patient cases and generate the corresponding medical images. This not only enhances the learning experience by offering an abundant",
-                "expected_source": "461407246271071443",
+                "expected_source": "461407246271071599",
                 "placement_order": 1,
                 "distance": 0.029235942289233208,
-                "time_to_search": 0.043392181396484375,
+                "time_to_search": 0.025604963302612305,
                 "found": true
             }
         ],
-        "461407246271071445": [
+        "461407246271071601": [
             {
-                "query": "To address these issues, this paper introduces MedDiT, a novel knowledge-controlled conversational framework that can dynamically generate plausible medical images aligned with simulated patient symptoms, enabling diverse diagnos- tic skill",
-                "expected_source": "461407246271071445",
+                "query": "simulated patient symptoms, enabling diverse diagnos- tic skill training. Specifically, MedDiT integrates various pa- tient Knowledge Graphs (KGs), which describe the attributes and symptoms of patients, to dynamically prompt Large",
+                "expected_source": "461407246271071601",
                 "placement_order": 1,
                 "distance": 0.029417365789413452,
-                "time_to_search": 0.03234410285949707,
+                "time_to_search": 0.026118993759155273,
                 "found": true
             }
         ],
-        "461407246271071446": [
+        "461407246271071602": [
             {
-                "query": "of patients, to dynamically prompt Large Lan- guage Models\u2019 (LLMs) behavior and control the patient char- acteristics, mitigating hallucination during medical conversa- tion. Additionally, a well-tuned Diffusion Transformer (DiT) model",
-                "expected_source": "461407246271071446",
+                "query": "control the patient char- acteristics, mitigating hallucination during medical conversa- tion. Additionally, a well-tuned Diffusion Transformer (DiT) model is incorporated to generate medical images according to the specified patient attributes",
+                "expected_source": "461407246271071602",
                 "placement_order": 1,
                 "distance": 0.02951071783900261,
-                "time_to_search": 0.0327608585357666,
+                "time_to_search": 0.027720928192138672,
                 "found": true
             }
         ],
-        "461407246271071447": [
+        "461407246271071603": [
             {
-                "query": "of Large Language Models (LLMs) offers the potential to build prac- tical virtual SPs (VSPs) (Chen et al. 2023; Ben\u00b4\u0131tez et al. 2024; Holderried et al. 2024; Li et al.",
-                "expected_source": "461407246271071447",
+                "query": "Simon 2019). While the development of Large Language Models (LLMs) offers the potential to build prac- tical virtual SPs (VSPs) (Chen et al. 2023; Ben\u00b4\u0131tez et al. 2024; Holderried et",
+                "expected_source": "461407246271071603",
                 "placement_order": 2,
                 "distance": 0.029508832842111588,
-                "time_to_search": 0.03393197059631348,
+                "time_to_search": 0.028213024139404297,
                 "found": true
             }
         ],
-        "461407246271071448": [
+        "461407246271071604": [
             {
-                "query": "elopment of Large Language Models (LLMs) offers the potential to build prac- tical virtual SPs (VSPs) (Chen et al. 2023; Ben\u00b4\u0131tez et al. 2024; Holderried et al. 2024; Li et",
-                "expected_source": "461407246271071448",
+                "query": "scarcity of 2 System Design & Architecture We developed MedDiT with a focus on modularity and con- figurability. The KG, chat, and multimodal components are constructed as microservices, while a",
+                "expected_source": "461407246271071604",
                 "placement_order": 1,
                 "distance": 0.029702968895435333,
-                "time_to_search": 0.027584075927734375,
+                "time_to_search": 0.028676748275756836,
                 "found": true
             }
         ],
-        "461407246271071449": [
+        "461407246271071605": [
             {
-                "query": "HTTP 404]* Figure 1: The overview diagram of MedDiT. There are 3 distinct LLM-based agents for controlling information flow across various modalities, including graph, text and image. ![Image Description](png) *[Error",
-                "expected_source": "461407246271071449",
+                "query": "analysis. It starts with \"Consider: symptom WHERE I <patient> <symptom>?\" followed by \"SELECT?manifest WHERE I <patient> <manifestation>?manif\" which leads to \"Consider: I should according to my manifest.\" The process continues",
+                "expected_source": "461407246271071605",
+                "placement_order": 1,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.03241682052612305,
+                "found": true
+            }
+        ],
+        "461407246271071606": [
+            {
+                "query": "to my manifest.\" The flowchart concludes with \"Consider: I should according to my manifest\" and ends with \"Consider: I should according to my manifest.\"* Figure 1: The overview diagram of",
+                "expected_source": "461407246271071606",
+                "placement_order": 1,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.030038118362426758,
+                "found": true
+            }
+        ],
+        "461407246271071608": [
+            {
+                "query": "\"Paper Contact.\" Each section contains a brief description of the application's purpose, such as generating X-ray images for diagnosis and regeneration. The bottom left corner lists features like \"Knowledge Graph",
+                "expected_source": "461407246271071608",
                 "placement_order": 2,
                 "distance": 0.019801979884505272,
-                "time_to_search": 0.02782273292541504,
+                "time_to_search": 0.028776884078979492,
                 "found": true
             }
         ],
-        "461407246271071450": [
+        "461407246271071609": [
             {
-                "query": "construct a control- lable and less-hallucinatory VSP system, we introduce the patient KG as the core information source as Li et al. (2024a). A KG agent is applied to retrieve",
-                "expected_source": "461407246271071450",
-                "placement_order": 4,
+                "query": "(2024a). A KG agent is applied to retrieve the conversation- related subgraph by discerning the user\u2019s intention and gen- erating a SPARQL query for extracting related entities, rela- tions, and",
+                "expected_source": "461407246271071609",
+                "placement_order": 2,
                 "distance": 0.019801979884505272,
-                "time_to_search": 0.02851414680480957,
+                "time_to_search": 0.03286099433898926,
                 "found": true
             }
         ],
-        "461407246271071451": [
+        "461407246271071610": [
             {
-                "query": "language to serve as role- setting for prompting the chat agent\u2019s responses. In this man- ner, MedDiT maintains dialogue consistency effectively, re- duces the hallucinations, and saves token costs. KG-controlled",
-                "expected_source": "461407246271071451",
+                "query": "from the Open-i dataset (Demner-Fushman et al. 2016) for training, compris- ing 3,314 images along with their corresponding textual de- scriptions. Detailed training parameters are provided in Ap- pendix B.",
+                "expected_source": "461407246271071610",
+                "placement_order": 1,
+                "distance": 0.0197049118578434,
+                "time_to_search": 0.02963089942932129,
+                "found": true
+            }
+        ],
+        "461407246271071611": [
+            {
+                "query": "flow for stu- dents\u2019 further analysis. Figure 2: Screenshot of MedDiT. Left: Visualization of pa- tient KG, indicating the activated subgraph for prompting conversaion. Center: The dialogue interface. Right: The",
+                "expected_source": "461407246271071611",
+                "placement_order": 2,
+                "distance": 0.0197049118578434,
+                "time_to_search": 0.029014110565185547,
+                "found": true
+            }
+        ],
+        "461407246271071613": [
+            {
+                "query": "expe- rience that can significantly improve medical education. In future work, we plan to further expand the scope of the KG to encompass a broader range of medical conditions, symp-",
+                "expected_source": "461407246271071613",
+                "placement_order": 3,
+                "distance": 0.01951637491583824,
+                "time_to_search": 0.034310102462768555,
+                "found": true
+            }
+        ],
+        "461407246271071614": [
+            {
+                "query": "explore training more kinds of medical image adaptors. Furthermore, we aim to conduct evaluation experiments on MedDiT to test large vision models and in- vestigate the possibility of using large",
+                "expected_source": "461407246271071614",
+                "placement_order": 3,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.03401684761047363,
+                "found": true
+            }
+        ],
+        "461407246271071615": [
+            {
+                "query": "the instructions from Li et al. (2024a), we uti- lize various prompts and auxiliary models to analysis the dialogue history across multiple aspects, including the com- pleteness of necessary information,",
+                "expected_source": "461407246271071615",
+                "placement_order": 3,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.03223705291748047,
+                "found": true
+            }
+        ],
+        "461407246271071616": [
+            {
+                "query": "aluation report, including scoring and ad- vice, is generated by the LLM based on these criteria and the gold standard for the corresponding VSP case. Appendix C presents an actual",
+                "expected_source": "461407246271071616",
+                "placement_order": 3,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.03362607955932617,
+                "found": true
+            }
+        ],
+        "461407246271071617": [
+            {
+                "query": "pitfalls. Journal of the American Medical Informatics Association, ocad252. Chen, S.; Wu, M.; Zhu, K. Q.; Lan, K.; Zhang, Z.; and Cui, L. 2023. LLM-empowered Chatbots for Psychiatrist and Pa-",
+                "expected_source": "461407246271071617",
+                "placement_order": 1,
+                "distance": 0.0197049118578434,
+                "time_to_search": 0.03624773025512695,
+                "found": true
+            }
+        ],
+        "461407246271071618": [
+            {
+                "query": "et al. 2020. Introduction: what is a knowledge graph? Knowledge graphs: Methodology, tools and selected use cases, 1\u201310. Gaba, D. M. 2007. The future vision of simulation in health- care.",
+                "expected_source": "461407246271071618",
+                "placement_order": 3,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.04597878456115723,
+                "found": true
+            }
+        ],
+        "461407246271071619": [
+            {
+                "query": "2317. NIH Public Access. Hillier, M.; Williams, T. L.; and Chidume, T. 2020. Stan- dardization of standardized patient training in medical sim- ulation. Holderried, F.; Stegemann-Philipps, C.; Herschbach, L.; Moldt,",
+                "expected_source": "461407246271071619",
+                "placement_order": 3,
+                "distance": 0.0196097269654274,
+                "time_to_search": 0.04822969436645508,
+                "found": true
+            }
+        ],
+        "461407246271071620": [
+            {
+                "query": "to Practice History Taking: Prospective, Mixed Methods Study. JMIR Medical Educa- tion, 10(1): e53961. Hu, E. J.; Shen, Y.; Wallis, P.; Allen-Zhu, Z.; Li, Y.; Wang, S.; Wang, L.; and",
+                "expected_source": "461407246271071620",
+                "placement_order": 1,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.04216313362121582,
+                "found": true
+            }
+        ],
+        "461407246271071622": [
+            {
+                "query": "veloping communication skills in pharmacy: a systematic re- view of the use of simulated patient methods. Patient edu- cation and counseling, 78(2): 143\u2013148. Pan, S.; Wang, T.; Qiu, R. L.;",
+                "expected_source": "461407246271071622",
+                "placement_order": 11,
+                "distance": 0.009900989942252636,
+                "time_to_search": 0.04306292533874512,
+                "found": true
+            }
+        ],
+        "461407246271071623": [
+            {
+                "query": "Patient edu- cation and counseling, 78(2): 143\u2013148. Pan, S.; Wang, T.; Qiu, R. L.; Axente, M.; Chang, C.-W.; Peng, J.; Patel, A. B.; Shelton, J.; Patel, S. A.; Roper, J.;",
+                "expected_source": "461407246271071623",
+                "placement_order": 2,
+                "distance": 0.009900989942252636,
+                "time_to_search": 0.037335872650146484,
+                "found": true
+            }
+        ],
+        "461407246271071624": [
+            {
+                "query": "Zhu, T.; Li, T.; Liu, T.; Ge, W.; Deng, X.; Zhou, X.; Ren, X.; Zhang, X.; Wei, X.; Ren, X.; Fan, Y.; Yao, Y.; Zhang, Y.; Wan, Y.; Chu, Y.;",
+                "expected_source": "461407246271071624",
                 "placement_order": 5,
-                "distance": 0.019607843831181526,
-                "time_to_search": 0.030501127243041992,
-                "found": true
-            }
-        ],
-        "461407246271071452": [
-            {
-                "query": "prompts from the structured manifestations, which are stored in the KG and retrievable by KG agent. Once generated, the images are displayed in dialogue flow for stu- dents\u2019 further analysis.",
-                "expected_source": "461407246271071452",
-                "placement_order": 2,
-                "distance": 0.019801979884505272,
-                "time_to_search": 0.03524279594421387,
-                "found": true
-            }
-        ],
-        "461407246271071454": [
-            {
-                "query": "models to pro- duce medical images that align with the context and symp- toms of patients. The system\u2019s ability to generate diverse and realistic medical images, combined with its interactive",
-                "expected_source": "461407246271071454",
-                "placement_order": 4,
-                "distance": 0.019801979884505272,
-                "time_to_search": 0.030587196350097656,
-                "found": true
-            }
-        ],
-        "461407246271071455": [
-            {
-                "query": "medical conditions, symp- toms, and patient profiles. We will also increase the num- ber of SP cases and explore training more kinds of medical image adaptors. Furthermore, we aim to",
-                "expected_source": "461407246271071455",
-                "placement_order": 4,
-                "distance": 0.019801979884505272,
-                "time_to_search": 0.03182220458984375,
-                "found": true
-            }
-        ],
-        "461407246271071456": [
-            {
-                "query": "Following the instructions from Li et al. (2024a), we uti- lize various prompts and auxiliary models to analysis the dialogue history across multiple aspects, including the com- pleteness of necessary",
-                "expected_source": "461407246271071456",
-                "placement_order": 3,
-                "distance": 0.019801979884505272,
-                "time_to_search": 0.032460927963256836,
-                "found": true
-            }
-        ],
-        "461407246271071457": [
-            {
-                "query": "port, including scoring and ad- vice, is generated by the LLM based on these criteria and the gold standard for the corresponding VSP case. Appendix C presents an actual evaluation",
-                "expected_source": "461407246271071457",
-                "placement_order": 3,
-                "distance": 0.019801979884505272,
-                "time_to_search": 0.028334856033325195,
-                "found": true
-            }
-        ],
-        "461407246271071458": [
-            {
-                "query": "Rodriguez, L.; Antani, S.; Thoma, G. R.; and McDonald, C. J. 2016. Preparing a collection of radiol- ogy examinations for distribution and retrieval. Journal of the American Medical Informatics Association,",
-                "expected_source": "461407246271071458",
-                "placement_order": 7,
                 "distance": 0.009900989942252636,
-                "time_to_search": 0.027560949325561523,
+                "time_to_search": 0.0485689640045166,
                 "found": true
             }
         ],
-        "461407246271071459": [
+        "461407246271071625": [
             {
-                "query": "Healthcare, 2(2): 126\u2013135. Glatard, T.; Lartizien, C.; Gibaud, B.; Da Silva, R. F.; Forestier, G.; Cervenansky, F.; Alessandrini, M.; Benoit- Cattin, H.; Bernard, O.; Camarasu-Pop, S.; et al. 2012. A",
-                "expected_source": "461407246271071459",
+                "query": "\u2286E \u00d7 R \u00d7 E is the collection of knowledge triples \u27e8s, p, o\u27e9, with s, o \u2208 E, p \u2208R being subjects, objects, and predicates, respec- tively. We define",
+                "expected_source": "461407246271071625",
+                "placement_order": 3,
+                "distance": 0.019334953278303146,
+                "time_to_search": 0.0387270450592041,
+                "found": true
+            }
+        ],
+        "461407246271071626": [
+            {
+                "query": "{{ID}}, and your score is 69/100 points. Here are some suggestions for you: implied by arguments as: Knowledge : X \u2192K, where X can be a graph, text, or images,",
+                "expected_source": "461407246271071626",
                 "placement_order": 1,
                 "distance": 0.019801979884505272,
-                "time_to_search": 0.0328679084777832,
+                "time_to_search": 0.044390201568603516,
                 "found": true
             }
         ],
-        "461407246271071460": [
+        "461407246271071627": [
             {
-                "query": "image simulation. IEEE transactions on medical imaging, 32(1): 110\u2013118. Gyrard, A.; Gaur, M.; Shekarpour, S.; Thirunarayan, K.; and Sheth, A. 2018. Personalized health knowledge graph. In CEUR workshop proceedings, volume",
-                "expected_source": "461407246271071460",
-                "placement_order": 2,
-                "distance": 0.019801979884505272,
-                "time_to_search": 0.03191828727722168,
-                "found": true
-            }
-        ],
-        "461407246271071461": [
-            {
-                "query": "Medical Educa- tion, 10(1): e53961. Hu, E. J.; Shen, Y.; Wallis, P.; Allen-Zhu, Z.; Li, Y.; Wang, S.; Wang, L.; and Chen, W. 2021. Lora: Low-rank adaptation of large language",
-                "expected_source": "461407246271071461",
-                "placement_order": 1,
-                "distance": 0.019801979884505272,
-                "time_to_search": 0.02636432647705078,
-                "found": true
-            }
-        ],
-        "461407246271071463": [
-            {
-                "query": "W.; Wang, D.; Yang, Y.; Jiang, J.; and Lu, Q. 2024b. Hunyuan-DiT: A Powerful Multi-Resolution Dif- fusion Transformer with Fine-Grained Chinese Understand- ing. arXiv:2405.08748. Mesquita, A. R.; Lyra Jr, D.",
-                "expected_source": "461407246271071463",
-                "placement_order": 1,
-                "distance": 0.019801979884505272,
-                "time_to_search": 0.02956080436706543,
-                "found": true
-            }
-        ],
-        "461407246271071464": [
-            {
-                "query": "Y.; Wynne, J. F.; Curran, W. J.; Liu, T.; and Yang, X. 2021. A review on medical imaging synthesis using deep learning and its clinical applications. Journal of applied clinical",
-                "expected_source": "461407246271071464",
+                "query": "be repre- sented by: ### Summary: During the process of assessing patients\u2019 health conditions, you have paid attention to many key factors, such as marriage, smoking, infectious diseases, vomiting, hepatitis,",
+                "expected_source": "461407246271071627",
                 "placement_order": 1,
                 "distance": 0.0197049118578434,
-                "time_to_search": 0.023613929748535156,
+                "time_to_search": 0.03809833526611328,
                 "found": true
             }
         ],
-        "461407246271071465": [
+        "461407246271071628": [
             {
-                "query": "Deng, X.; Zhou, X.; Ren, X.; Zhang, X.; Wei, X.; Ren, X.; Fan, Y.; Yao, Y.; Zhang, Y.; Wan, Y.; Chu, Y.; Liu, Y.; Cui, Z.; Zhang, Z.; and Fan,",
-                "expected_source": "461407246271071465",
-                "placement_order": 8,
-                "distance": 0.009900989942252636,
-                "time_to_search": 0.026432037353515625,
-                "found": true
-            }
-        ],
-        "461407246271071466": [
-            {
-                "query": "medical education: an ethical imperative. Simulation in Healthcare, 1(4): 252\u2013256. A Knowledge Controlled Image Generation In this study, we propose a framework for generating knowledge-driven imagery from structured KGs, delineated",
-                "expected_source": "461407246271071466",
-                "placement_order": 4,
-                "distance": 0.019801979884505272,
-                "time_to_search": 0.02668285369873047,
-                "found": true
-            }
-        ],
-        "461407246271071467": [
-            {
-                "query": "patient graph G = (E, R, T), ensuring that E\u2032 \u2286E, R\u2032 \u2286R, T \u2032 \u2286T, and Knowledge(G\u2032) \u2286Knowledge(G). This sub- graph serves as the foundational data structure for subse-",
-                "expected_source": "461407246271071467",
+                "query": "health conditions, can help you develop more targeted treatment plans and anticipate potential health problems. f : G\u2032 \u2192Text, s.t. Knowledge(Text) \u2248Knowledge(G\u2032), which maps the subgraph to a textual representation",
+                "expected_source": "461407246271071628",
                 "placement_order": 1,
                 "distance": 0.019801979884505272,
-                "time_to_search": 0.027575016021728516,
+                "time_to_search": 0.04464292526245117,
                 "found": true
             }
         ],
-        "461407246271071468": [
-            {
-                "query": "tuberculosis, and parents\u2019 information. However, you seem to have not fully covered some important details, such as genetic history and symptoms. As a medical professional, your work is extremely important",
-                "expected_source": "461407246271071468",
-                "placement_order": 2,
-                "distance": 0.0197049118578434,
-                "time_to_search": 0.026037931442260742,
-                "found": true
-            }
-        ],
-        "461407246271071469": [
-            {
-                "query": "as losslessly as possible. Subsequently, this textual representation IP = f(G\u2032) is utilized as an image prompt within the DiT model, denoted as I = DiT(IP), and the total progress",
-                "expected_source": "461407246271071469",
-                "placement_order": 3,
-                "distance": 0.019512660801410675,
-                "time_to_search": 0.022848844528198242,
-                "found": true
-            }
-        ],
-        "461407246271071470": [
+        "461407246271071629": [
             {
                 "query": "losslessly as possible. Subsequently, this textual representation IP = f(G\u2032) is utilized as an image prompt within the DiT model, denoted as I = DiT(IP), and the total progress can",
-                "expected_source": "461407246271071470",
+                "expected_source": "461407246271071629",
                 "placement_order": 2,
                 "distance": 0.019801979884505272,
-                "time_to_search": 0.02423572540283203,
+                "time_to_search": 0.03174710273742676,
                 "found": true
             }
         ],
-        "461407246271071471": [
+        "461407246271071630": [
             {
-                "query": "-risk groups. Symptom Assessment: In every consultation, it is essential to fully understand the patient\u2019s symptoms. This includes not only current symptoms but also any discomfort experienced in the past",
-                "expected_source": "461407246271071471",
+                "query": "medical history, especially those related to genetics, such as cardiovascular diseases, diabetes, cancer, etc. This helps with prevention and intervention efforts and early identification of high -risk groups. Symptom Assessment:",
+                "expected_source": "461407246271071630",
                 "placement_order": 2,
                 "distance": 0.019801979884505272,
-                "time_to_search": 0.025263071060180664,
+                "time_to_search": 0.03049015998840332,
                 "found": true
             }
         ],
-        "461407246271071472": [
+        "461407246271071631": [
             {
-                "query": "accurately reflects the knowledge embedded in G\u2032. This comprehensive approach g describes the integration of graph-based data with text and image modalities, fostering enhanced interpretability and control in image synthesis.",
-                "expected_source": "461407246271071472",
-                "placement_order": 2,
+                "query": "s.t. I |= Knowledge(G\u2032), ensuring that the generated image I accurately reflects the knowledge embedded in G\u2032. This comprehensive approach g describes the integration of graph-based data with text and",
+                "expected_source": "461407246271071631",
+                "placement_order": 1,
                 "distance": 0.019801979884505272,
-                "time_to_search": 0.027695894241333008,
+                "time_to_search": 0.03200793266296387,
                 "found": true
             }
         ],
-        "461407246271071473": [
+        "461407246271071632": [
             {
-                "query": "during medical conversations are dis- played in Table 1. The unmentioned parameters are aligned with the configuration of Li et al. (2024b). Name Description Setting size Image size 1024 \u00d7",
-                "expected_source": "461407246271071473",
-                "placement_order": 3,
+                "query": "the integration of graph-based data with text and image modalities, fostering enhanced interpretability and control in image synthesis. B Hyperparameter Settings The hyperparameters used to train the DiT model for",
+                "expected_source": "461407246271071632",
+                "placement_order": 2,
                 "distance": 0.019801979884505272,
-                "time_to_search": 0.03185319900512695,
+                "time_to_search": 0.037065982818603516,
                 "found": true
             }
         ],
-        "461407246271071474": [
+        "461407246271071633": [
             {
-                "query": "approach. C Assessment Example In Listing 1, we present an example of a generated assess- ment designed to evaluate a student\u2019s performance. MedDiT concludes with a comprehensive score and a",
-                "expected_source": "461407246271071474",
-                "placement_order": 2,
+                "query": "Adam Table 1: Hyperparameter settings for our approach. C Assessment Example In Listing 1, we present an example of a generated assess- ment designed to evaluate a student\u2019s performance. MedDiT",
+                "expected_source": "461407246271071633",
+                "placement_order": 1,
                 "distance": 0.019801979884505272,
-                "time_to_search": 0.02968001365661621,
+                "time_to_search": 0.04462838172912598,
                 "found": true
             }
         ]
     },
     "placement_distribution": {
-        "1": 12,
-        "2": 9,
-        "4": 4,
-        "5": 1,
-        "3": 4,
-        "7": 1,
-        "8": 1
+        "1": 17,
+        "2": 8,
+        "3": 7,
+        "11": 1,
+        "5": 1
     },
     "distance_distribution": [
         0.028892889618873596,
@@ -341,23 +359,25 @@
         0.029702968895435333,
         0.019801979884505272,
         0.019801979884505272,
-        0.019607843831181526,
         0.019801979884505272,
         0.019801979884505272,
-        0.019801979884505272,
-        0.019801979884505272,
-        0.019801979884505272,
-        0.009900989942252636,
-        0.019801979884505272,
+        0.0197049118578434,
+        0.0197049118578434,
+        0.01951637491583824,
         0.019801979884505272,
         0.019801979884505272,
         0.019801979884505272,
         0.0197049118578434,
-        0.009900989942252636,
         0.019801979884505272,
+        0.0196097269654274,
+        0.019801979884505272,
+        0.009900989942252636,
+        0.009900989942252636,
+        0.009900989942252636,
+        0.019334953278303146,
         0.019801979884505272,
         0.0197049118578434,
-        0.019512660801410675,
+        0.019801979884505272,
         0.019801979884505272,
         0.019801979884505272,
         0.019801979884505272,
@@ -365,139 +385,141 @@
         0.019801979884505272
     ],
     "percent_in_top_k": {
-        "1": 3.125,
-        "2": 6.25,
-        "3": 9.375,
-        "4": 12.5,
-        "5": 15.625,
-        "6": 15.625,
-        "7": 18.75,
-        "8": 21.875,
-        "9": 21.875,
-        "10": 21.875,
-        "11": 21.875,
-        "12": 21.875,
-        "13": 21.875,
-        "14": 21.875,
-        "15": 21.875,
-        "16": 21.875,
-        "17": 21.875,
-        "18": 21.875,
-        "19": 21.875,
-        "20": 21.875,
-        "21": 21.875,
-        "22": 21.875,
-        "23": 21.875,
-        "24": 21.875,
-        "25": 21.875,
-        "26": 21.875,
-        "27": 21.875,
-        "28": 21.875,
-        "29": 21.875,
-        "30": 21.875,
-        "31": 21.875,
-        "32": 21.875,
-        "33": 21.875,
-        "34": 21.875,
-        "35": 21.875,
-        "36": 21.875,
-        "37": 21.875,
-        "38": 21.875,
-        "39": 21.875,
-        "40": 21.875,
-        "41": 21.875,
-        "42": 21.875,
-        "43": 21.875,
-        "44": 21.875,
-        "45": 21.875,
-        "46": 21.875,
-        "47": 21.875,
-        "48": 21.875,
-        "49": 21.875,
-        "50": 21.875,
-        "51": 21.875,
-        "52": 21.875,
-        "53": 21.875,
-        "54": 21.875,
-        "55": 21.875,
-        "56": 21.875,
-        "57": 21.875,
-        "58": 21.875,
-        "59": 21.875,
-        "60": 21.875,
-        "61": 21.875,
-        "62": 21.875,
-        "63": 21.875,
-        "64": 21.875,
-        "65": 21.875,
-        "66": 21.875,
-        "67": 21.875,
-        "68": 21.875,
-        "69": 21.875,
-        "70": 21.875,
-        "71": 21.875,
-        "72": 21.875,
-        "73": 21.875,
-        "74": 21.875,
-        "75": 21.875,
-        "76": 21.875,
-        "77": 21.875,
-        "78": 21.875,
-        "79": 21.875,
-        "80": 21.875,
-        "81": 21.875,
-        "82": 21.875,
-        "83": 21.875,
-        "84": 21.875,
-        "85": 21.875,
-        "86": 21.875,
-        "87": 21.875,
-        "88": 21.875,
-        "89": 21.875,
-        "90": 21.875,
-        "91": 21.875,
-        "92": 21.875,
-        "93": 21.875,
-        "94": 21.875,
-        "95": 21.875,
-        "96": 21.875,
-        "97": 21.875,
-        "98": 21.875,
-        "99": 21.875,
-        "100": 21.875
+        "1": 2.941176470588235,
+        "2": 5.88235294117647,
+        "3": 8.823529411764707,
+        "4": 8.823529411764707,
+        "5": 11.76470588235294,
+        "6": 11.76470588235294,
+        "7": 11.76470588235294,
+        "8": 11.76470588235294,
+        "9": 11.76470588235294,
+        "10": 11.76470588235294,
+        "11": 14.705882352941178,
+        "12": 14.705882352941178,
+        "13": 14.705882352941178,
+        "14": 14.705882352941178,
+        "15": 14.705882352941178,
+        "16": 14.705882352941178,
+        "17": 14.705882352941178,
+        "18": 14.705882352941178,
+        "19": 14.705882352941178,
+        "20": 14.705882352941178,
+        "21": 14.705882352941178,
+        "22": 14.705882352941178,
+        "23": 14.705882352941178,
+        "24": 14.705882352941178,
+        "25": 14.705882352941178,
+        "26": 14.705882352941178,
+        "27": 14.705882352941178,
+        "28": 14.705882352941178,
+        "29": 14.705882352941178,
+        "30": 14.705882352941178,
+        "31": 14.705882352941178,
+        "32": 14.705882352941178,
+        "33": 14.705882352941178,
+        "34": 14.705882352941178,
+        "35": 14.705882352941178,
+        "36": 14.705882352941178,
+        "37": 14.705882352941178,
+        "38": 14.705882352941178,
+        "39": 14.705882352941178,
+        "40": 14.705882352941178,
+        "41": 14.705882352941178,
+        "42": 14.705882352941178,
+        "43": 14.705882352941178,
+        "44": 14.705882352941178,
+        "45": 14.705882352941178,
+        "46": 14.705882352941178,
+        "47": 14.705882352941178,
+        "48": 14.705882352941178,
+        "49": 14.705882352941178,
+        "50": 14.705882352941178,
+        "51": 14.705882352941178,
+        "52": 14.705882352941178,
+        "53": 14.705882352941178,
+        "54": 14.705882352941178,
+        "55": 14.705882352941178,
+        "56": 14.705882352941178,
+        "57": 14.705882352941178,
+        "58": 14.705882352941178,
+        "59": 14.705882352941178,
+        "60": 14.705882352941178,
+        "61": 14.705882352941178,
+        "62": 14.705882352941178,
+        "63": 14.705882352941178,
+        "64": 14.705882352941178,
+        "65": 14.705882352941178,
+        "66": 14.705882352941178,
+        "67": 14.705882352941178,
+        "68": 14.705882352941178,
+        "69": 14.705882352941178,
+        "70": 14.705882352941178,
+        "71": 14.705882352941178,
+        "72": 14.705882352941178,
+        "73": 14.705882352941178,
+        "74": 14.705882352941178,
+        "75": 14.705882352941178,
+        "76": 14.705882352941178,
+        "77": 14.705882352941178,
+        "78": 14.705882352941178,
+        "79": 14.705882352941178,
+        "80": 14.705882352941178,
+        "81": 14.705882352941178,
+        "82": 14.705882352941178,
+        "83": 14.705882352941178,
+        "84": 14.705882352941178,
+        "85": 14.705882352941178,
+        "86": 14.705882352941178,
+        "87": 14.705882352941178,
+        "88": 14.705882352941178,
+        "89": 14.705882352941178,
+        "90": 14.705882352941178,
+        "91": 14.705882352941178,
+        "92": 14.705882352941178,
+        "93": 14.705882352941178,
+        "94": 14.705882352941178,
+        "95": 14.705882352941178,
+        "96": 14.705882352941178,
+        "97": 14.705882352941178,
+        "98": 14.705882352941178,
+        "99": 14.705882352941178,
+        "100": 14.705882352941178
     },
     "search_time_distribution": [
-        0.06756901741027832,
-        0.037110090255737305,
-        0.042027950286865234,
-        0.043392181396484375,
-        0.03234410285949707,
-        0.0327608585357666,
-        0.03393197059631348,
-        0.027584075927734375,
-        0.02782273292541504,
-        0.02851414680480957,
-        0.030501127243041992,
-        0.03524279594421387,
-        0.030587196350097656,
-        0.03182220458984375,
-        0.032460927963256836,
-        0.028334856033325195,
-        0.027560949325561523,
-        0.0328679084777832,
-        0.03191828727722168,
-        0.02636432647705078,
-        0.02956080436706543,
-        0.023613929748535156,
-        0.026432037353515625,
-        0.02668285369873047,
-        0.027575016021728516,
-        0.026037931442260742,
-        0.022848844528198242,
-        0.02423572540283203,
-        0.025263071060180664,
-        0.027695894241333008,
-        0.03185319900512695,
-        0.02968001365661621
+        0.09923696517944336,
+        0.03033304214477539,
+        0.03842902183532715,
+        0.025604963302612305,
+        0.026118993759155273,
+        0.027720928192138672,
+        0.028213024139404297,
+        0.028676748275756836,
+        0.03241682052612305,
+        0.030038118362426758,
+        0.028776884078979492,
+        0.03286099433898926,
+        0.02963089942932129,
+        0.029014110565185547,
+        0.034310102462768555,
+        0.03401684761047363,
+        0.03223705291748047,
+        0.03362607955932617,
+        0.03624773025512695,
+        0.04597878456115723,
+        0.04822969436645508,
+        0.04216313362121582,
+        0.04306292533874512,
+        0.037335872650146484,
+        0.0485689640045166,
+        0.0387270450592041,
+        0.044390201568603516,
+        0.03809833526611328,
+        0.04464292526245117,
+        0.03174710273742676,
+        0.03049015998840332,
+        0.03200793266296387,
+        0.037065982818603516,
+        0.04462838172912598
     ]
 }

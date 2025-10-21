@@ -1,4 +1,3 @@
-import logging
 import json
 import uuid
 import time
@@ -53,9 +52,7 @@ class MilvusDB(DatabaseClient):
             self.client = MilvusClient(uri=self.config.uri, token=self.config.token)
             # Test the connection
             self.client.list_collections()
-            logging.info("Connected to Milvus successfully!")
         except MilvusException as e:
-            logging.error(f"Error connecting to Milvus: {e}")
             raise e
 
         # Create collection if needed
@@ -75,15 +72,11 @@ class MilvusDB(DatabaseClient):
             collection_exists = self.client.has_collection(self.config.collection)
 
             if collection_exists and recreate:
-                logging.info(f"Dropping existing collection: {self.config.collection}")
                 self.client.drop_collection(self.config.collection)
                 collection_exists = False
 
             if not collection_exists:
                 self._create_collection()
-                logging.info(f"Created collection: {self.config.collection}")
-            else:
-                logging.info(f"Collection already exists: {self.config.collection}")
 
             if self.config.partition:
                 partition_exists = self.client.has_partition(
@@ -104,10 +97,7 @@ class MilvusDB(DatabaseClient):
                     )
 
         except MilvusException as e:
-            logging.error(
-                f"Failed to create collection '{self.config.collection}': {e}"
-            )
-            raise
+            raise e
 
     def _create_collection(self) -> None:
         """
@@ -130,7 +120,6 @@ class MilvusDB(DatabaseClient):
         # Create partition if specified
         if self.config.partition:
             self.client.create_partition(self.config.collection, self.config.partition)
-            logging.info(f"Created partition: {self.config.partition}")
 
     def _existing_chunk_indexes(self, source: str) -> Set[int]:
         """
@@ -152,13 +141,9 @@ class MilvusDB(DatabaseClient):
             return {result["default_chunk_index"] for result in results}
 
         except MilvusException as e:
-            logging.error(
-                f"Failed to fetch existing chunk indexes for source '{source}': {e}"
-            )
-            raise
+            raise e
         except Exception as e:
-            logging.error(f"Unexpected error fetching chunk indexes: {e}")
-            raise
+            raise e
 
     def check_duplicate(self, source: str, chunk_index: int) -> bool:
         """
@@ -181,12 +166,8 @@ class MilvusDB(DatabaseClient):
             return len(results) > 0
 
         except MilvusException as e:
-            logging.error(
-                f"Failed to check for duplicate (source: {source}, chunk_index: {chunk_index}): {e}"
-            )
-            raise
+            raise e
         except Exception as e:
-            logging.error(f"Unexpected error checking for duplicate: {e}")
             raise
 
     def insert_data(self, data: List[DatabaseDocument]) -> None:
@@ -209,12 +190,7 @@ class MilvusDB(DatabaseClient):
         insert_start_time = time.time()
 
         if not data:
-            logging.info("Received empty data list. No data to insert.")
             return
-
-        logging.info(
-            f"💾 Starting data insertion for {len(data)} items into collection '{self.config.collection}'"
-        )
 
         # Group items by source for optimized duplicate detection
         items_by_source: Dict[str, List[DatabaseDocument]] = {}
@@ -223,10 +199,6 @@ class MilvusDB(DatabaseClient):
             if source not in items_by_source:
                 items_by_source[source] = []
             items_by_source[source].append(item)
-
-        logging.info(
-            f"📊 Grouped {len(data)} items into {len(items_by_source)} sources"
-        )
 
         # Filter out duplicates and prepare data for insertion
         data_to_insert = []
@@ -248,9 +220,6 @@ class MilvusDB(DatabaseClient):
                             # Check for duplicates using the cached indexes
                             if chunk_index in existing_indexes:
                                 duplicates_found += 1
-                                logging.debug(
-                                    f"⏭️  Duplicate found for source: {source}, chunk_index: {chunk_index}. Skipping."
-                                )
                                 pbar.update(1)
                                 continue
 
@@ -283,52 +252,30 @@ class MilvusDB(DatabaseClient):
 
                         except AttributeError as e:
                             processing_errors += 1
-                            logging.warning(
-                                f"⚠️  Skipping item that doesn't conform to DatabaseDocument protocol: {e}"
-                            )
                             pbar.update(1)
                             continue
                         except Exception as e:
                             processing_errors += 1
-                            logging.error(f"❌ Error processing item: {e}")
                             pbar.update(1)
                             continue
 
                 except Exception as e:
                     processing_errors += len(source_items)
-                    logging.error(f"❌ Error processing source '{source}': {e}")
                     pbar.update(len(source_items))
                     continue
 
         # Log processing statistics
         processing_time = time.time() - insert_start_time
-        logging.info("=== Item Processing completed ===")
-        logging.info("📊 Processing Statistics:")
-        logging.info(f"   • Total items received: {len(data)}")
-        logging.info(f"   • Duplicates found: {duplicates_found}")
-        logging.info(f"   • Processing errors: {processing_errors}")
-        logging.info(f"   • Items to insert: {len(data_to_insert)}")
-        logging.info(f"   • Processing time: {processing_time:.2f}s")
-        logging.info(f"   • Processing rate: {len(data)/processing_time:.1f} items/sec")
 
-        if duplicates_found > 0:
-            logging.info(f"⏭️  Skipped {duplicates_found} duplicate items")
+        # if duplicates_found > 0:
 
-        if processing_errors > 0:
-            logging.warning(f"⚠️  {processing_errors} items had processing errors")
+        # if processing_errors > 0:
 
         if not data_to_insert:
-            logging.info(
-                "ℹ️  No new data to insert after duplicate check and validation."
-            )
             return
 
         # Insert the data with progress tracking
         try:
-            logging.info(
-                f"📥 Inserting {len(data_to_insert)} new items into collection '{self.config.collection}'..."
-            )
-
             insert_api_start = time.time()
 
             result = self.client.insert(
@@ -347,21 +294,7 @@ class MilvusDB(DatabaseClient):
 
             total_insert_time = time.time() - insert_start_time
 
-            logging.info("✅ Data insertion completed successfully")
-            logging.info("📊 Database Insertion Statistics:")
-            logging.info(f"   • Items inserted: {insert_count}")
-            logging.info(f"   • API insert time: {insert_api_time:.2f}s")
-            logging.info(f"   • Flush time: {flush_time:.2f}s")
-            logging.info(f"   • Total insert time: {total_insert_time:.2f}s")
-            logging.info(
-                f"   • Insert rate: {insert_count/insert_api_time:.1f} items/sec"
-            )
-
         except MilvusException as e:
-            logging.error(
-                f"❌ Failed to insert data into collection '{self.config.collection}': {e}"
-            )
-            raise
+            raise e
         except Exception as e:
-            logging.error(f"❌ Unexpected error during data insertion: {e}")
-            raise
+            raise e

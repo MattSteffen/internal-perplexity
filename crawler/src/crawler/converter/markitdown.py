@@ -7,7 +7,6 @@ for AI-powered document conversion with vision model support.
 
 from __future__ import annotations
 
-import logging
 import time
 from pathlib import Path
 from typing import Optional
@@ -28,11 +27,13 @@ from typing import Literal, Optional
 
 class MarkItDownConfig(BaseModel):
     """Configuration for MarkItDown converter."""
-    
+
     type: Literal["markitdown"]
     llm_base_url: str = Field(..., description="Base URL for the LLM API")
     llm_model: str = Field(..., description="Model name to use for vision processing")
-    api_key: Optional[str] = Field(default=None, description="API key for authentication")
+    api_key: Optional[str] = Field(
+        default=None, description="API key for authentication"
+    )
     enable_plugins: bool = Field(default=False, description="Enable MarkItDown plugins")
 
 
@@ -51,7 +52,6 @@ class MarkItDownConverter(Converter):
     def __init__(self, config: MarkItDownConfig):
         """Initialize the MarkItDown converter."""
         super().__init__(config)
-        self.logger = logging.getLogger(self.__class__.__name__)
         self._client = self._create_client(config)
 
     @property
@@ -101,16 +101,16 @@ class MarkItDownConverter(Converter):
         doc_name = doc.filename or "unknown"
 
         try:
-            self.logger.info(f"🔄 Starting MarkItDown conversion: {doc_name}")
-            self.logger.info("📄 Processing document with AI-powered conversion...")
-
             # Get file path for MarkItDown
             if doc.source == "path":
                 filepath = str(doc.path)
             else:
                 # For bytes or fileobj, we need to write to a temporary file
                 import tempfile
-                with tempfile.NamedTemporaryFile(delete=False, suffix=Path(doc.filename or "doc").suffix) as tmp:
+
+                with tempfile.NamedTemporaryFile(
+                    delete=False, suffix=Path(doc.filename or "doc").suffix
+                ) as tmp:
                     if doc.source == "bytes":
                         tmp.write(doc.bytes_data)
                     else:  # fileobj
@@ -133,15 +133,12 @@ class MarkItDownConverter(Converter):
                     ProgressEvent(
                         stage="finish",
                         message="MarkItDown conversion completed",
-                        metrics={"total_time_sec": total_time, "output_length": len(markdown)}
+                        metrics={
+                            "total_time_sec": total_time,
+                            "output_length": len(markdown),
+                        },
                     )
                 )
-
-            self.logger.info("=== MarkItDown conversion completed successfully ===")
-            self.logger.info("📊 Conversion Statistics:")
-            self.logger.info(f"   • Processing time: {total_time:.2f}s")
-            self.logger.info(f"   • Output length: {len(markdown)} characters")
-            self.logger.info(f"   • Average processing speed: {len(markdown)/total_time:.0f} chars/sec")
 
             return ConvertedDocument(
                 source_name=doc.filename,
@@ -149,17 +146,14 @@ class MarkItDownConverter(Converter):
                 stats={
                     "total_time_sec": total_time,
                     "output_length": len(markdown),
-                }
+                },
             )
 
         except UnsupportedFormatException as e:
-            self.logger.error(f"❌ Unsupported file format for '{doc_name}': {e}")
             raise
         except FileConversionException as e:
-            self.logger.error(f"❌ Failed to convert '{doc_name}': {e}")
             raise
         except Exception as e:
-            self.logger.error(f"❌ Unexpected error during conversion of '{doc_name}': {e}")
             raise
 
     def _create_client(self, config: MarkItDownConfig) -> MarkItDown:
@@ -170,10 +164,7 @@ class MarkItDownConverter(Converter):
             api_url = f"{api_url}/v1"
 
         # Initialize the LLM client
-        client = OpenAI(
-            base_url=api_url,
-            api_key=config.api_key or "ollama"
-        )
+        client = OpenAI(base_url=api_url, api_key=config.api_key or "ollama")
 
         return MarkItDown(
             llm_client=client,

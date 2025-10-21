@@ -24,9 +24,8 @@ from .docling import DoclingConfig
 from .pymupdf import PyMuPDFConfig
 from .docling_api import DoclingAPIConfig
 
-# Factory and registry (lazy imports for converters)
+# Factory (lazy imports for converters)
 from .factory import create_converter
-from .registry import registry
 
 __all__ = [
     # Core interface
@@ -49,5 +48,4 @@ __all__ = [
     "DoclingAPIConfig",
     # Factory
     "create_converter",
-    "registry",
 ]

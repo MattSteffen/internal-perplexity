@@ -7,9 +7,9 @@ configurable chunk sizes and strategies.
 
 from __future__ import annotations
 
-import logging
 from typing import List, Optional
 from pydantic import BaseModel, Field
+from crawler.document import Document
 
 
 class ChunkingConfig(BaseModel):
@@ -63,9 +63,8 @@ class Chunker:
     def __init__(self, config: ChunkingConfig):
         """Initialize the chunker with configuration."""
         self.config = config
-        self.logger = logging.getLogger(self.__class__.__name__)
 
-    def chunk_text(self, text: str) -> List[str]:
+    def chunk_text(self, document: Document) -> List[str]:
         """
         Split text into chunks based on the configured strategy.
 
@@ -75,15 +74,14 @@ class Chunker:
         Returns:
             List of text chunks
         """
+        text = document.markdown
         if not text or not text.strip():
             return []
 
         if self.config.strategy == "naive":
             return self._naive_chunk(text)
         else:
-            self.logger.warning(
-                f"Unknown chunking strategy: {self.config.strategy}, falling back to naive"
-            )
+            # Unknown strategy, fallback to naive
             return self._naive_chunk(text)
 
     def _naive_chunk(self, text: str) -> List[str]:

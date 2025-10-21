@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import base64
 import json
-import logging
 import time
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -30,25 +29,31 @@ from typing import Literal, Optional
 
 class DoclingAPIConfig(BaseModel):
     """Configuration for Docling API converter."""
-    
+
     type: Literal["docling_api"]
     base_url: str = Field(..., description="Base URL for the Docling API")
     vlm_url: str = Field(..., description="VLM API URL for image processing")
-    vlm_model: str = Field(default="granite3.2-vision:latest", description="VLM model name")
+    vlm_model: str = Field(
+        default="granite3.2-vision:latest", description="VLM model name"
+    )
     timeout: int = Field(default=600, description="Request timeout in seconds")
-    prompt: Optional[str] = Field(default=None, description="Custom prompt for image processing")
-    do_picture_description: bool = Field(default=True, description="Enable image description")
+    prompt: Optional[str] = Field(
+        default=None, description="Custom prompt for image processing"
+    )
+    do_picture_description: bool = Field(
+        default=True, description="Enable image description"
+    )
     image_export_mode: str = Field(default="embedded", description="Image export mode")
     include_images: bool = Field(default=True, description="Include images in output")
     abort_on_error: bool = Field(default=True, description="Abort conversion on error")
-    
+
+
 class DoclingAPIConverter(Converter):
     """Document converter using Docling API with VLM support."""
 
     def __init__(self, config: DoclingAPIConfig):
         """Initialize the Docling API converter."""
         super().__init__(config)
-        self.logger = logging.getLogger(self.__class__.__name__)
         self.session = requests.Session()
 
     @property
@@ -104,47 +109,34 @@ class DoclingAPIConverter(Converter):
         doc_name = doc.filename or "unknown"
 
         try:
-            self.logger.info(f"🔄 Starting Docling API conversion: {doc_name}")
-            self.logger.info("📄 Sending document to Docling API...")
-
             # Prepare the document data
             document_data = self._prepare_document_data(doc)
-            
+
             # Prepare the conversion options
             conversion_options = self._prepare_conversion_options(doc, options)
-            
+
             # Prepare the API request payload
-            payload = {
-                "options": conversion_options,
-                "sources": [document_data]
-            }
+            payload = {"options": conversion_options, "sources": [document_data]}
 
             # Make the API request
             api_url = f"{self.config.base_url}/v1/convert/source"
-            headers = {
-                "accept": "application/json",
-                "Content-Type": "application/json"
-            }
-
-            self.logger.debug(f"Making request to: {api_url}")
-            self.logger.debug(f"Payload: {json.dumps(payload, indent=2)}")
+            headers = {"accept": "application/json", "Content-Type": "application/json"}
 
             response = self.session.post(
-                api_url,
-                json=payload,
-                headers=headers,
-                timeout=self.config.timeout
+                api_url, json=payload, headers=headers, timeout=self.config.timeout
             )
 
             if response.status_code != 200:
-                raise Exception(f"API request failed with status {response.status_code}: {response.text}")
+                raise Exception(
+                    f"API request failed with status {response.status_code}: {response.text}"
+                )
 
             # Parse the response
             result = response.json()
-            
+
             # Extract the markdown content
             markdown = self._extract_markdown_from_response(result)
-            
+
             total_time = time.time() - convert_start_time
 
             if on_progress:
@@ -152,15 +144,12 @@ class DoclingAPIConverter(Converter):
                     ProgressEvent(
                         stage="finish",
                         message="Docling API conversion completed",
-                        metrics={"total_time_sec": total_time, "output_length": len(markdown)}
+                        metrics={
+                            "total_time_sec": total_time,
+                            "output_length": len(markdown),
+                        },
                     )
                 )
-
-            self.logger.info("=== Docling API conversion completed successfully ===")
-            self.logger.info("📊 Conversion Statistics:")
-            self.logger.info(f"   • Processing time: {total_time:.2f}s")
-            self.logger.info(f"   • Output length: {len(markdown)} characters")
-            self.logger.info(f"   • Average processing speed: {len(markdown)/total_time:.0f} chars/sec")
 
             return ConvertedDocument(
                 source_name=doc.filename,
@@ -168,11 +157,10 @@ class DoclingAPIConverter(Converter):
                 stats={
                     "total_time_sec": total_time,
                     "output_length": len(markdown),
-                }
+                },
             )
 
         except Exception as e:
-            self.logger.error(f"❌ Failed to convert '{doc_name}': {e}")
             raise
 
     def _prepare_document_data(self, doc: DocumentInput) -> Dict[str, Any]:
@@ -190,12 +178,15 @@ class DoclingAPIConverter(Converter):
 
         # Encode file data as base64
         file_base64 = base64.b64encode(file_data).decode("utf-8")
-        
+
         # Determine the format
         if doc.mime_type:
             if doc.mime_type == "application/pdf":
                 format_type = "pdf"
-            elif doc.mime_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            elif (
+                doc.mime_type
+                == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            ):
                 format_type = "docx"
             else:
                 format_type = "pdf"  # Default to PDF
@@ -214,18 +205,26 @@ class DoclingAPIConverter(Converter):
             "kind": "file",
             "format": format_type,
             "base64_string": file_base64,
-            "filename": doc.filename or "document"
+            "filename": doc.filename or "document",
         }
 
-    def _prepare_conversion_options(self, doc: DocumentInput, options: ConvertOptions) -> Dict[str, Any]:
+    def _prepare_conversion_options(
+        self, doc: DocumentInput, options: ConvertOptions
+    ) -> Dict[str, Any]:
         """Prepare conversion options for the API request."""
         config = self.config  # type: DoclingAPIConfig
-        
+
         # Map from formats
         from_formats = []
-        if doc.mime_type == "application/pdf" or (doc.filename and Path(doc.filename).suffix.lower() == ".pdf"):
+        if doc.mime_type == "application/pdf" or (
+            doc.filename and Path(doc.filename).suffix.lower() == ".pdf"
+        ):
             from_formats.append("pdf")
-        elif doc.mime_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" or (doc.filename and Path(doc.filename).suffix.lower() == ".docx"):
+        elif (
+            doc.mime_type
+            == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            or (doc.filename and Path(doc.filename).suffix.lower() == ".docx")
+        ):
             from_formats.append("docx")
         else:
             from_formats.append("pdf")  # Default
@@ -234,7 +233,8 @@ class DoclingAPIConverter(Converter):
             "from_formats": from_formats,
             "to_formats": ["md"],
             "abort_on_error": config.abort_on_error,
-            "do_picture_description": config.do_picture_description and options.describe_images,
+            "do_picture_description": config.do_picture_description
+            and options.describe_images,
             "image_export_mode": config.image_export_mode,
             "include_images": config.include_images and options.include_images,
         }
@@ -243,11 +243,11 @@ class DoclingAPIConverter(Converter):
         if conversion_options["do_picture_description"]:
             conversion_options["picture_description_api"] = {
                 "url": config.vlm_url,
-                "params": {
-                    "model": config.vlm_model
-                },
+                "params": {"model": config.vlm_model},
                 "timeout": config.timeout,
-                "prompt": options.image_prompt or config.prompt or "Describe this image in detail for a technical document."
+                "prompt": options.image_prompt
+                or config.prompt
+                or "Describe this image in detail for a technical document.",
             }
 
         return conversion_options
@@ -256,7 +256,7 @@ class DoclingAPIConverter(Converter):
         """Extract markdown content from the API response."""
         # The response structure may vary depending on the Docling API version
         # This is a best-effort extraction
-        
+
         if "result" in response:
             result = response["result"]
             if isinstance(result, str):
@@ -270,7 +270,7 @@ class DoclingAPIConverter(Converter):
                     return first_result
                 elif isinstance(first_result, dict) and "markdown" in first_result:
                     return first_result["markdown"]
-        
+
         # Fallback: look for any text content in the response
         if "content" in response:
             content = response["content"]
@@ -278,9 +278,8 @@ class DoclingAPIConverter(Converter):
                 return content
             elif isinstance(content, dict) and "markdown" in content:
                 return content["markdown"]
-        
+
         # If we can't find markdown, return the entire response as JSON
-        self.logger.warning("Could not extract markdown from response, returning JSON")
         return json.dumps(response, indent=2)
 
     def close(self) -> None:

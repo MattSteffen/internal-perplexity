@@ -3,7 +3,6 @@ import time
 import json
 import copy
 import random
-import logging
 from typing import Any, Dict, List, Optional
 
 import ollama
@@ -18,10 +17,6 @@ from .database_client import (
     BenchmarkRunResults,
     DatabaseClientConfig,
 )
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from ..processing.embeddings import EmbedderConfig
 
 
 OUTPUT_FIELDS = [
@@ -39,7 +34,7 @@ OUTPUT_FIELDS = [
 
 class MilvusBenchmark(DatabaseBenchmark):
     """
-    A class to benchmark Milvus search performance with comprehensive logging.
+    A class to benchmark Milvus search performance.
     """
 
     def __init__(
@@ -51,25 +46,9 @@ class MilvusBenchmark(DatabaseBenchmark):
         self.db_config = db_config
         self.embed_config = embed_config
 
-        # Setup logging
-        self.logger = logging.getLogger("MilvusBenchmark")
-        self.logger.propagate = False  # Prevent duplicate messages
-        self.logger.info("🚀 Initializing MilvusBenchmark...")
-        self.logger.debug(f"Database config: {db_config.collection}")
-        self.logger.debug(f"Embedding model: {embed_config.model}")
-
-        self.logger.info("🔌 Setting up Ollama client...")
         self.ollama_client = ollama.Client(host=self.embed_config.base_url)
-        self.logger.info("✅ Ollama client initialized")
 
-        self.logger.info("🔌 Setting up Milvus client...")
         self.milvus_client = self._connect_milvus()
-        if self.milvus_client:
-            self.logger.info("✅ MilvusBenchmark initialization completed")
-        else:
-            self.logger.error(
-                "❌ MilvusBenchmark initialization failed - Milvus client not available"
-            )
 
     def _connect_milvus(self) -> Optional[MilvusClient]:
         """
@@ -78,15 +57,10 @@ class MilvusBenchmark(DatabaseBenchmark):
         try:
             client = MilvusClient(uri=self.db_config.uri, token=self.db_config.token)
             if not client.has_collection(collection_name=self.db_config.collection):
-                print(
-                    f"Error: Collection '{self.db_config.collection}' does not exist."
-                )
                 return None
             client.load_collection(collection_name=self.db_config.collection)
-            print("Successfully connected to Milvus and loaded collection.")
             return client
         except Exception as e:
-            print(f"Error connecting to Milvus: {e}")
             return None
 
     def get_embedding(self, text: str) -> Optional[List[float]]:
@@ -99,35 +73,30 @@ class MilvusBenchmark(DatabaseBenchmark):
             )
             return response.get("embedding")
         except Exception as e:
-            print(f"Error getting embedding from Ollama: {e}")
             return None
 
     def search(
         self, queries: List[str], filters: Optional[List[str]] = []
     ) -> List[Dict[str, Any]]:
         """
-        Performs a hybrid search in Milvus using the given queries and filters with comprehensive logging.
+        Performs a hybrid search in Milvus using the given queries and filters.
         """
         if not self.milvus_client:
-            self.logger.error("❌ Search failed: Milvus client not initialized")
             return {"error": "Milvus client not initialized."}
 
         search_start_time = time.time()
-        self.logger.info(f"🔍 Starting hybrid search for {len(queries)} queries...")
-        self.logger.debug(f"Filters: {filters}")
         filters = copy.deepcopy(filters)
-        print("FILTERS: ", filters)
 
-        filters.insert(0, f"array_contains_any(security_group, {list(self.milvus_client.describe_user(self.db_config.username).get('roles', []))})")
+        filters.insert(
+            0,
+            f"array_contains_any(security_group, {list(self.milvus_client.describe_user(self.db_config.username).get('roles', []))})",
+        )
         filter_str = " and ".join(filters)
-        self.logger.debug(f"Filter string: {filter_str}")
-        print("SEARCHING WITH FILTERS: ", filter_str)
-        
+
         search_requests = []
         embedding_failures = 0
 
         # Generate embeddings for queries
-        self.logger.debug("🧮 Generating embeddings for queries...")
         for query in queries:
             embedding = self.get_embedding(query)
             if embedding:
@@ -142,9 +111,6 @@ class MilvusBenchmark(DatabaseBenchmark):
                 )
             else:
                 embedding_failures += 1
-                self.logger.warning(
-                    f"⚠️  Failed to generate embedding for query: {query[:50]}..."
-                )
 
             # Add sparse search requests
             search_requests.append(
@@ -167,18 +133,9 @@ class MilvusBenchmark(DatabaseBenchmark):
             )
 
         if not search_requests:
-            self.logger.error("❌ No valid search requests could be created")
             return {"error": "No valid search requests could be created."}
 
-        if embedding_failures > 0:
-            self.logger.warning(
-                f"⚠️  {embedding_failures} queries failed to get embeddings"
-            )
-
         # Perform hybrid search
-        self.logger.info(
-            f"🚀 Executing hybrid search with {len(search_requests)} requests..."
-        )
         api_start_time = time.time()
 
         try:
@@ -202,42 +159,21 @@ class MilvusBenchmark(DatabaseBenchmark):
                     entity["distance"] = doc.distance
                     processed_results.append(entity)
 
-            self.logger.info("✅ Hybrid search completed successfully")
-            self.logger.info("📊 Search Statistics:")
-            self.logger.info(f"   • Total queries: {len(queries)}")
-            self.logger.info(f"   • Search requests created: {len(search_requests)}")
-            self.logger.info(f"   • Results returned: {len(processed_results)}")
-            self.logger.info(f"   • API search time: {api_time:.3f}s")
-            self.logger.info(f"   • Total search time: {total_time:.3f}s")
-            self.logger.info(
-                f"   • Results per second: {len(processed_results)/api_time:.1f}"
-            )
-
             return processed_results
 
         except Exception as e:
             api_time = time.time() - api_start_time
             total_time = time.time() - search_start_time
-            self.logger.error(f"❌ Hybrid search failed after {total_time:.3f}s: {e}")
             raise
 
     def run_benchmark(self, generate_queries: bool = False) -> BenchmarkRunResults:
         """
-        Run comprehensive benchmark with detailed logging and progress tracking.
+        Run comprehensive benchmark.
         """
         benchmark_start_time = time.time()
         top_k_values = list(range(1, 101))
 
-        self.logger.info("🏁 Starting benchmark run...")
-        self.logger.info(f"Top-K values to evaluate: {len(top_k_values)} (1-100)")
-        self.logger.info(
-            f"Query generation: {'LLM-generated' if generate_queries else 'Auto-extracted'}"
-        )
-
         # Load documents from collection
-        self.logger.info(
-            f"📚 Loading documents from collection '{self.db_config.collection}'..."
-        )
         docs_start_time = time.time()
 
         all_docs = self.milvus_client.query(
@@ -247,15 +183,8 @@ class MilvusBenchmark(DatabaseBenchmark):
         )
 
         docs_load_time = time.time() - docs_start_time
-        self.logger.info(
-            f"✅ Loaded {len(all_docs)} documents in {docs_load_time:.2f}s"
-        )
 
         # Generate queries from documents
-        if generate_queries:
-            self.logger.info("🔍 Generating benchmark queries from documents...")
-        else:
-            self.logger.info("🔍 Using stored benchmark questions when available...")
 
         queries_by_doc = {}
         query_generation_stats = {
@@ -271,7 +200,6 @@ class MilvusBenchmark(DatabaseBenchmark):
                 text = doc.get("default_text")
 
                 if not text or len(text.strip()) == 0:
-                    self.logger.debug(f"Skipping empty document: {source}")
                     pbar.update(1)
                     continue
 
@@ -310,14 +238,10 @@ class MilvusBenchmark(DatabaseBenchmark):
                                     pbar.update(1)
                                     continue  # Skip to next document
                             except (json.JSONDecodeError, KeyError) as e:
-                                self.logger.debug(
-                                    f"Failed to parse stored questions for {source}: {e}"
-                                )
+                                continue
                     except Exception as e:
-                        self.logger.debug(
-                            f"Error retrieving stored questions for {source}: {e}"
-                        )
-
+                        print(f"Error getting stored questions for {source}: {e}")
+                        continue
                 # Fall back to generating queries from text
                 words = text.split()
                 if len(words) > 30:
@@ -339,50 +263,18 @@ class MilvusBenchmark(DatabaseBenchmark):
                     pbar.set_postfix_str(
                         f"Generated queries: {query_generation_stats['total_queries_generated']}"
                     )
-                else:
-                    self.logger.debug(
-                        f"Document too short for query generation: {source}"
-                    )
 
                 pbar.update(1)
 
         # Log query generation statistics
-        self.logger.info("=== Query Generation completed ===")
-        self.logger.info("📊 Query Generation Statistics:")
-        self.logger.info(
-            f"   • Total documents processed: {query_generation_stats['total_docs']}"
-        )
-        self.logger.info(
-            f"   • Documents with queries: {query_generation_stats['docs_with_queries']}"
-        )
-        self.logger.info(
-            f"   • Total queries generated: {query_generation_stats['total_queries_generated']}"
-        )
-        self.logger.info(
-            f"   • Stored questions used: {query_generation_stats.get('stored_questions_used', 0)}"
-        )
-        self.logger.info(
-            f"   • Average queries per document: {query_generation_stats['total_queries_generated']/max(query_generation_stats['docs_with_queries'], 1):.1f}"
-        )
 
-        if generate_queries:
-            # TODO: Implement LLM-based query generation
-            self.logger.info(
-                "🤖 LLM-based query generation not yet implemented, using auto-extracted queries"
-            )
-        else:
-            self.logger.info(
-                "📚 Used stored benchmark questions when available, fell back to auto-extraction"
-            )
+        # TODO: Implement LLM-based query generation
+        # if generate_queries:
 
         if not queries_by_doc:
-            self.logger.error("❌ No queries generated - cannot run benchmark")
             raise ValueError("No queries could be generated from documents")
 
         # Run benchmark searches
-        self.logger.info(
-            f"🚀 Running benchmark searches for {len(queries_by_doc)} documents..."
-        )
         results_by_doc: Dict[str, List[BenchmarkResult]] = {}
         placement_distribution: Dict[int, int] = {}
         distance_distribution: List[float] = []
@@ -464,9 +356,6 @@ class MilvusBenchmark(DatabaseBenchmark):
 
                         except Exception as e:
                             search_time = time.time() - query_start_time
-                            self.logger.error(
-                                f"❌ Search failed for query from {source}: {e}"
-                            )
                             result = BenchmarkResult(
                                 query=query,
                                 expected_source=str(source),
@@ -485,7 +374,6 @@ class MilvusBenchmark(DatabaseBenchmark):
                 doc_pbar.update(1)
 
         # Calculate percent in top-k
-        self.logger.info("📊 Calculating Top-K performance metrics...")
         percent_in_top_k = {}
         total_queries = sum(len(q) for q in queries_by_doc.values())
 
@@ -500,35 +388,9 @@ class MilvusBenchmark(DatabaseBenchmark):
         # Log final benchmark statistics
         benchmark_time = time.time() - benchmark_start_time
 
-        self.logger.info("=== Benchmark completed successfully ===")
-        self.logger.info("📊 Benchmark Results Summary:")
-        self.logger.info(f"   • Total benchmark time: {benchmark_time:.2f}s")
-        self.logger.info(f"   • Total documents tested: {len(queries_by_doc)}")
-        self.logger.info(
-            f"   • Total queries executed: {benchmark_stats['total_searches']}"
-        )
-        self.logger.info(
-            f"   • Successful searches: {benchmark_stats['successful_searches']}"
-        )
-        self.logger.info(f"   • Failed searches: {benchmark_stats['failed_searches']}")
-        self.logger.info(
-            f"   • Found in top 10: {benchmark_stats['found_in_top_10']} ({benchmark_stats['found_in_top_10']/max(benchmark_stats['total_searches'], 1)*100:.1f}%)"
-        )
-        self.logger.info(
-            f"   • Found in top 100: {benchmark_stats['found_in_top_100']} ({benchmark_stats['found_in_top_100']/max(benchmark_stats['total_searches'], 1)*100:.1f}%)"
-        )
-        self.logger.info(
-            f"   • Average search time: {sum(search_time_distribution)/max(len(search_time_distribution), 1):.3f}s"
-        )
-        self.logger.info(
-            f"   • Searches per second: {benchmark_stats['total_searches']/benchmark_time:.1f}"
-        )
-
         # Log top-k performance highlights
         top_k_highlights = [(k, percent_in_top_k[k]) for k in [1, 5, 10, 50, 100]]
-        self.logger.info("🎯 Top-K Performance Highlights:")
-        for k, percentage in top_k_highlights:
-            self.logger.info(f"   • Top-{k}: {percentage:.1f}%")
+        # for k, percentage in top_k_highlights:
 
         # Convert integer keys to strings for Pydantic validation
         results_by_doc_str_keys = {str(k): v for k, v in results_by_doc.items()}

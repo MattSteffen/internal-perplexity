@@ -7,7 +7,6 @@ for advanced PDF processing with vision model integration.
 
 from __future__ import annotations
 
-import logging
 import time
 from pathlib import Path
 from typing import Optional
@@ -26,12 +25,18 @@ from typing import Literal, Optional
 
 class DoclingConfig(BaseModel):
     """Configuration for Docling converter."""
-    
+
     type: Literal["docling"]
     use_vlm: bool = Field(default=True, description="Whether to use VLM pipeline")
-    vlm_base_url: str = Field(default="http://localhost:11434", description="Base URL for VLM API")
-    vlm_model: str = Field(default="granite3.2-vision:latest", description="Vision model name")
-    prompt: Optional[str] = Field(default=None, description="Custom prompt for vision processing")
+    vlm_base_url: str = Field(
+        default="http://localhost:11434", description="Base URL for VLM API"
+    )
+    vlm_model: str = Field(
+        default="granite3.2-vision:latest", description="Vision model name"
+    )
+    prompt: Optional[str] = Field(
+        default=None, description="Custom prompt for vision processing"
+    )
     timeout_sec: float = Field(default=600.0, description="Timeout for API calls")
     scale: float = Field(default=1.0, description="Image scale factor")
 
@@ -59,7 +64,6 @@ class DoclingConverter(Converter):
     def __init__(self, config: DoclingConfig):
         """Initialize the Docling converter."""
         super().__init__(config)
-        self.logger = logging.getLogger(self.__class__.__name__)
         self.doc_converter = self._create_converter()
 
     @property
@@ -110,15 +114,13 @@ class DoclingConverter(Converter):
         doc_name = doc.filename or "unknown"
 
         try:
-            self.logger.info(f"🔄 Starting Docling conversion: {doc_name}")
-            self.logger.info("📄 Processing document with advanced vision model...")
-
             # Get file path for Docling
             if doc.source == "path":
                 filepath = doc.path
             else:
                 # For bytes or fileobj, we need to write to a temporary file
                 import tempfile
+
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                     if doc.source == "bytes":
                         tmp.write(doc.bytes_data)
@@ -134,7 +136,6 @@ class DoclingConverter(Converter):
                 filepath.unlink(missing_ok=True)
 
             # Export to markdown
-            self.logger.info("📝 Exporting to markdown format...")
             markdown = result.document.export_to_markdown()
 
             total_time = time.time() - convert_start_time
@@ -144,15 +145,12 @@ class DoclingConverter(Converter):
                     ProgressEvent(
                         stage="finish",
                         message="Docling conversion completed",
-                        metrics={"total_time_sec": total_time, "output_length": len(markdown)}
+                        metrics={
+                            "total_time_sec": total_time,
+                            "output_length": len(markdown),
+                        },
                     )
                 )
-
-            self.logger.info("=== Docling conversion completed successfully ===")
-            self.logger.info("📊 Conversion Statistics:")
-            self.logger.info(f"   • Processing time: {total_time:.2f}s")
-            self.logger.info(f"   • Output length: {len(markdown)} characters")
-            self.logger.info(f"   • Average processing speed: {len(markdown)/total_time:.0f} chars/sec")
 
             return ConvertedDocument(
                 source_name=doc.filename,
@@ -160,21 +158,20 @@ class DoclingConverter(Converter):
                 stats={
                     "total_time_sec": total_time,
                     "output_length": len(markdown),
-                }
+                },
             )
 
         except Exception as e:
-            self.logger.error(f"❌ Failed to convert '{doc_name}': {e}")
             raise
 
     def _create_converter(self) -> DocumentConverter:
         """Create and configure the document converter."""
         config = self.config  # type: DoclingConfig
-        
+
         if config.use_vlm:
             # Create VLM options
             api_url = f"{config.vlm_base_url}/v1/chat/completions"
-            
+
             vlm_options = ApiVlmOptions(
                 url=api_url,
                 params=dict(model=config.vlm_model),

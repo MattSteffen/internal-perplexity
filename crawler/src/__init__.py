@@ -16,9 +16,8 @@ from .crawler.converter import (
 )
 
 from .crawler.extractor import (
-    Extractor,
-    ExtractorConfig,
-    create_extractor,
+    MetadataExtractor,
+    MetadataExtractorConfig,
 )
 
 from .crawler.llm.embeddings import (
@@ -49,21 +48,18 @@ __all__ = [
     "CrawlerConfig",
     "RESERVED",
     "sanitize_metadata",
-
     # Processing components
     "Converter",
     "ConverterConfig",
     "create_converter",
-    "Extractor",
-    "BasicExtractor",
-    "MultiSchemaExtractor",
+    "MetadataExtractor",
+    "MetadataExtractorConfig",
     "LLM",
     "LLMConfig",
     "get_llm",
     "Embedder",
     "EmbedderConfig",
     "get_embedder",
-
     # Storage components
     "DatabaseClient",
     "DatabaseClientConfig",
@@ -71,7 +67,6 @@ __all__ = [
     "MilvusDB",
     "get_db",
     "get_db_benchmark",
-
     # Default configurations
     "DEFAULT_OLLAMA_EMBEDDINGS",
     "DEFAULT_OLLAMA_LLM",
