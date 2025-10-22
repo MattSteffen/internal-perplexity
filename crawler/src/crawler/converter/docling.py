@@ -16,11 +16,10 @@ from .types import (
     DocumentInput,
     ConvertOptions,
     ConvertedDocument,
-    ProgressEvent,
-    Capabilities,
 )
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
+from ..llm.llm import LLMConfig
 
 
 class DoclingConfig(BaseModel):
@@ -28,16 +27,9 @@ class DoclingConfig(BaseModel):
 
     type: Literal["docling"]
     use_vlm: bool = Field(default=True, description="Whether to use VLM pipeline")
-    vlm_base_url: str = Field(
-        default="http://localhost:11434", description="Base URL for VLM API"
+    vlm_config: Optional[LLMConfig] = Field(
+        default=None, description="VLM configuration for vision processing"
     )
-    vlm_model: str = Field(
-        default="granite3.2-vision:latest", description="Vision model name"
-    )
-    prompt: Optional[str] = Field(
-        default=None, description="Custom prompt for vision processing"
-    )
-    timeout_sec: float = Field(default=600.0, description="Timeout for API calls")
     scale: float = Field(default=1.0, description="Image scale factor")
 
 
@@ -71,44 +63,11 @@ class DoclingConverter(Converter):
         """Human-friendly name for this converter backend."""
         return "Docling VLM" if self.config.use_vlm else "Docling"
 
-    @property
-    def capabilities(self) -> Capabilities:
-        """Describe supported formats and features."""
-        return Capabilities(
-            name=self.name,
-            supports_pdf=True,
-            supports_docx=False,
-            supports_images=True,
-            supports_tables=True,
-            requires_vision=self.config.use_vlm,
-            supported_mime_types=[
-                "application/pdf",
-            ],
-        )
-
-    def supports(self, doc: DocumentInput) -> bool:
-        """Return True if this converter can handle the given document."""
-        # Docling primarily supports PDFs
-        if doc.mime_type:
-            return doc.mime_type == "application/pdf"
-        if doc.filename:
-            return Path(doc.filename).suffix.lower() == ".pdf"
-        return False
-
     def convert(
         self,
         doc: DocumentInput,
-        options: Optional[ConvertOptions] = None,
-        on_progress: Optional[callable] = None,
     ) -> ConvertedDocument:
         """Convert a document using Docling."""
-        if options is None:
-            options = ConvertOptions()
-
-        if on_progress:
-            on_progress(
-                ProgressEvent(stage="start", message="Starting Docling conversion")
-            )
 
         convert_start_time = time.time()
         doc_name = doc.filename or "unknown"
@@ -140,18 +99,6 @@ class DoclingConverter(Converter):
 
             total_time = time.time() - convert_start_time
 
-            if on_progress:
-                on_progress(
-                    ProgressEvent(
-                        stage="finish",
-                        message="Docling conversion completed",
-                        metrics={
-                            "total_time_sec": total_time,
-                            "output_length": len(markdown),
-                        },
-                    )
-                )
-
             return ConvertedDocument(
                 source_name=doc.filename,
                 markdown=markdown,
@@ -168,15 +115,15 @@ class DoclingConverter(Converter):
         """Create and configure the document converter."""
         config = self.config  # type: DoclingConfig
 
-        if config.use_vlm:
-            # Create VLM options
-            api_url = f"{config.vlm_base_url}/v1/chat/completions"
+        if config.use_vlm and config.vlm_config:
+            # Create VLM options using LLMConfig
+            api_url = f"{config.vlm_config.base_url}/v1/chat/completions"
 
             vlm_options = ApiVlmOptions(
                 url=api_url,
-                params=dict(model=config.vlm_model),
-                prompt=config.prompt or self.DEFAULT_VISION_PROMPT,
-                timeout=config.timeout_sec,
+                params=dict(model=config.vlm_config.model_name),
+                prompt=config.vlm_config.system_prompt or self.DEFAULT_VISION_PROMPT,
+                timeout=config.vlm_config.default_timeout,
                 scale=config.scale,
                 response_format=ResponseFormat.MARKDOWN,
             )

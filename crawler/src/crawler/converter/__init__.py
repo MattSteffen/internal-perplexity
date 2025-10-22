@@ -7,7 +7,7 @@ progress tracking, and rich result objects.
 """
 
 # Core types and interfaces (no external dependencies)
-from .base import Converter, ProgressCallback
+from .base import Converter
 from .types import (
     DocumentInput,
     ConvertOptions,
@@ -30,7 +30,6 @@ from .factory import create_converter
 __all__ = [
     # Core interface
     "Converter",
-    "ProgressCallback",
     # Types
     "DocumentInput",
     "ConvertOptions",

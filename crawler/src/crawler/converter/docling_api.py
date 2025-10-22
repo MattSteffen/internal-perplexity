@@ -20,11 +20,10 @@ from .types import (
     DocumentInput,
     ConvertOptions,
     ConvertedDocument,
-    ProgressEvent,
-    Capabilities,
 )
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
+from ..llm.llm import LLMConfig
 
 
 class DoclingAPIConfig(BaseModel):
@@ -32,14 +31,10 @@ class DoclingAPIConfig(BaseModel):
 
     type: Literal["docling_api"]
     base_url: str = Field(..., description="Base URL for the Docling API")
-    vlm_url: str = Field(..., description="VLM API URL for image processing")
-    vlm_model: str = Field(
-        default="granite3.2-vision:latest", description="VLM model name"
+    vlm_config: Optional[LLMConfig] = Field(
+        default=None, description="VLM configuration for image processing"
     )
     timeout: int = Field(default=600, description="Request timeout in seconds")
-    prompt: Optional[str] = Field(
-        default=None, description="Custom prompt for image processing"
-    )
     do_picture_description: bool = Field(
         default=True, description="Enable image description"
     )
@@ -61,49 +56,11 @@ class DoclingAPIConverter(Converter):
         """Human-friendly name for this converter backend."""
         return "Docling API"
 
-    @property
-    def capabilities(self) -> Capabilities:
-        """Describe supported formats and features."""
-        return Capabilities(
-            name=self.name,
-            supports_pdf=True,
-            supports_docx=True,
-            supports_images=True,
-            supports_tables=True,
-            requires_vision=True,
-            supported_mime_types=[
-                "application/pdf",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            ],
-        )
-
-    def supports(self, doc: DocumentInput) -> bool:
-        """Return True if this converter can handle the given document."""
-        # Docling API supports PDFs and DOCX
-        if doc.mime_type:
-            return doc.mime_type in [
-                "application/pdf",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            ]
-        if doc.filename:
-            ext = Path(doc.filename).suffix.lower()
-            return ext in [".pdf", ".docx"]
-        return False
-
     def convert(
         self,
         doc: DocumentInput,
-        options: Optional[ConvertOptions] = None,
-        on_progress: Optional[callable] = None,
     ) -> ConvertedDocument:
         """Convert a document using Docling API."""
-        if options is None:
-            options = ConvertOptions()
-
-        if on_progress:
-            on_progress(
-                ProgressEvent(stage="start", message="Starting Docling API conversion")
-            )
 
         convert_start_time = time.time()
         doc_name = doc.filename or "unknown"
@@ -113,7 +70,7 @@ class DoclingAPIConverter(Converter):
             document_data = self._prepare_document_data(doc)
 
             # Prepare the conversion options
-            conversion_options = self._prepare_conversion_options(doc, options)
+            conversion_options = self._prepare_conversion_options(doc)
 
             # Prepare the API request payload
             payload = {"options": conversion_options, "sources": [document_data]}
@@ -138,18 +95,6 @@ class DoclingAPIConverter(Converter):
             markdown = self._extract_markdown_from_response(result)
 
             total_time = time.time() - convert_start_time
-
-            if on_progress:
-                on_progress(
-                    ProgressEvent(
-                        stage="finish",
-                        message="Docling API conversion completed",
-                        metrics={
-                            "total_time_sec": total_time,
-                            "output_length": len(markdown),
-                        },
-                    )
-                )
 
             return ConvertedDocument(
                 source_name=doc.filename,
@@ -208,9 +153,7 @@ class DoclingAPIConverter(Converter):
             "filename": doc.filename or "document",
         }
 
-    def _prepare_conversion_options(
-        self, doc: DocumentInput, options: ConvertOptions
-    ) -> Dict[str, Any]:
+    def _prepare_conversion_options(self, doc: DocumentInput) -> Dict[str, Any]:
         """Prepare conversion options for the API request."""
         config = self.config  # type: DoclingAPIConfig
 
@@ -233,20 +176,18 @@ class DoclingAPIConverter(Converter):
             "from_formats": from_formats,
             "to_formats": ["md"],
             "abort_on_error": config.abort_on_error,
-            "do_picture_description": config.do_picture_description
-            and options.describe_images,
+            "do_picture_description": config.do_picture_description,
             "image_export_mode": config.image_export_mode,
-            "include_images": config.include_images and options.include_images,
+            "include_images": config.include_images,
         }
 
         # Add VLM configuration if picture description is enabled
-        if conversion_options["do_picture_description"]:
+        if conversion_options["do_picture_description"] and config.vlm_config:
             conversion_options["picture_description_api"] = {
-                "url": config.vlm_url,
-                "params": {"model": config.vlm_model},
-                "timeout": config.timeout,
-                "prompt": options.image_prompt
-                or config.prompt
+                "url": f"{config.vlm_config.base_url}/v1/chat/completions",
+                "params": {"model": config.vlm_config.model_name},
+                "timeout": config.vlm_config.default_timeout,
+                "prompt": config.vlm_config.system_prompt
                 or "Describe this image in detail for a technical document.",
             }
 

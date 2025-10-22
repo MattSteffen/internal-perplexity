@@ -18,21 +18,18 @@ from .types import (
     DocumentInput,
     ConvertOptions,
     ConvertedDocument,
-    ProgressEvent,
-    Capabilities,
 )
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
+from ..llm.llm import LLMConfig
 
 
 class MarkItDownConfig(BaseModel):
     """Configuration for MarkItDown converter."""
 
     type: Literal["markitdown"]
-    llm_base_url: str = Field(..., description="Base URL for the LLM API")
-    llm_model: str = Field(..., description="Model name to use for vision processing")
-    api_key: Optional[str] = Field(
-        default=None, description="API key for authentication"
+    llm_config: LLMConfig = Field(
+        ..., description="LLM configuration for vision processing"
     )
     enable_plugins: bool = Field(default=False, description="Enable MarkItDown plugins")
 
@@ -59,43 +56,11 @@ class MarkItDownConverter(Converter):
         """Human-friendly name for this converter backend."""
         return "MarkItDown"
 
-    @property
-    def capabilities(self) -> Capabilities:
-        """Describe supported formats and features."""
-        return Capabilities(
-            name=self.name,
-            supports_pdf=True,
-            supports_docx=True,
-            supports_images=True,
-            supports_tables=False,
-            requires_vision=True,
-            supported_mime_types=[
-                "application/pdf",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                "text/plain",
-                "text/html",
-            ],
-        )
-
-    def supports(self, doc: DocumentInput) -> bool:
-        """Return True if this converter can handle the given document."""
-        # MarkItDown can handle most document types
-        return True
-
     def convert(
         self,
         doc: DocumentInput,
-        options: Optional[ConvertOptions] = None,
-        on_progress: Optional[callable] = None,
     ) -> ConvertedDocument:
         """Convert a document using MarkItDown."""
-        if options is None:
-            options = ConvertOptions()
-
-        if on_progress:
-            on_progress(
-                ProgressEvent(stage="start", message="Starting MarkItDown conversion")
-            )
 
         convert_start_time = time.time()
         doc_name = doc.filename or "unknown"
@@ -128,18 +93,6 @@ class MarkItDownConverter(Converter):
             markdown = result.markdown
             total_time = time.time() - convert_start_time
 
-            if on_progress:
-                on_progress(
-                    ProgressEvent(
-                        stage="finish",
-                        message="MarkItDown conversion completed",
-                        metrics={
-                            "total_time_sec": total_time,
-                            "output_length": len(markdown),
-                        },
-                    )
-                )
-
             return ConvertedDocument(
                 source_name=doc.filename,
                 markdown=markdown,
@@ -159,15 +112,15 @@ class MarkItDownConverter(Converter):
     def _create_client(self, config: MarkItDownConfig) -> MarkItDown:
         """Create and configure the MarkItDown client."""
         # Adjust URL based on provider
-        api_url = config.llm_base_url
+        api_url = config.llm_config.base_url
         if not api_url.endswith("/v1"):
             api_url = f"{api_url}/v1"
 
         # Initialize the LLM client
-        client = OpenAI(base_url=api_url, api_key=config.api_key or "ollama")
+        client = OpenAI(base_url=api_url, api_key=config.llm_config.api_key or "ollama")
 
         return MarkItDown(
             llm_client=client,
-            llm_model=config.llm_model,
+            llm_model=config.llm_config.model_name,
             enable_plugins=config.enable_plugins,
         )
