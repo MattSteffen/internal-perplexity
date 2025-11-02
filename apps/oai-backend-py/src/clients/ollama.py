@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from openai import AsyncOpenAI
+from openai.types import CreateEmbeddingResponse
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
 
 from src.config import settings
@@ -57,6 +58,36 @@ class OllamaClient:
             # Return the completion directly
             completion_response = await self._client.chat.completions.create(**body)
             return completion_response  # type: ignore[no-any-return]
+
+    async def create_embedding(
+        self,
+        model: str,
+        input: str | list[str],
+        **kwargs: Any,
+    ) -> CreateEmbeddingResponse:
+        """Create embeddings using Ollama.
+
+        Args:
+            model: The model identifier.
+            input: Input text(s) to embed.
+            **kwargs: Additional parameters passed to the OpenAI client.
+
+        Returns:
+            CreateEmbeddingResponse with embeddings.
+
+        Raises:
+            APIError: If the API call fails.
+        """
+        # Build request body
+        body: dict[str, Any] = {
+            "model": model,
+            "input": input,
+            **kwargs,
+        }
+
+        # API errors will be raised and handled by the endpoint
+        embedding_response = await self._client.embeddings.create(**body)
+        return embedding_response  # type: ignore[no-any-return]
 
 
 # Singleton instance

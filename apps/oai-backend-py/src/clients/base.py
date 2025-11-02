@@ -1,8 +1,9 @@
-"""Base protocol for chat completion clients."""
+"""Base protocols for chat completion and embedding clients."""
 
 from collections.abc import AsyncIterator
 from typing import Any, Protocol
 
+from openai.types import CreateEmbeddingResponse
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
 
 
@@ -26,5 +27,27 @@ class ChatCompletionClient(Protocol):
 
         Returns:
             ChatCompletion if stream=False, AsyncIterator[ChatCompletionChunk] if stream=True.
+        """
+        ...
+
+
+class EmbeddingClient(Protocol):
+    """Protocol for clients that can handle embeddings."""
+
+    async def create_embedding(
+        self,
+        model: str,
+        input: str | list[str],
+        **kwargs: Any,
+    ) -> CreateEmbeddingResponse:
+        """Create embeddings.
+
+        Args:
+            model: The model identifier.
+            input: Input text(s) to embed.
+            **kwargs: Additional parameters.
+
+        Returns:
+            CreateEmbeddingResponse with embeddings.
         """
         ...

@@ -10,8 +10,22 @@ Empty package marker file.
 ### `main.py`
 FastAPI application entry point. Defines the main app instance and routes all endpoints. Contains:
 - FastAPI app initialization
+- OAuth initialization with Keycloak
 - Health check endpoint (`/health`)
-- Route registration for chat completions, embeddings, and models listing
+- Route registration for authentication, chat completions, embeddings, and models listing
+
+### `auth.py`
+OAuth2 authentication setup with Keycloak. Initializes the OAuth client and registers Keycloak as an OAuth provider:
+- `init_oauth(app)`: Initializes OAuth with FastAPI app and registers Keycloak provider
+- Registers Keycloak using OpenID Connect discovery endpoint
+- Configures GitLab identity provider hint for automatic redirect
+
+### `auth_utils.py`
+Authentication utilities for token verification. Provides:
+- `verify_token(credentials)`: Verifies JWT token from Keycloak and returns decoded claims
+- `get_optional_token(credentials)`: Optional token verification that returns None if token is missing (useful for optional auth endpoints)
+- Handles token expiration validation
+- Raises HTTP 401 for invalid/expired tokens
 
 ### `config.py`
 Configuration management using Pydantic Settings. Loads settings from environment variables with `OAI_` prefix:
@@ -19,6 +33,11 @@ Configuration management using Pydantic Settings. Loads settings from environmen
 - `api_key`: API key for Ollama (default: `ollama`)
 - `host`: Server host binding (default: `0.0.0.0`)
 - `port`: Server port (default: `8000`)
+- `keycloak_url`: Keycloak realm URL (default: empty, required for auth)
+- `client_id`: OAuth2 client ID (default: empty, required for auth)
+- `client_secret`: OAuth2 client secret (default: empty, required for auth)
+- `redirect_uri`: OAuth2 redirect URI (default: `http://localhost:3000/api/auth/callback`)
+- `frontend_redirect_url`: Frontend redirect URL after authentication (default: `http://localhost:3000/dashboard`)
 
 ### `client.py`
 Legacy OpenAI client instance (deprecated in favor of client router). This file is kept for backwards compatibility but new code should use `app.clients.router`.
@@ -81,6 +100,13 @@ Models listing endpoint handler. Implements `GET /v1/models` for listing availab
 Collections endpoint handler. Implements `GET /v1/collections` for listing all Milvus collections with their metadata. Returns:
 - `collections`: List of collection names
 - `collection_metadata`: Dictionary mapping collection names to their metadata (includes all fields returned by Milvus `describe_collection`)
+
+#### `endpoints/auth.py`
+Authentication endpoints for Keycloak OAuth2. Implements:
+- `GET /login`: Initiates OAuth2 login flow with Keycloak (redirects to Keycloak with GitLab identity provider hint)
+- `GET /auth/callback`: Handles OAuth2 callback from Keycloak after GitLab login (exchanges code for tokens and sets HTTP-only cookie)
+- `GET /logout`: Logout endpoint that clears cookies and redirects to Keycloak logout
+- `GET /auth/me`: Returns current authenticated user information (requires Bearer token)
 
 ### `milvus_client.py`
 Milvus client singleton for database operations. Provides a single `MilvusClient` instance that can be reused across the application. Connection URI is configurable via `MILVUS_URI` environment variable (defaults to `http://localhost:19530`).

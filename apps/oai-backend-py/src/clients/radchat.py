@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from openai import AsyncOpenAI
+from openai.types import CreateEmbeddingResponse
 from openai.types.chat import (
     ChatCompletion,
     ChatCompletionChunk,
@@ -845,6 +846,35 @@ class RadChatClient:
                         }
                     ],
                 )
+
+    async def create_embedding(
+        self,
+        model: str,
+        input: str | list[str],
+        **kwargs: Any,
+    ) -> CreateEmbeddingResponse:
+        """Create embeddings using Ollama (RadChat delegates embeddings to Ollama).
+
+        Args:
+            model: The model identifier.
+            input: Input text(s) to embed.
+            **kwargs: Additional parameters.
+
+        Returns:
+            CreateEmbeddingResponse with embeddings.
+
+        Note:
+            RadChat client delegates embedding requests to Ollama since embeddings
+            are not part of the RadChat agent functionality.
+        """
+        # RadChat doesn't handle embeddings directly, delegate to Ollama
+        from src.clients.ollama import ollama_client
+
+        return await ollama_client.create_embedding(
+            model=model,
+            input=input,
+            **kwargs,
+        )
 
 
 # Singleton instance

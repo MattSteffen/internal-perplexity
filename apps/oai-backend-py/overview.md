@@ -2,6 +2,7 @@
 (Next steps)
 
 - Auth:
+  - **Need to integrate at work to debug and test, can't mock easily**
     - Require auth (keycloak)
     - Tools that require auth (milvus search) have it passed to them correctly
         - This means that /chat/completions needs to have the credentials passed as well
@@ -12,7 +13,7 @@
     - Milvus search (not for /collections) has the proper admin credentials passed to it on server start up (different from user credentials)
     - Milvus host:port uri from some sort of setup config
     - Ollama base url from setup config
-- Docker
+- [x] Docker
     - Add the `pip install -e ../crawler` package
 - collections/{}/add
     - Implement, should be able to add, using the crawler package, new pdfs to collections

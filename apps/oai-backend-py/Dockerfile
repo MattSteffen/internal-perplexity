@@ -11,6 +11,9 @@ COPY pyproject.toml ./
 # Install dependencies
 RUN uv sync --frozen
 
+COPY ../crawler ./crawler
+RUN uv install -e ./crawler
+
 # Copy application code
 COPY src ./src
 

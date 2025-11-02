@@ -5,14 +5,21 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from openai.types import CreateEmbeddingResponse
 from openai.types.chat import ChatCompletion
 
+from src.auth import init_oauth
 from src.config import settings
-from src.endpoints import chat, collections, embeddings, models, tools
+from src.endpoints import auth, chat, collections, embeddings, models, tools
 
 app = FastAPI(
     title="OpenAI-Compatible Backend",
     description="OpenAI-compatible API proxy for Ollama",
     version="0.1.0",
 )
+
+# Initialize OAuth with the FastAPI app
+init_oauth(app)
+
+# Include authentication routes
+app.include_router(auth.router)
 
 
 @app.get("/health")

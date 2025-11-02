@@ -3,16 +3,15 @@
 from typing import Any
 
 from fastapi import HTTPException, Request
-from openai import APIError, AsyncOpenAI
+from openai import APIError
 from openai.types import CreateEmbeddingResponse
 
-from src.client import ollama_client
+from src.clients.router import client_router
 from src.utils import map_openai_error_to_http
 
 
 async def create_embedding(
     request: Request,
-    client: AsyncOpenAI = ollama_client,
 ) -> CreateEmbeddingResponse:
     """Handle embedding requests.
 
@@ -44,8 +43,12 @@ async def create_embedding(
         )
 
     try:
-        # Create embedding using OpenAI client
-        response: CreateEmbeddingResponse = await client.embeddings.create(**body)
+        # Create embedding using the router to select appropriate client
+        response: CreateEmbeddingResponse = await client_router.create_embedding(
+            model=body["model"],
+            input=body["input"],
+            **{k: v for k, v in body.items() if k not in ("model", "input")},
+        )
         return response
     except APIError as e:
         raise map_openai_error_to_http(e) from e

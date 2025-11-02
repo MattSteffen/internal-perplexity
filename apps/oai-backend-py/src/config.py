@@ -24,6 +24,21 @@ class Settings(BaseSettings):
     )
     host: str = Field(default="0.0.0.0", description="Host to bind the server to")
     port: int = Field(default=8000, description="Port to bind the server to")
+    # Keycloak OAuth2 settings
+    keycloak_url: str = Field(
+        default="",
+        description="Keycloak realm URL (e.g., https://keycloak.yourdomain.com/realms/myrealm)",
+    )
+    client_id: str = Field(default="", description="OAuth2 client ID")
+    client_secret: str = Field(default="", description="OAuth2 client secret")
+    redirect_uri: str = Field(
+        default="http://localhost:3000/api/auth/callback",
+        description="OAuth2 redirect URI",
+    )
+    frontend_redirect_url: str = Field(
+        default="http://localhost:3000/dashboard",
+        description="Frontend redirect URL after authentication",
+    )
 
 
 settings = Settings()
