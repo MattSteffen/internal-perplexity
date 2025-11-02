@@ -9,18 +9,16 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Optional
 
 from openai import OpenAI
 
 from .base import Converter
 from .types import (
     DocumentInput,
-    ConvertOptions,
     ConvertedDocument,
 )
 from pydantic import BaseModel, Field
-from typing import Literal, Optional
+from typing import Literal
 from ..llm.llm import LLMConfig
 
 
@@ -39,7 +37,6 @@ from markitdown import (
     MarkItDown,
     UnsupportedFormatException,
     FileConversionException,
-    MissingDependencyException,
 )
 
 

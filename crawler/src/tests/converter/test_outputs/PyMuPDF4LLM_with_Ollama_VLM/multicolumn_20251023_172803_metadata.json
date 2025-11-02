@@ -1,0 +1,11 @@
+{
+  "converter": "PyMuPDF4LLM with Ollama VLM",
+  "source_file": "/Users/mattsteffen/projects/llm/internal-perplexity/crawler/src/tests/converter/multicolumn.pdf",
+  "conversion_time": "20251023_172803",
+  "output_length": 7145,
+  "images_count": 0,
+  "tables_count": 0,
+  "processing_time_sec": 0.23660683631896973,
+  "images_described": 0,
+  "markdown_file": "/Users/mattsteffen/projects/llm/internal-perplexity/crawler/src/tests/converter/test_outputs/PyMuPDF4LLM_with_Ollama_VLM/multicolumn_20251023_172803.md"
+}

@@ -14,13 +14,14 @@ from typing import Annotated
 
 # Import configs from their respective files
 from .markitdown import MarkItDownConfig
-from .docling import DoclingConfig
-from .pymupdf import PyMuPDFConfig
-from .docling_api import DoclingAPIConfig
+from .pymupdf4llm import PyMuPDF4LLMConfig
 
 # Discriminated union for all converter configs
 ConverterConfig = Annotated[
-    Union[MarkItDownConfig, DoclingConfig, PyMuPDFConfig, DoclingAPIConfig],
+    Union[
+        MarkItDownConfig,
+        PyMuPDF4LLMConfig,
+    ],
     Field(discriminator="type"),
 ]
 
@@ -39,22 +40,18 @@ def create_converter(config: ConverterConfig) -> Converter:
         ValueError: If the converter type is not supported
     """
     converter_type = config.type.lower()
-    
+
     # Lazy imports to avoid dependency issues
     if converter_type == "markitdown":
         from .markitdown import MarkItDownConverter
+
         return MarkItDownConverter(config)
-    elif converter_type == "docling":
-        from .docling import DoclingConverter
-        return DoclingConverter(config)
-    elif converter_type == "pymupdf":
-        from .pymupdf import PyMuPDFConverter
-        return PyMuPDFConverter(config)
-    elif converter_type == "docling_api":
-        from .docling_api import DoclingAPIConverter
-        return DoclingAPIConverter(config)
+    elif converter_type == "pymupdf4llm":
+        from .pymupdf4llm import PyMuPDF4LLMConverter
+
+        return PyMuPDF4LLMConverter(config)
     else:
         raise ValueError(
             f"Unsupported converter type: {config.type}. "
-            f"Supported types: ['markitdown', 'docling', 'pymupdf', 'docling_api']"
+            f"Supported types: ['markitdown', 'pymupdf4llm']"
         )

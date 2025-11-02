@@ -26,7 +26,7 @@ class MetadataExtractorConfig(BaseModel):
           When False, leave model output intact (still validated if possible).
     """
 
-    schema: Dict[str, Any] = Field(
+    json_schema: Dict[str, Any] = Field(
         ...,
         description="JSON Schema (object) for the metadata to extract",
     )
@@ -60,9 +60,9 @@ class MetadataExtractorConfig(BaseModel):
 
     model_config = {"validate_assignment": True}
 
-    @field_validator("schema")
+    @field_validator("json_schema")
     @classmethod
-    def validate_schema(cls, v: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_json_schema(cls, v: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(v, dict):
             raise ValueError("schema must be a JSON object")
         if v.get("type") != "object":
@@ -77,11 +77,11 @@ class MetadataExtractorConfig(BaseModel):
 
     @property
     def required_fields(self) -> List[str]:
-        return list(self.schema.get("required", []))
+        return list(self.json_schema.get("required", []))
 
     @property
     def allowed_keys(self) -> List[str]:
-        return list(self.schema["properties"].keys())
+        return list(self.json_schema["properties"].keys())
 
 
 class MetadataExtractionResult(BaseModel):
@@ -128,24 +128,24 @@ class MetadataExtractor:
         """
         doc = markdown[: self.config.truncate_document_chars]
         prompt = self._build_metadata_prompt(
-            schema=self.config.schema,
+            schema=self.config.json_schema,
             context=self.config.context,
             document_text=doc,
         )
 
         result: Any
         if self.config.structured_output == "tools":
-            tools = schema_to_openai_tools(self.config.schema)
+            tools = schema_to_openai_tools(self.config.json_schema)
             result = self.llm.invoke(prompt, tools=tools)
         else:
-            result = self.llm.invoke(prompt, response_format=self.config.schema)
+            result = self.llm.invoke(prompt, response_format=self.config.json_schema)
 
         metadata = self._coerce_to_dict(result)
 
         if self.config.strict:
-            metadata = self._enforce_schema(metadata, self.config.schema)
+            metadata = self._enforce_schema(metadata, self.config.json_schema)
 
-        self._maybe_validate_with_jsonschema(metadata, self.config.schema)
+        self._maybe_validate_with_jsonschema(metadata, self.config.json_schema)
         return metadata
 
     def generate_benchmark_questions(self, markdown: str, n: int) -> List[str]:

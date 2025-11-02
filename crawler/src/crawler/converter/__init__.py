@@ -22,6 +22,7 @@ from .factory import ConverterConfig
 from .markitdown import MarkItDownConfig
 from .docling import DoclingConfig
 from .pymupdf import PyMuPDFConfig
+from .pymupdf4llm import PyMuPDF4LLMConfig
 from .docling_api import DoclingAPIConfig
 
 # Factory (lazy imports for converters)
@@ -44,6 +45,7 @@ __all__ = [
     "MarkItDownConfig",
     "DoclingConfig",
     "PyMuPDFConfig",
+    "PyMuPDF4LLMConfig",
     "DoclingAPIConfig",
     # Factory
     "create_converter",

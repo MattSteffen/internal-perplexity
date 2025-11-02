@@ -5,8 +5,7 @@ from crawler.extractor import (
 )
 from crawler.llm.embeddings import EmbedderConfig
 from crawler.llm.llm import LLMConfig
-from crawler.converter import PyMuPDFConfig
-from crawler.converter.types import ConvertOptions
+from crawler.converter import PyMuPDF4LLMConfig
 from crawler.chunker import ChunkingConfig
 from crawler.vector_db import DatabaseClientConfig, MilvusBenchmark
 
@@ -130,28 +129,20 @@ def create_arxiv_config():
 
     # Multi-schema extractor configuration
     extractor = MetadataExtractorConfig(
-        schema=metadata_schema,
-        llm=llm,
+        json_schema=metadata_schema,
         context="A sequence of papers on topics related to clustering.",
     )
 
-    # PyMuPDF converter configuration with image processing
-    converter = PyMuPDFConfig(
-        type="pymupdf",
+    # PyMuPDF4LLM converter configuration with image processing
+    converter = PyMuPDF4LLMConfig(
+        type="pymupdf4llm",
         vlm_config=vision_llm,
-        convert_options=ConvertOptions.from_dict(
-            {
-                "include_page_numbers": False,
-                "include_metadata": True,
-                "reading_order": True,
-                "extract_tables": True,
-                "table_strategy": "lines_strict",
-                "describe_images": True,
-                "include_images": True,
-                "image_prompt": "Describe this image in detail for a technical document.",
-                "timeout_sec": 600,
-            }
-        ),
+        image_prompt="Describe this image in detail for a technical document.",
+        max_workers=4,
+        to_markdown_kwargs={
+            "page_chunks": False,
+            "write_images": True,
+        },
     )
 
     chunking = ChunkingConfig.create(chunk_size=1000)

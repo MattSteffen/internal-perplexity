@@ -121,13 +121,12 @@ import os
 from pathlib import Path
 
 from crawler import Crawler, CrawlerConfig
-from crawler.processing import (
-    ExtractorConfig,
-    ConverterConfig,
-    EmbedderConfig,
-    LLMConfig,
-)
-from crawler.storage import DatabaseClientConfig
+from crawler.extractor import MetadataExtractorConfig
+from crawler.converter import PyMuPDF4LLMConfig
+from crawler.llm.embeddings import EmbedderConfig
+from crawler.llm.llm import LLMConfig
+from crawler.vector_db import DatabaseClientConfig
+from crawler.chunker import ChunkingConfig
 
 
 # Schema for LearnXM data (learnxm.json)
@@ -294,7 +293,7 @@ xm_config_dict = {
                 "model": "mistral-small3.2:latest",
                 "base_url": "http://ollama.a1.autobahn.rinconres.com",
             },
-        }
+        },
     },
     "utils": {
         "chunk_size": 10000,
@@ -388,37 +387,36 @@ def preprocess_qa_data(data: List[Dict[str, Any]], temp_dir: str) -> None:
 def create_xmidas_config(
     partition: str = "default",
     metadata_schema: Dict[str, Any] = None,
-    temp_dir: str = "/tmp/xm"
+    temp_dir: str = "/tmp/xm",
 ) -> CrawlerConfig:
     """Create type-safe configuration for X-Midas document processing.
-    
+
     Args:
         partition: Milvus partition name for data organization
         metadata_schema: JSON schema for metadata validation
         temp_dir: Temporary directory for caching
-        
+
     Returns:
         Validated CrawlerConfig instance
     """
     # Embeddings configuration
     embeddings = EmbedderConfig.ollama(
-        model="nomic-embed-text",
-        base_url="http://ollama.a1.autobahn.rinconres.com"
+        model="nomic-embed-text", base_url="http://ollama.a1.autobahn.rinconres.com"
     )
-    
+
     # Vision LLM for image processing
     vision_llm = LLMConfig.ollama(
         model_name="mistral-small3.2:latest",
-        base_url="http://ollama.a1.autobahn.rinconres.com"
+        base_url="http://ollama.a1.autobahn.rinconres.com",
     )
-    
+
     # Main LLM for metadata extraction
     llm = LLMConfig.ollama(
         model_name="mistral-small3.2",
         base_url="http://ollama.a1.autobahn.rinconres.com",
-        structured_output="tools"
+        structured_output="tools",
     )
-    
+
     # Database configuration with partition support
     database = DatabaseClientConfig.milvus(
         collection="xmidas",
@@ -429,32 +427,26 @@ def create_xmidas_config(
         recreate=False,
         partition=partition,
     )
-    
+
     # Basic extractor configuration
-    extractor = ExtractorConfig.basic(
-        llm=llm,
-        document_library_context=learnxm_description
+    extractor = MetadataExtractorConfig(
+        json_schema=metadata_schema or {}, context=learnxm_description
     )
-    
-    # PyMuPDF converter configuration with image processing
-    converter = ConverterConfig.pymupdf(
-        vision_llm=vision_llm,
-        metadata={
-            "preserve_formatting": True,
-            "include_page_numbers": True,
-            "include_metadata": True,
-            "sort_reading_order": True,
-            "extract_tables": True,
-            "table_strategy": "lines_strict",
-            "image_description_prompt": "Describe this image in detail for a technical document.",
-            "image_describer": {
-                "type": "ollama",
-                "model": "mistral-small3.2:latest",
-                "base_url": "http://ollama.a1.autobahn.rinconres.com",
-            },
+
+    # PyMuPDF4LLM converter configuration with image processing
+    converter = PyMuPDF4LLMConfig(
+        type="pymupdf4llm",
+        vlm_config=vision_llm,
+        image_prompt="Describe this image in detail for a technical document.",
+        max_workers=4,
+        to_markdown_kwargs={
+            "page_chunks": False,
+            "embed_images": True,
         },
     )
-    
+
+    chunking = ChunkingConfig.create(chunk_size=10000)
+
     # Create the complete crawler configuration
     config = CrawlerConfig.create(
         embeddings=embeddings,
@@ -463,19 +455,18 @@ def create_xmidas_config(
         database=database,
         converter=converter,
         extractor=extractor,
-        chunk_size=10000,
+        chunking=chunking,
         metadata_schema=metadata_schema or {},
         temp_dir=temp_dir,
         benchmark=False,
-        log_level="INFO",
     )
-    
+
     return config
 
 
 def crawl_data_source(data_type: str, schema: Dict[str, Any], partition: str):
     """Generic function to crawl a specific data source.
-    
+
     Args:
         data_type: Type of data source (learnxm, xm_docs, qa)
         schema: JSON schema for metadata validation
@@ -508,11 +499,9 @@ def crawl_data_source(data_type: str, schema: Dict[str, Any], partition: str):
     # Create crawler with type-safe configuration
     print(f"⚙️  Creating configuration for {data_type}...")
     crawler_config = create_xmidas_config(
-        partition=partition,
-        metadata_schema=schema,
-        temp_dir=temp_dir
+        partition=partition, metadata_schema=schema, temp_dir=temp_dir
     )
-    
+
     # Alternative: Use dictionary-based configuration for backward compatibility
     # config_copy = xm_config_dict.copy()
     # config_copy["database"]["partition"] = partition
@@ -553,12 +542,8 @@ def crawl_all():
     print("🚀 Starting X-Midas Data Crawling Pipeline")
     print("=" * 80)
     print()
-    
-    results = {
-        "LearnXM": False,
-        "XM Docs": False,
-        "Q&A": False
-    }
+
+    results = {"LearnXM": False, "XM Docs": False, "Q&A": False}
 
     try:
         print("\n📚 Processing LearnXM Documentation...")
@@ -594,15 +579,15 @@ def crawl_all():
     print("=" * 80)
     successful = sum(results.values())
     total = len(results)
-    
+
     for data_source, success in results.items():
         status = "✅ Success" if success else "❌ Failed"
         print(f"   {data_source:.<30} {status}")
-    
+
     print()
     print(f"   Total: {successful}/{total} data sources crawled successfully")
     print("=" * 80)
-    
+
     if successful == total:
         print("🎉 All X-Midas data sources crawled successfully!")
     elif successful > 0:
@@ -613,7 +598,7 @@ def crawl_all():
 
 def main():
     """Main function - crawl all X-Midas data sources.
-    
+
     This function demonstrates the complete X-Midas data processing pipeline,
     including preprocessing, configuration, and crawling multiple data sources.
     """
