@@ -253,8 +253,8 @@ async def create_collection(
     from src.crawler import CrawlerConfig
     from src.crawler.vector_db.database_client import DatabaseClientConfig
     from src.crawler.vector_db.milvus_utils import create_schema
-    from src.endpoints.pipeline_registry import get_registry
     from src.endpoints.document_pipelines import ConfigOverrides, _override_config
+    from src.endpoints.pipeline_registry import get_registry
 
     try:
         client = get_milvus_client(token)
@@ -313,6 +313,11 @@ async def create_collection(
 
         else:
             # Custom config provided
+            if request.custom_config is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="custom_config is required when pipeline_name is not provided",
+                )
             try:
                 config = CrawlerConfig.from_dict(request.custom_config)
             except Exception as e:

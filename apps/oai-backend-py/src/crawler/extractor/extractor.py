@@ -96,6 +96,8 @@ class MetadataExtractor:
         self.config = config
 
     def run(self, document: Document) -> MetadataExtractionResult:
+        if document.markdown is None:
+            raise ValueError("Document markdown is required for metadata extraction")
         metadata = self.extract(document.markdown)
 
         questions: list[str] | None = None

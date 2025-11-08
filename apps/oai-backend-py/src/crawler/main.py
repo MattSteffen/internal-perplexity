@@ -278,8 +278,8 @@ class CrawlerConfig(BaseModel):
 
         # Handle predefined pipeline with overrides
         if "pipeline_name" in pipeline_config:
-            from src.endpoints.pipeline_registry import get_registry
             from src.endpoints.document_pipelines import ConfigOverrides, _override_config
+            from src.endpoints.pipeline_registry import get_registry
 
             pipeline_name = pipeline_config["pipeline_name"]
             registry = get_registry()

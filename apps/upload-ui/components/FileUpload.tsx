@@ -19,6 +19,7 @@ export function FileUpload({ onFileSelect, disabled, clearFiles }: FileUploadPro
   // Clear files when clearFiles prop changes to true
   useEffect(() => {
     if (clearFiles) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFiles(undefined);
     }
   }, [clearFiles]);

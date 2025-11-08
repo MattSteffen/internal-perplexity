@@ -27,7 +27,10 @@ export function CollectionsList({
   const [filterType, setFilterType] = useState<FilterType>("all");
 
   // Safety check: ensure collections is always an array
-  const safeCollections = Array.isArray(collections) ? collections : [];
+  const safeCollections = useMemo(
+    () => (Array.isArray(collections) ? collections : []),
+    [collections]
+  );
 
   // Filter collections based on search query and filter type
   const filteredCollections = useMemo(() => {

@@ -19,7 +19,6 @@ interface MetadataPreviewProps {
   onConfirm: (editedMetadata: DocumentMetadata) => void;
   onCancel: () => void;
   isUploading?: boolean;
-  hasSelectedUsers?: boolean;
   showSecurity?: boolean;
   selectedGroupId?: string | null;
   selectedUserIds?: string[];
@@ -43,7 +42,6 @@ export function MetadataPreview({
   onConfirm,
   onCancel,
   isUploading = false,
-  hasSelectedUsers = false,
   showSecurity = false,
   selectedGroupId = null,
   selectedUserIds = [],
@@ -70,6 +68,7 @@ export function MetadataPreview({
   // Update currentSelectedFile when prop changes
   useEffect(() => {
     if (propSelectedFile !== undefined) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCurrentSelectedFile(propSelectedFile);
     }
   }, [propSelectedFile]);
@@ -96,6 +95,7 @@ export function MetadataPreview({
       const fileStatus = files.find((f) => f.file === currentSelectedFile);
       if (fileStatus && fileStatus.isReady) {
         const copiedMetadata = deepCopyMetadata(fileStatus.metadata);
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setEditedMetadata(copiedMetadata);
         // Extract additional fields
         const additional: Record<string, string> = {};
@@ -463,7 +463,7 @@ export function MetadataPreview({
                 ))}
                 {Object.keys(additionalFields).length === 0 && (
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                    No additional metadata fields. Click "Add Field" to add one.
+                    No additional metadata fields. Click &quot;Add Field&quot; to add one.
                   </p>
                 )}
               </div>

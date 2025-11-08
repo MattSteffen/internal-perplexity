@@ -65,9 +65,19 @@ function FileMetadataItem({
     useState<DocumentMetadata>(metadata);
   const [additionalFields, setAdditionalFields] = useState<
     Record<string, string>
-  >({});
+  >(() => {
+    const additional: Record<string, string> = {};
+    Object.entries(metadata).forEach(([key, value]) => {
+      if (!["title", "author", "date"].includes(key)) {
+        additional[key] =
+          typeof value === "string" ? value : JSON.stringify(value);
+      }
+    });
+    return additional;
+  });
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setEditedMetadata(metadata);
     const additional: Record<string, string> = {};
     Object.entries(metadata).forEach(([key, value]) => {
@@ -245,7 +255,7 @@ function FileMetadataItem({
                 ))}
                 {Object.keys(additionalFields).length === 0 && (
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                    No additional metadata fields. Click "Add Field" to add one.
+                    No additional metadata fields. Click &quot;Add Field&quot; to add one.
                   </p>
                 )}
               </div>

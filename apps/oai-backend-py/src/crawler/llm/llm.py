@@ -338,7 +338,7 @@ class OllamaLLM(LLM):
         # If content is already a dict, return it directly
         if isinstance(content, dict):
             return content
-        
+
         # Otherwise, parse the string
         try:
             # Clean up common JSON formatting issues

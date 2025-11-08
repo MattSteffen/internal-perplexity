@@ -242,7 +242,6 @@ def load_config_from_collection(
     Raises:
         HTTPException: If collection not found or config invalid
     """
-    from json import loads
 
     from src.crawler.main import CrawlerConfig
     from src.milvus_client import get_milvus_client
@@ -339,19 +338,26 @@ async def upload_document(
                 detail="Must provide either pipeline_name or collection_name",
             )
 
+        # Get Milvus token from user info (needed for both collection and pipeline paths)
+        milvus_token: str = user.get("milvus_token", "")
+        if not milvus_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Milvus token is required for database access",
+            )
+
         # Load config from collection or pipeline
         if collection_name:
             # Load config from collection description
-            milvus_token: str = user.get("milvus_token", "")
-            if not milvus_token:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Milvus token is required for database access",
-                )
             base_config = load_config_from_collection(collection_name, milvus_token)
             pipeline_name = collection_name  # Use collection name for response
         else:
             # Validate pipeline exists
+            if pipeline_name is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="pipeline_name is required when collection_name is not provided",
+                )
             registry = get_registry()
             if not registry.has_pipeline(pipeline_name):
                 raise HTTPException(
@@ -373,14 +379,6 @@ async def upload_document(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Invalid config_overrides JSON: {str(e)}",
                 ) from e
-
-        # Get Milvus token from user info
-        milvus_token: str = user.get("milvus_token", "")
-        if not milvus_token:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Milvus token is required for database access",
-            )
 
         # Apply config overrides
         config = _override_config(base_config, overrides)
@@ -520,7 +518,7 @@ async def upload_document_to_collection(
 
     # Load config from collection
     # TODO: Is this used?
-    base_config = load_config_from_collection(collection_name, milvus_token)
+    # base_config = load_config_from_collection(collection_name, milvus_token)
 
     # Merge metadata into config_overrides as document metadata
     # The metadata will be used when processing the document
