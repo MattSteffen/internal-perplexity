@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../upload-ui"
+		}
+	],
+	"settings": {
+		"makefile.configureOnOpen": false
+	}
+}

@@ -2,7 +2,8 @@
 
 - **TODAY**:
 
-  - [x] Refactor converter to use pymupdf4llm for all examples
+  - [ ] Integrate crawler with oai-backend
+  - [ ] Make crawler UI
   - [ ] Update folder structure for mono repo with proper cicd, make files, testing, linting, deployment scripts, etc.
   - [ ] Update docs and openapi specs
   - [ ] update examples and make sure they run from scratch

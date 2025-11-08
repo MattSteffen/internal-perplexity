@@ -25,7 +25,6 @@ from src.tools.milvus_search import (
     consolidate_documents,
     perform_query,
     perform_search,
-    render_document,
 )
 
 # System prompt for the Radchat agent
@@ -386,7 +385,7 @@ class Pipe:
 
         # Render preliminary context documents
         try:
-            preliminary_context = "\n\n".join([render_document(d, include_text=True) for d in consolidated_initial_results])
+            preliminary_context = "\n\n".join([d.render(include_text=True) for d in consolidated_initial_results])
         except Exception as e:
             error_msg = f"Failed to render preliminary context documents: {str(e)}"
             logging.error(error_msg)
@@ -400,7 +399,7 @@ class Pipe:
                 if doc.default_document_id not in seen_doc_ids:
                     seen_doc_ids.add(doc.default_document_id)
                     try:
-                        rendered_doc = render_document(doc, include_text=False)
+                        rendered_doc = doc.render(include_text=False)
                         await __event_emitter__(
                             {
                                 "type": "citation",
@@ -655,7 +654,7 @@ class Pipe:
                                 if doc.default_document_id not in seen_doc_ids:
                                     seen_doc_ids.add(doc.default_document_id)
                                     try:
-                                        rendered_doc = render_document(doc, include_text=False)
+                                        rendered_doc = doc.render(include_text=False)
                                         await __event_emitter__(
                                             {
                                                 "type": "citation",
@@ -676,7 +675,7 @@ class Pipe:
                                         # Continue with other documents rather than failing completely
 
                         try:
-                            rendered_docs = "\n\n".join([render_document(d, include_text=True) for d in consolidated_tool_output]) if len(consolidated_tool_output) > 0 else "No documents found"
+                            rendered_docs = "\n\n".join([d.render(include_text=True) for d in consolidated_tool_output]) if len(consolidated_tool_output) > 0 else "No documents found"
                             all_messages.append(
                                 {
                                     "role": "tool",

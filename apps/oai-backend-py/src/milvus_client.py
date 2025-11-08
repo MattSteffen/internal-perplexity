@@ -25,13 +25,16 @@ _milvus_settings = MilvusSettings()
 _milvus_client: MilvusClient | None = None
 
 
-def get_milvus_client() -> MilvusClient:
+def get_milvus_client(token: str | None = None) -> MilvusClient:
     """Get or create the singleton Milvus client instance.
+
+    Args:
+        token: The token to use for authentication.
 
     Returns:
         MilvusClient instance.
     """
     global _milvus_client
     if _milvus_client is None:
-        _milvus_client = MilvusClient(uri=_milvus_settings.uri)
+        _milvus_client = MilvusClient(uri=_milvus_settings.uri, token=token)
     return _milvus_client

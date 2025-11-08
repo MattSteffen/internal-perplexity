@@ -458,21 +458,6 @@ def perform_query(
         raise RuntimeError(error_msg) from e
 
 
-def render_document(document: MilvusDocument, include_text: bool = True) -> str:
-    """Render a MilvusDocument to markdown format.
-
-    Convenience wrapper for MilvusDocument.render() method.
-
-    Args:
-        document: The document to render.
-        include_text: If True, includes the full document text. If False, only metadata.
-
-    Returns:
-        Markdown-formatted string representation of the document.
-    """
-    return document.render(include_text=include_text)
-
-
 def consolidate_documents(documents: list[MilvusDocument]) -> list[MilvusDocument]:
     """Consolidate documents with the same document_id, combining their text and metadata.
 
@@ -585,7 +570,7 @@ def build_citations(documents: list[MilvusDocument]) -> list[dict[str, Any]]:
         citations.append(
             {
                 "source": {"name": doc.default_source, "url": ""},
-                "document": [render_document(doc, include_text=False)],
+                "document": [doc.render(include_text=False)],
                 "metadata": [
                     {
                         "date_accessed": datetime.now().isoformat(),
@@ -715,7 +700,7 @@ class MilvusSearchTool:
 
         # Return rendered documents as JSON
         try:
-            rendered = [render_document(doc, include_text=True) for doc in results]
+            rendered = [doc.render(include_text=True) for doc in results]
             return json.dumps(rendered, indent=2)
         except Exception as e:
             error_msg = f"Failed to render search results: {str(e)}"
