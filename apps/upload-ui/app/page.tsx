@@ -548,7 +548,7 @@ export default function Home() {
             <h2 className="mb-4 text-xl font-semibold text-zinc-900 dark:text-zinc-100">
               Upload Document
             </h2>
-            {isProcessing || isProcessingMetadata ? (
+            {Array.from(fileProcessingStatus.values()).some((status) => status.isProcessing) || isProcessingMetadata ? (
               <div className="rounded-lg border border-zinc-200 bg-white p-8 text-center dark:border-zinc-800 dark:bg-zinc-900">
                 <div className="flex flex-col items-center gap-4">
                   <div className="h-8 w-8 animate-spin rounded-full border-4 border-zinc-300 border-t-blue-600 dark:border-zinc-700 dark:border-t-blue-400"></div>
