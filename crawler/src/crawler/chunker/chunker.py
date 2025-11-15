@@ -7,25 +7,21 @@ configurable chunk sizes and strategies.
 
 from __future__ import annotations
 
-from typing import List, Optional
 from pydantic import BaseModel, Field
-from crawler.document import Document
+
+from ..document import Document
 
 
 class ChunkingConfig(BaseModel):
     """Configuration for text chunking."""
 
-    chunk_size: int = Field(
-        default=1000, gt=0, description="Maximum size of each chunk in characters"
-    )
+    chunk_size: int = Field(default=1000, gt=0, description="Maximum size of each chunk in characters")
     overlap: int = Field(
         default=200,
         ge=0,
         description="Number of characters to overlap between consecutive chunks",
     )
-    strategy: str = Field(
-        default="naive", description="Chunking strategy to use (naive, semantic, etc.)"
-    )
+    strategy: str = Field(default="naive", description="Chunking strategy to use (naive, semantic, etc.)")
     preserve_paragraphs: bool = Field(
         default=True,
         description="Whether to try to preserve paragraph boundaries when chunking",
@@ -46,7 +42,7 @@ class ChunkingConfig(BaseModel):
         strategy: str = "naive",
         preserve_paragraphs: bool = True,
         min_chunk_size: int = 100,
-    ) -> "ChunkingConfig":
+    ) -> ChunkingConfig:
         """Create a ChunkingConfig with specified parameters."""
         return cls(
             chunk_size=chunk_size,
@@ -64,7 +60,7 @@ class Chunker:
         """Initialize the chunker with configuration."""
         self.config = config
 
-    def chunk_text(self, document: Document) -> List[str]:
+    def chunk_text(self, document: Document) -> list[str]:
         """
         Split text into chunks based on the configured strategy.
 
@@ -84,7 +80,7 @@ class Chunker:
             # Unknown strategy, fallback to naive
             return self._naive_chunk(text)
 
-    def _naive_chunk(self, text: str) -> List[str]:
+    def _naive_chunk(self, text: str) -> list[str]:
         """
         Naive chunking strategy that splits text by character count.
 

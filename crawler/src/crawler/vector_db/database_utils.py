@@ -1,7 +1,8 @@
-from .database_client import DatabaseClient, DatabaseClientConfig, DatabaseBenchmark
-from .milvus_client import MilvusDB
+from typing import TYPE_CHECKING
+
+from .database_client import DatabaseBenchmark, DatabaseClient, DatabaseClientConfig
 from .milvus_benchmarks import MilvusBenchmark
-from typing import Dict, TYPE_CHECKING
+from .milvus_client import MilvusDB
 
 if TYPE_CHECKING:
     from ..processing.embeddings import EmbedderConfig
@@ -10,8 +11,9 @@ if TYPE_CHECKING:
 def get_db(
     config: DatabaseClientConfig,
     dimension: int,
-    metadata: Dict[str, any],
+    metadata: dict[str, any],
     library_context: str,
+    collection_config_json: str | None = None,
 ) -> DatabaseClient:
     """
     Get a database client based on the provider.
@@ -20,17 +22,16 @@ def get_db(
         dimension: Dimension of the embeddings.
         metadata: Metadata schema for the database client.
         library_context: Library context for the database client.
+        collection_config_json: Optional JSON string containing collection configuration.
     Returns:
         A DatabaseClient object.
     """
     if config.provider == "milvus":
-        return MilvusDB(config, dimension, metadata, library_context)
+        return MilvusDB(config, dimension, metadata, library_context, collection_config_json)
     raise ValueError(f"unsupported database provider: {config.provider}")
 
 
-def get_db_benchmark(
-    db_config: "DatabaseClientConfig", embed_config: "EmbedderConfig"
-) -> "DatabaseBenchmark":
+def get_db_benchmark(db_config: "DatabaseClientConfig", embed_config: "EmbedderConfig") -> "DatabaseBenchmark":
     """
     Get a database benchmark client based on the provider.
     Args:

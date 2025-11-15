@@ -7,19 +7,15 @@ into vector databases for retrieval-augmented generation (RAG) applications.
 
 # Re-export main classes from submodules for convenience, based on new file structure
 
-from .main import Crawler, CrawlerConfig, sanitize_metadata
-
 from .converter import (
     Converter,
     ConverterConfig,
     create_converter,
 )
-
 from .extractor import (
     MetadataExtractor,
     MetadataExtractorConfig,
 )
-
 from .llm.embeddings import (
     Embedder,
     EmbedderConfig,
@@ -30,7 +26,7 @@ from .llm.llm import (
     LLMConfig,
     get_llm,
 )
-
+from .main import Crawler, CrawlerConfig, sanitize_metadata
 from .vector_db import (
     DatabaseClient,
     DatabaseClientConfig,
@@ -38,7 +34,6 @@ from .vector_db import (
     get_db,
     get_db_benchmark,
 )
-
 
 __version__ = "0.1.0"
 
@@ -48,7 +43,6 @@ __all__ = [
     "CrawlerConfig",
     "RESERVED",
     "sanitize_metadata",
-
     # Processing components
     "Converter",
     "ConverterConfig",
@@ -61,7 +55,6 @@ __all__ = [
     "Embedder",
     "EmbedderConfig",
     "get_embedder",
-
     # Storage components
     "DatabaseClient",
     "DatabaseClientConfig",
@@ -69,16 +62,4 @@ __all__ = [
     "MilvusDB",
     "get_db",
     "get_db_benchmark",
-
-    # Default configurations
-    "DEFAULT_OLLAMA_EMBEDDINGS",
-    "DEFAULT_OLLAMA_LLM",
-    "DEFAULT_OLLAMA_VISION_LLM",
-    "DEFAULT_MILVUS_CONFIG",
-    "DEFAULT_CONVERTER_CONFIG",
-    "DEFAULT_CHUNK_SIZE",
-    "DEFAULT_TEMP_DIR",
-    "DEFAULT_BENCHMARK",
-    "DEFAULT_METADATA_SCHEMA",
-    "DEFAULT_EXTRACTOR_CONFIG",
 ]

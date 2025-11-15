@@ -25,9 +25,65 @@ The `crawl` method executes the following steps for each file:
 
 ## Configuration (`CrawlerConfig`)
 
-All configuration is managed through the `CrawlerConfig` dataclass, which is instantiated from a dictionary. This object centralizes the settings for all sub-components.
+All configuration is managed through the `CrawlerConfig` Pydantic BaseModel, which can be instantiated from a dictionary or using the type-safe `create()` method. This object centralizes the settings for all sub-components.
 
-### Example Configuration
+### Example Configuration (Type-Safe, Recommended)
+
+```python
+from crawler import Crawler, CrawlerConfig
+from crawler.llm import LLMConfig, EmbedderConfig
+from crawler.vector_db import DatabaseClientConfig
+from crawler.converter import PyMuPDF4LLMConfig
+from crawler.extractor import MetadataExtractorConfig
+from crawler.chunker import ChunkingConfig
+
+# Create component configurations
+embeddings = EmbedderConfig.ollama(model="all-minilm:v2", base_url="http://localhost:11434")
+llm = LLMConfig.ollama(model_name="gemma3", base_url="http://localhost:11434")
+vision_llm = LLMConfig.ollama(model_name="llava", base_url="http://localhost:11434")
+database = DatabaseClientConfig.milvus(
+    collection="test_collection",
+    host="localhost",
+    port=19530,
+    username="root",
+    password="123456",
+    recreate=False
+)
+converter = PyMuPDF4LLMConfig(type="pymupdf4llm", vlm_config=vision_llm)
+extractor = MetadataExtractorConfig(
+    json_schema={
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "author": {"type": "string"}
+        },
+        "required": ["title", "author"]
+    }
+)
+chunking = ChunkingConfig.create(chunk_size=1000)
+
+# Create complete configuration
+config = CrawlerConfig.create(
+    embeddings=embeddings,
+    llm=llm,
+    vision_llm=vision_llm,
+    database=database,
+    converter=converter,
+    extractor=extractor,
+    chunking=chunking,
+    metadata_schema={
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "author": {"type": "string"}
+        },
+        "required": ["title", "author"]
+    },
+    temp_dir="tmp/"
+)
+```
+
+### Example Configuration (Dictionary-Based, Backward Compatible)
 
 ```python
 config_dict = {
@@ -35,10 +91,9 @@ config_dict = {
         "provider": "ollama",
         "model": "all-minilm:v2",
         "base_url": "http://localhost:11434",
-        "api_key": "ollama",
     },
     "vision_llm": {
-        "model": "gemma3",
+        "model_name": "llava",
         "provider": "ollama",
         "base_url": "http://localhost:11434",
     },
@@ -59,16 +114,23 @@ config_dict = {
     "metadata_schema": {
         "type": "object",
         "properties": {
-            "title": { "type": "string" },
-            "author": { "type": "string" }
+            "title": {"type": "string"},
+            "author": {"type": "string"}
         },
         "required": ["title", "author"]
     },
     "converter": {
-        "type": "pymupdf",
-        # ... other converter-specific options
+        "type": "pymupdf4llm",
+        "vlm_config": {
+            "model_name": "llava",
+            "provider": "ollama",
+            "base_url": "http://localhost:11434"
+        }
     },
-    "chunk_size": 1000,
+    "chunking": {
+        "chunk_size": 1000,
+        "overlap": 200
+    },
     "temp_dir": "tmp/"
 }
 
@@ -81,26 +143,41 @@ crawler_config = CrawlerConfig.from_dict(config_dict)
 
 ## API Reference
 
-### `class Crawler(config, converter, extractor, vector_db, embedder, llm)`
+### `class Crawler`
 
 The main orchestrator of the processing pipeline.
 
-**`__init__(self, config, converter=None, ...)`**
+**`__init__(self, config: CrawlerConfig, converter: Converter = None, extractor: MetadataExtractor = None, vector_db: DatabaseClient = None, embedder: Embedder = None, llm: LLM = None, chunker: Chunker = None)`**
 
 Initializes the crawler. While you can inject custom component instances, the common pattern is to provide a complete `config` object and let the `Crawler` initialize its own defaults.
 
--   **`config` (`CrawlerConfig`)**: The main configuration object.
--   **`converter` (`Converter`, optional)**: A custom instance of a `Converter`. If `None`, a default is created based on the config.
--   **`extractor` (`Extractor`, optional)**: A custom instance of an `Extractor`. Defaults to `BasicExtractor`.
--   **`vector_db` (`DatabaseClient`, optional)**: A custom instance of a `DatabaseClient`. If `None`, a default is created via `get_db`.
--   **`embedder` (`Embedder`, optional)**: A custom instance of an `Embedder`. If `None`, a default is created via `get_embedder`.
--   **`llm` (`LLM`, optional)**: A custom instance of an `LLM`. If `None`, a default is created via `get_llm`.
+-   **`config` (`CrawlerConfig`)**: The main configuration object (required).
+-   **`converter` (`Converter`, optional)**: A custom instance of a `Converter`. If `None`, a converter is created based on `config.converter`.
+-   **`extractor` (`MetadataExtractor`, optional)**: A custom instance of a `MetadataExtractor`. If `None`, an extractor is created based on `config.extractor`.
+-   **`vector_db` (`DatabaseClient`, optional)**: A custom instance of a `DatabaseClient`. If `None`, a default is created via `get_db()`.
+-   **`embedder` (`Embedder`, optional)**: A custom instance of an `Embedder`. If `None`, a default is created via `get_embedder()`.
+-   **`llm` (`LLM`, optional)**: A custom instance of an `LLM`. If `None`, a default is created via `get_llm()`.
+-   **`chunker` (`Chunker`, optional)**: A custom instance of a `Chunker`. If `None`, a chunker is created based on `config.chunking`.
 
-**`crawl(self, path)`**
+**`crawl(self, path: str | list[str]) -> None`**
 
-Starts the crawling process on the specified file(s) or directory.
+Starts the crawling process on the specified file(s) or directory. Processes each file through the complete pipeline: conversion, metadata extraction, chunking, embedding, and storage.
 
--   **`path` (`Union[str, List[str]]`)**: A single absolute file path, a directory path, or a list of absolute file paths to process.
+-   **`path` (`str | list[str]`)**: A single file path, a directory path, or a list of file paths to process. If a directory, recursively processes all files within it.
+-   **Returns**: `None` (modifies database in place)
+-   **Features**:
+  - Duplicate detection (skips files already in database)
+  - Caching (loads from temp_dir if available)
+  - Progress tracking with tqdm
+  - Error handling (continues processing on individual file failures)
+  - Statistics collection
+
+**`benchmark(self, generate_queries: bool = False) -> None`**
+
+Runs benchmarking on the crawled documents if benchmarking was enabled in the config.
+
+-   **`generate_queries` (`bool`)**: Whether to generate new benchmark queries or use stored ones.
+-   **Returns**: `None` (saves results to `benchmark_results/` directory)
 
 ---
 
@@ -108,46 +185,53 @@ Starts the crawling process on the specified file(s) or directory.
 
 The crawler is built on a set of abstract base classes (interfaces) that allow for custom implementations. This makes the system highly extensible.
 
-### `processing.Converter`
+### `converter.Converter`
 
 -   **Purpose**: Defines the contract for converting source files into Markdown.
--   **Method**: `convert(self, filepath: str) -> str`
--   **Implementations**: `MarkItDownConverter`, `DoclingConverter`, `PyMuPDFConverter`.
+-   **Methods**: 
+    -   `convert(self, doc: DocumentInput) -> ConvertedDocument`
+    -   `convert_document(self, document: Document) -> None` (preferred for Document pipeline)
+-   **Implementations**: `MarkItDownConverter`, `PyMuPDF4LLMConverter`.
 
-### `processing.Extractor`
+### `extractor.MetadataExtractor`
 
--   **Purpose**: Defines how to extract metadata and chunk text.
+-   **Purpose**: Extracts structured metadata from markdown text using LLMs.
 -   **Methods**:
-    -   `extract_metadata(self, text: str) -> Dict[str, Any]`
-    -   `chunk_text(self, text: str, chunk_size: int) -> List[str]`
--   **Implementations**: `BasicExtractor`, `MultiSchemaExtractor`.
+    -   `extract(self, markdown: str) -> dict[str, Any]`
+    -   `run(self, document: Document) -> MetadataExtractionResult`
+    -   `generate_benchmark_questions(self, markdown: str, n: int) -> list[str]`
+-   **Configuration**: `MetadataExtractorConfig` with JSON schema, context, structured output mode
 
-### `processing.Embedder`
+### `llm.embeddings.Embedder`
 
 -   **Purpose**: Defines the interface for text embedding models.
 -   **Methods**:
-    -   `embed(self, query: str) -> List[float]`
+    -   `embed(self, query: str) -> list[float]`
+    -   `embed_batch(self, queries: list[str]) -> list[list[float]]`
     -   `get_dimension(self) -> int`
 -   **Implementations**: `OllamaEmbedder`.
 
-### `processing.LLM`
+### `llm.llm.LLM`
 
 -   **Purpose**: Defines a standard way to interact with Large Language Models.
--   **Method**: `invoke(self, prompt_or_messages, ...)`
--   **Implementations**: `OllamaLLM`.
+-   **Method**: `invoke(self, prompt_or_messages, response_format=None, tools=None, ...) -> Any`
+-   **Implementations**: `OllamaLLM`, `VllmLLM`.
 
-### `storage.DatabaseClient`
+### `vector_db.DatabaseClient`
 
 -   **Purpose**: Defines the interface for a vector database client.
 -   **Methods**:
-    -   `insert_data(self, data: List[DatabaseDocument])`
+    -   `create_collection(self, recreate: bool = False) -> None`
+    -   `insert_data(self, data: list[DatabaseDocument]) -> None`
     -   `check_duplicate(self, source: str, chunk_index: int) -> bool`
 -   **Implementations**: `MilvusDB`.
 
-### `storage.DatabaseDocument`
+### `vector_db.DatabaseDocument`
 
--   **Purpose**: A dataclass that defines the standard structure for documents being inserted into the database, ensuring consistency.
--   **Fields**: `text`, `text_embedding`, `chunk_index`, `source`, `metadata`.
+-   **Purpose**: A Pydantic BaseModel that defines the standard structure for documents being inserted into the database.
+-   **Required Fields**: `default_document_id`, `default_text`, `default_text_embedding`, `default_chunk_index`, `default_source`, `security_group`, `metadata`
+-   **Optional Fields**: `id`, `default_metadata`, `default_minio`, `default_text_sparse_embedding`, `default_metadata_sparse_embedding`, `default_benchmark_questions`
+-   **Note**: All system fields use `default_` prefix to avoid conflicts with user metadata.
 
 ---
 

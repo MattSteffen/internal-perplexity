@@ -1,11 +1,7 @@
-import time
 from abc import ABC, abstractmethod
-from pydantic import BaseModel, Field
-import ollama
-from typing import List, Dict, Optional
-from tqdm import tqdm
 
-from pymilvus.client import abstract
+import ollama
+from pydantic import BaseModel, Field
 
 
 class EmbedderConfig(BaseModel):
@@ -23,20 +19,14 @@ class EmbedderConfig(BaseModel):
         dimension: Optional pre-configured embedding dimension (auto-detected if None)
     """
 
-    model: str = Field(
-        ..., min_length=1, description="Name of the embedding model to use"
-    )
-    base_url: str = Field(
-        ..., min_length=1, description="Base URL for the embedding service API"
-    )
+    model: str = Field(..., min_length=1, description="Name of the embedding model to use")
+    base_url: str = Field(..., min_length=1, description="Base URL for the embedding service API")
     api_key: str = Field(
         default="",
         description="API key for authentication (if required by the provider)",
     )
-    provider: str = Field(
-        default="ollama", description="Provider name (e.g., 'ollama', 'openai')"
-    )
-    dimension: Optional[int] = Field(
+    provider: str = Field(default="ollama", description="Provider name (e.g., 'ollama', 'openai')")
+    dimension: int | None = Field(
         default=None,
         gt=0,
         description="Optional pre-configured embedding dimension (auto-detected if None)",
@@ -51,12 +41,10 @@ class EmbedderConfig(BaseModel):
         cls,
         model: str,
         base_url: str = "http://localhost:11434",
-        dimension: Optional[int] = None,
+        dimension: int | None = None,
     ) -> "EmbedderConfig":
         """Create Ollama embedder configuration."""
-        return cls(
-            model=model, base_url=base_url, provider="ollama", dimension=dimension
-        )
+        return cls(model=model, base_url=base_url, provider="ollama", dimension=dimension)
 
     @classmethod
     def openai(
@@ -64,7 +52,7 @@ class EmbedderConfig(BaseModel):
         model: str,
         api_key: str,
         base_url: str = "https://api.openai.com/v1",
-        dimension: Optional[int] = None,
+        dimension: int | None = None,
     ) -> "EmbedderConfig":
         """Create OpenAI embedder configuration."""
         return cls(
@@ -80,7 +68,7 @@ class Embedder(ABC):
     """Abstract interface for embedding models."""
 
     @abstractmethod
-    def embed(self, query: str) -> List[float]:
+    def embed(self, query: str) -> list[float]:
         """Generate embedding for a single query string.
 
         Args:
@@ -92,7 +80,7 @@ class Embedder(ABC):
         pass
 
     @abstractmethod
-    def embed_batch(self, queries: List[str]) -> List[List[float]]:
+    def embed_batch(self, queries: list[str]) -> list[list[float]]:
         """Generate embeddings for multiple queries.
 
         Args:
@@ -123,7 +111,7 @@ class OllamaEmbedder(Embedder):
         self.embedder = ollama.Client(host=config.base_url)
         self._dimension = None
 
-    def embed(self, query: str) -> List[float]:
+    def embed(self, query: str) -> list[float]:
         """Generate embedding for a single query string.
 
         Args:
@@ -135,7 +123,7 @@ class OllamaEmbedder(Embedder):
         embedding = self.embedder.embeddings(model=self.config.model, prompt=query)
         return embedding.embedding
 
-    def embed_batch(self, queries: List[str]) -> List[List[float]]:
+    def embed_batch(self, queries: list[str]) -> list[list[float]]:
         """Generate embeddings for multiple queries.
 
         Args:

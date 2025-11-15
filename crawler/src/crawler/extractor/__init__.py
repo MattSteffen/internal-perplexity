@@ -6,10 +6,9 @@ using LLM-based extraction with JSON Schema validation.
 """
 
 from .extractor import (
-    MetadataExtractorConfig,
     MetadataExtractor,
+    MetadataExtractorConfig,
 )
-
 
 __all__ = [
     "MetadataExtractorConfig",

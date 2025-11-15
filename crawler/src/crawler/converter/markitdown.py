@@ -9,35 +9,31 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from typing import Literal
 
+# MarkItDown imports
+from markitdown import (
+    FileConversionException,
+    MarkItDown,
+    UnsupportedFormatException,
+)
 from openai import OpenAI
+from pydantic import BaseModel, Field
 
+from ..llm.llm import LLMConfig
 from .base import Converter
 from .types import (
-    DocumentInput,
     ConvertedDocument,
+    DocumentInput,
 )
-from pydantic import BaseModel, Field
-from typing import Literal
-from ..llm.llm import LLMConfig
 
 
 class MarkItDownConfig(BaseModel):
     """Configuration for MarkItDown converter."""
 
     type: Literal["markitdown"]
-    llm_config: LLMConfig = Field(
-        ..., description="LLM configuration for vision processing"
-    )
+    llm_config: LLMConfig = Field(..., description="LLM configuration for vision processing")
     enable_plugins: bool = Field(default=False, description="Enable MarkItDown plugins")
-
-
-# MarkItDown imports
-from markitdown import (
-    MarkItDown,
-    UnsupportedFormatException,
-    FileConversionException,
-)
 
 
 class MarkItDownConverter(Converter):
@@ -60,7 +56,6 @@ class MarkItDownConverter(Converter):
         """Convert a document using MarkItDown."""
 
         convert_start_time = time.time()
-        doc_name = doc.filename or "unknown"
 
         try:
             # Get file path for MarkItDown
@@ -70,9 +65,7 @@ class MarkItDownConverter(Converter):
                 # For bytes or fileobj, we need to write to a temporary file
                 import tempfile
 
-                with tempfile.NamedTemporaryFile(
-                    delete=False, suffix=Path(doc.filename or "doc").suffix
-                ) as tmp:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=Path(doc.filename or "doc").suffix) as tmp:
                     if doc.source == "bytes":
                         tmp.write(doc.bytes_data)
                     else:  # fileobj
@@ -99,11 +92,11 @@ class MarkItDownConverter(Converter):
                 },
             )
 
-        except UnsupportedFormatException as e:
+        except UnsupportedFormatException:
             raise
-        except FileConversionException as e:
+        except FileConversionException:
             raise
-        except Exception as e:
+        except Exception:
             raise
 
     def _create_client(self, config: MarkItDownConfig) -> MarkItDown:

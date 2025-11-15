@@ -7,32 +7,34 @@ structures used throughout the converter system.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Optional, Tuple, List, Union, IO
-from pydantic import BaseModel, Field, model_validator
 from pathlib import Path
+from typing import IO, TYPE_CHECKING, Any
 
-from ..document import Document
+from pydantic import BaseModel, Field, model_validator
+
+if TYPE_CHECKING:
+    from ..document import Document
 
 
-BBox = Tuple[float, float, float, float]
+BBox = tuple[float, float, float, float]
 
 
 class DocumentInput(BaseModel):
     """Represents a document input from various sources."""
 
     source: str = Field(..., description="Source type: 'path', 'bytes', or 'fileobj'")
-    path: Optional[Path] = None
-    bytes_data: Optional[bytes] = None
-    fileobj: Optional[IO[bytes]] = None
-    filename: Optional[str] = None
-    mime_type: Optional[str] = None
+    path: Path | None = None
+    bytes_data: bytes | None = None
+    fileobj: IO[bytes] | None = None
+    filename: str | None = None
+    mime_type: str | None = None
 
     model_config = {
         "arbitrary_types_allowed": True,  # Allow IO[bytes] type
     }
 
     @model_validator(mode="after")
-    def _validate_source(self) -> "DocumentInput":
+    def _validate_source(self) -> DocumentInput:
         """Validate that required fields are present based on source type."""
         if self.source == "path" and not self.path:
             raise ValueError("path required when source='path'")
@@ -43,9 +45,7 @@ class DocumentInput(BaseModel):
         return self
 
     @classmethod
-    def from_path(
-        cls, p: Union[str, Path], mime_type: Optional[str] = None
-    ) -> "DocumentInput":
+    def from_path(cls, p: str | Path, mime_type: str | None = None) -> DocumentInput:
         """Create DocumentInput from a file path."""
         p = Path(p)
         return cls(source="path", path=p, filename=p.name, mime_type=mime_type)
@@ -54,9 +54,9 @@ class DocumentInput(BaseModel):
     def from_bytes(
         cls,
         data: bytes,
-        filename: Optional[str] = None,
-        mime_type: Optional[str] = None,
-    ) -> "DocumentInput":
+        filename: str | None = None,
+        mime_type: str | None = None,
+    ) -> DocumentInput:
         """Create DocumentInput from bytes data."""
         return cls(
             source="bytes",
@@ -69,24 +69,20 @@ class DocumentInput(BaseModel):
     def from_fileobj(
         cls,
         f: IO[bytes],
-        filename: Optional[str] = None,
-        mime_type: Optional[str] = None,
-    ) -> "DocumentInput":
+        filename: str | None = None,
+        mime_type: str | None = None,
+    ) -> DocumentInput:
         """Create DocumentInput from a file-like object."""
         return cls(source="fileobj", fileobj=f, filename=filename, mime_type=mime_type)
 
     @classmethod
-    def from_document(cls, document: Document) -> "DocumentInput":
+    def from_document(cls, document: Document) -> DocumentInput:
         """Create DocumentInput from a Document object."""
         # If document has content, use bytes source
         if document.content is not None:
             return cls.from_bytes(
                 data=document.content,
-                filename=(
-                    document.source.split("/")[-1]
-                    if "/" in document.source
-                    else document.source
-                ),
+                filename=(document.source.split("/")[-1] if "/" in document.source else document.source),
             )
         # Otherwise, assume source is a file path
         else:
@@ -100,15 +96,15 @@ class ConvertOptions(BaseModel):
     include_page_numbers: bool = True
     include_images: bool = True
     describe_images: bool = False
-    image_prompt: Optional[str] = None
+    image_prompt: str | None = None
     extract_tables: bool = True
     table_strategy: str = "lines_strict"
     reading_order: bool = True
-    page_range: Optional[Tuple[int, int]] = None  # inclusive 1-based range
-    timeout_sec: Optional[float] = None
+    page_range: tuple[int, int] | None = None  # inclusive 1-based range
+    timeout_sec: float | None = None
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ConvertOptions":
+    def from_dict(cls, data: dict[str, Any]) -> ConvertOptions:
         """Create ConvertOptions from a dictionary."""
         return cls(**data)
 
@@ -117,10 +113,10 @@ class ImageAsset(BaseModel):
     """Represents an extracted image from a document."""
 
     page_number: int = Field(..., ge=0)
-    bbox: Optional[BBox] = None
+    bbox: BBox | None = None
     ext: str
     data: bytes
-    description: Optional[str] = None
+    description: str | None = None
 
     model_config = {
         "arbitrary_types_allowed": True,  # Allow bytes type
@@ -131,7 +127,7 @@ class TableAsset(BaseModel):
     """Represents an extracted table from a document."""
 
     page_number: int = Field(..., ge=0)
-    bbox: Optional[BBox] = None
+    bbox: BBox | None = None
     rows: int = 0
     cols: int = 0
     markdown: str
@@ -146,30 +142,30 @@ class ConversionStats(BaseModel):
     images: int = 0
     images_described: int = 0
     tables: int = 0
-    total_time_sec: Optional[float] = None
-    extra: Dict[str, Any] = Field(default_factory=dict)
+    total_time_sec: float | None = None
+    extra: dict[str, Any] = Field(default_factory=dict)
 
 
 class ConvertedDocument(BaseModel):
     """Result of a document conversion operation."""
 
-    source_name: Optional[str] = None
+    source_name: str | None = None
     markdown: str
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-    images: List[ImageAsset] = Field(default_factory=list)
-    tables: List[TableAsset] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    images: list[ImageAsset] = Field(default_factory=list)
+    tables: list[TableAsset] = Field(default_factory=list)
     stats: ConversionStats = Field(default_factory=ConversionStats)
-    warnings: List[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ProgressEvent(BaseModel):
     """Event emitted during conversion progress."""
 
     stage: str
-    page: Optional[int] = None
-    total_pages: Optional[int] = None
-    message: Optional[str] = None
-    metrics: Dict[str, Any] = Field(default_factory=dict)
+    page: int | None = None
+    total_pages: int | None = None
+    message: str | None = None
+    metrics: dict[str, Any] = Field(default_factory=dict)
 
 
 class Capabilities(BaseModel):
@@ -181,4 +177,4 @@ class Capabilities(BaseModel):
     supports_images: bool = True
     supports_tables: bool = True
     requires_vision: bool = False
-    supported_mime_types: List[str] = Field(default_factory=list)
+    supported_mime_types: list[str] = Field(default_factory=list)

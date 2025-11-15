@@ -1,10 +1,10 @@
-from abc import ABC, abstractmethod
-from pydantic import BaseModel, Field, field_validator
-from typing import List, Dict, Union, Optional, Any
-import ollama
 import json
-import time
+from abc import ABC, abstractmethod
+from typing import Any
+
 import httpx
+import ollama
+from pydantic import BaseModel, Field, field_validator
 
 
 class LLMConfig(BaseModel):
@@ -25,29 +25,17 @@ class LLMConfig(BaseModel):
         structured_output: Mode for structured output ('response_format' or 'tools')
     """
 
-    model_name: str = Field(
-        ..., min_length=1, description="Name of the LLM model to use"
-    )
+    model_name: str = Field(..., min_length=1, description="Name of the LLM model to use")
     base_url: str = Field(
         default="http://localhost:11434",
         min_length=1,
         description="Base URL for the LLM API service",
     )
-    system_prompt: Optional[str] = Field(
-        default=None, description="Optional system prompt to set model behavior"
-    )
-    ctx_length: int = Field(
-        default=32000, gt=0, description="Context length (token limit) for the model"
-    )
-    default_timeout: float = Field(
-        default=300.0, gt=0, description="Default timeout in seconds for API calls"
-    )
-    provider: str = Field(
-        default="ollama", description="Provider name (e.g., 'ollama', 'openai', 'vllm')"
-    )
-    api_key: str = Field(
-        default="", description="API key for authentication (if required by provider)"
-    )
+    system_prompt: str | None = Field(default=None, description="Optional system prompt to set model behavior")
+    ctx_length: int = Field(default=32000, gt=0, description="Context length (token limit) for the model")
+    default_timeout: float = Field(default=300.0, gt=0, description="Default timeout in seconds for API calls")
+    provider: str = Field(default="ollama", description="Provider name (e.g., 'ollama', 'openai', 'vllm')")
+    api_key: str = Field(default="", description="API key for authentication (if required by provider)")
     structured_output: str = Field(
         default="response_format",
         description="Mode for structured output: 'response_format' or 'tools'",
@@ -62,9 +50,7 @@ class LLMConfig(BaseModel):
     def validate_structured_output(cls, v: str) -> str:
         """Validate structured output mode."""
         if v not in ["response_format", "tools"]:
-            raise ValueError(
-                "structured_output must be either 'response_format' or 'tools'"
-            )
+            raise ValueError("structured_output must be either 'response_format' or 'tools'")
         return v
 
     @classmethod
@@ -72,7 +58,7 @@ class LLMConfig(BaseModel):
         cls,
         model_name: str,
         base_url: str = "http://localhost:11434",
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         ctx_length: int = 32000,
         default_timeout: float = 300.0,
         structured_output: str = "response_format",
@@ -94,7 +80,7 @@ class LLMConfig(BaseModel):
         model_name: str,
         api_key: str,
         base_url: str = "https://api.openai.com/v1",
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         ctx_length: int = 32000,
         default_timeout: float = 300.0,
         structured_output: str = "response_format",
@@ -117,7 +103,7 @@ class LLMConfig(BaseModel):
         model_name: str,
         base_url: str,
         api_key: str = "",
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         ctx_length: int = 32000,
         default_timeout: float = 300.0,
         structured_output: str = "response_format",
@@ -135,7 +121,7 @@ class LLMConfig(BaseModel):
         )
 
 
-def schema_to_openai_tools(schema: Dict[str, Any]) -> List[Dict[str, Any]]:
+def schema_to_openai_tools(schema: dict[str, Any]) -> list[dict[str, Any]]:
     """
     Convert a JSON schema to OpenAI-compatible tools format.
 
@@ -183,10 +169,10 @@ class LLM(ABC):
     @abstractmethod
     def invoke(
         self,
-        prompt_or_messages: Union[str, List[Dict[str, Any]]],
-        response_format: Optional[Dict[str, Any]] = None,
-        tools: Optional[List[Dict[str, Any]]] = None,
-    ) -> Union[str, Dict[str, Any]]:
+        prompt_or_messages: str | list[dict[str, Any]],
+        response_format: dict[str, Any] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> str | dict[str, Any]:
         """Send a prompt or message history to the model and get a response.
 
         Args:
@@ -227,16 +213,14 @@ class OllamaLLM(LLM):
         self.ctx_length = config.ctx_length
 
         # Initialize Ollama client with timeout from config
-        self.client = ollama.Client(
-            host=config.base_url, timeout=config.default_timeout
-        )
+        self.client = ollama.Client(host=config.base_url, timeout=config.default_timeout)
 
     def invoke(
         self,
-        prompt_or_messages: Union[str, List[Dict[str, Any]]],
-        response_format: Optional[Dict[str, Any]] = None,
-        tools: Optional[List[Dict[str, Any]]] = None,
-    ) -> Union[str, Dict[str, Any]]:
+        prompt_or_messages: str | list[dict[str, Any]],
+        response_format: dict[str, Any] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> str | dict[str, Any]:
         """
         Send a prompt or message history to the model and get a response.
 
@@ -277,9 +261,7 @@ class OllamaLLM(LLM):
                     tools = schema_to_openai_tools(response_format)
                     structured_output_mode = "tools"
 
-        options = {
-            "num_ctx": self.ctx_length
-        }  # TODO: Update as min(tokens_needed_for_message, ctx_length)
+        options = {"num_ctx": self.ctx_length}  # TODO: Update as min(tokens_needed_for_message, ctx_length)
 
         try:
             # Prepare API call parameters
@@ -321,24 +303,14 @@ class OllamaLLM(LLM):
 
         except ollama.ResponseError as e:
             if "timeout" in str(e).lower():
-                raise TimeoutError(
-                    f"Request to Ollama model '{self.model_name}' timed out."
-                ) from e
-            raise RuntimeError(
-                f"Error calling Ollama model '{self.model_name}': {e}"
-            ) from e
+                raise TimeoutError(f"Request to Ollama model '{self.model_name}' timed out.") from e
+            raise RuntimeError(f"Error calling Ollama model '{self.model_name}': {e}") from e
         except httpx.ReadTimeout as e:
-            raise TimeoutError(
-                f"Request to Ollama model '{self.model_name}' timed out."
-            ) from e
+            raise TimeoutError(f"Request to Ollama model '{self.model_name}' timed out.") from e
         except Exception as e:
-            raise RuntimeError(
-                f"An unexpected error occurred while calling Ollama model '{self.model_name}': {e}"
-            ) from e
+            raise RuntimeError(f"An unexpected error occurred while calling Ollama model '{self.model_name}': {e}") from e
 
-    def _build_messages(
-        self, prompt_or_messages: Union[str, List[Dict[str, Any]]]
-    ) -> List[Dict[str, Any]]:
+    def _build_messages(self, prompt_or_messages: str | list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Build the messages list for the API call."""
         messages = []
 
@@ -352,13 +324,11 @@ class OllamaLLM(LLM):
         elif isinstance(prompt_or_messages, list):
             messages.extend(prompt_or_messages)
         else:
-            raise ValueError(
-                "prompt_or_messages must be a string or list of message dictionaries"
-            )
+            raise ValueError("prompt_or_messages must be a string or list of message dictionaries")
 
         return messages
 
-    def _parse_json_response(self, content: str) -> Dict[str, Any]:
+    def _parse_json_response(self, content: str) -> dict[str, Any]:
         """Parse JSON response, handling common formatting issues."""
         try:
             # Clean up common JSON formatting issues
@@ -376,9 +346,7 @@ class OllamaLLM(LLM):
             return json.loads(cleaned_content)
 
         except json.JSONDecodeError as e:
-            raise ValueError(
-                f"Failed to parse JSON response: {e}. Raw content: {content}"
-            )
+            raise ValueError(f"Failed to parse JSON response: {e}. Raw content: {content}")
 
 
 class VllmLLM(LLM):
@@ -396,22 +364,20 @@ class VllmLLM(LLM):
         self.ctx_length = config.ctx_length
 
         # A single client with base_url reduces per-call overhead
-        self.client = httpx.Client(
-            base_url=config.base_url, timeout=config.default_timeout
-        )
+        self.client = httpx.Client(base_url=config.base_url, timeout=config.default_timeout)
 
     def invoke(
         self,
-        prompt_or_messages: Union[str, List[Dict[str, Any]]],
-        response_format: Optional[Dict[str, Any]] = None,
-        tools: Optional[List[Dict[str, Any]]] = None,
-    ) -> Union[str, Dict[str, Any]]:
+        prompt_or_messages: str | list[dict[str, Any]],
+        response_format: dict[str, Any] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> str | dict[str, Any]:
         messages = self._build_messages(prompt_or_messages)
 
         use_structured_output = response_format is not None or tools is not None
-        structured_output_mode: Optional[str] = None
+        structured_output_mode: str | None = None
 
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "model": self.model_name,
             "messages": messages,
             "temperature": 0,
@@ -446,9 +412,7 @@ class VllmLLM(LLM):
                 if tools:
                     structured_output_mode = "tools"
                     payload["tools"] = tools
-                    tool_name = (
-                        tools[0].get("function", {}).get("name", "extract_metadata")
-                    )
+                    tool_name = tools[0].get("function", {}).get("name", "extract_metadata")
                     payload["tool_choice"] = {
                         "type": "function",
                         "function": {"name": tool_name},
@@ -458,9 +422,7 @@ class VllmLLM(LLM):
                     tools = schema_to_openai_tools(response_format)
                     structured_output_mode = "tools"
                     payload["tools"] = tools
-                    tool_name = (
-                        tools[0].get("function", {}).get("name", "extract_metadata")
-                    )
+                    tool_name = tools[0].get("function", {}).get("name", "extract_metadata")
                     payload["tool_choice"] = {
                         "type": "function",
                         "function": {"name": tool_name},
@@ -494,18 +456,12 @@ class VllmLLM(LLM):
             return content
 
         except httpx.ReadTimeout as e:
-            raise TimeoutError(
-                f"Request to vLLM model '{self.model_name}' timed out."
-            ) from e
+            raise TimeoutError(f"Request to vLLM model '{self.model_name}' timed out.") from e
         except Exception as e:
-            raise RuntimeError(
-                f"An unexpected error occurred while calling vLLM model '{self.model_name}': {e}"
-            ) from e
+            raise RuntimeError(f"An unexpected error occurred while calling vLLM model '{self.model_name}': {e}") from e
 
-    def _build_messages(
-        self, prompt_or_messages: Union[str, List[Dict[str, Any]]]
-    ) -> List[Dict[str, Any]]:
-        messages: List[Dict[str, Any]] = []
+    def _build_messages(self, prompt_or_messages: str | list[dict[str, Any]]) -> list[dict[str, Any]]:
+        messages: list[dict[str, Any]] = []
         if self.system_prompt:
             messages.append({"role": "system", "content": self.system_prompt})
         if isinstance(prompt_or_messages, str):
@@ -513,12 +469,10 @@ class VllmLLM(LLM):
         elif isinstance(prompt_or_messages, list):
             messages.extend(prompt_or_messages)
         else:
-            raise ValueError(
-                "prompt_or_messages must be a string or list of message dictionaries"
-            )
+            raise ValueError("prompt_or_messages must be a string or list of message dictionaries")
         return messages
 
-    def _parse_json_response(self, content: str) -> Dict[str, Any]:
+    def _parse_json_response(self, content: str) -> dict[str, Any]:
         try:
             cleaned = content.strip()
             if cleaned.startswith("```json"):
@@ -529,9 +483,7 @@ class VllmLLM(LLM):
                 cleaned = cleaned[:-3].strip()
             return json.loads(cleaned)
         except json.JSONDecodeError as e:
-            raise ValueError(
-                f"Failed to parse JSON response: {e}. Raw content: {content}"
-            )
+            raise ValueError(f"Failed to parse JSON response: {e}. Raw content: {content}")
 
 
 # Tests were removed from the module; move tests to a dedicated test file.

@@ -1,6 +1,6 @@
 # Converter Package Overview
 
-This package provides a unified interface for document conversion with support for multiple backends including MarkItDown, Docling, and PyMuPDF. It features type-safe configuration, progress tracking, and rich result objects.
+This package provides a unified interface for document conversion with support for multiple backends including MarkItDown and PyMuPDF. It features type-safe configuration, progress tracking, and rich result objects.
 
 ## Package Structure
 
@@ -13,8 +13,6 @@ converter/
 ├── factory.py           # create_converter(config: ConverterConfig)
 ├── registry.py          # Plugin registry for converters by name
 ├── markitdown.py        # MarkItDownConverter
-├── docling.py           # DoclingConverter
-├── docling_vlm.py       # DoclingVLMConverter
 ├── pymupdf.py           # PyMuPDFConverter and ImageDescriber impls
 └── overview.md          # This file
 ```
@@ -39,8 +37,6 @@ converter/
 ### 3. Configuration (`configs.py`)
 - **BaseConverterConfig**: Base configuration class
 - **MarkItDownConfig**: MarkItDown-specific configuration
-- **DoclingConfig**: Docling-specific configuration
-- **DoclingVLMConfig**: Docling VLM configuration
 - **PyMuPDFConfig**: PyMuPDF-specific configuration
 - **ConverterConfig**: Discriminated union of all config types
 
@@ -56,18 +52,6 @@ converter/
 - **Supports**: PDF, DOCX, HTML, plain text
 - **Features**: Vision model integration, plugin support
 - **Configuration**: LLM base URL, model name, API key, plugins
-
-### DoclingConverter (`docling.py`)
-- **Purpose**: Advanced PDF processing with custom VLM integration
-- **Supports**: PDF only
-- **Features**: Custom vision model configuration, table extraction
-- **Configuration**: VLM base URL, model, prompt, timeout, scale
-
-### DoclingVLMConverter (`docling_vlm.py`)
-- **Purpose**: PDF processing with Docling's default VLM
-- **Supports**: PDF only
-- **Features**: Uses Docling's built-in VLM configuration
-- **Configuration**: Minimal (relies on defaults)
 
 ### PyMuPDFConverter (`pymupdf.py`)
 - **Purpose**: Comprehensive PDF processing with content extraction
@@ -206,7 +190,6 @@ The new converter package maintains compatibility with the existing converter.py
 
 - **Core**: pydantic, pathlib, typing
 - **MarkItDown**: markitdown, openai
-- **Docling**: docling
 - **PyMuPDF**: pymupdf, requests (for Ollama integration)
 - **Async**: asyncio (built-in)
 

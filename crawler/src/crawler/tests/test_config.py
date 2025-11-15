@@ -3,10 +3,10 @@
 Test script to verify the new config system works correctly.
 """
 
-import sys
-import os
 import logging
-from unittest.mock import Mock, MagicMock
+import os
+import sys
+from unittest.mock import Mock
 
 # Add the crawler src directory to the path
 # From crawler/src/tests/, we need to go up to crawler/ and then into src/
@@ -14,36 +14,30 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(os.path.dirname(current_dir))
 sys.path.insert(0, project_root)
 
-from src import (
-    CrawlerConfig,
-    ConverterConfig,
-    DEFAULT_OLLAMA_EMBEDDINGS,
-    DEFAULT_OLLAMA_LLM,
-    DEFAULT_OLLAMA_VISION_LLM,
-    DEFAULT_MILVUS_CONFIG,
-    DEFAULT_CONVERTER_CONFIG,
+from src.crawler.processing import BasicExtractor, EmbedderConfig  # noqa: E402
+from src.crawler.storage import DatabaseClientConfig, DatabaseDocument  # noqa: E402
+from src.crawler.storage.milvus_client import MilvusDB  # noqa: E402
+
+from src import (  # noqa: E402
     RESERVED,
+    ConverterConfig,
+    CrawlerConfig,
     sanitize_metadata,
 )
-
-from src.crawler.processing import EmbedderConfig, BasicExtractor
-from src.crawler.storage import DatabaseDocument, DatabaseClientConfig
-from src.crawler.storage.milvus_client import MilvusDB
 
 
 def test_converter_config():
     """Test ConverterConfig creation and validation."""
     print("Testing ConverterConfig...")
 
-    # Test default config
-    config = ConverterConfig()
-    assert config.type == "markitdown"
-    assert config.vision_llm is None
-    print("✓ Default ConverterConfig works")
+    # Test config creation
+    config = ConverterConfig(type="pymupdf4llm")
+    assert config.type == "pymupdf4llm"
+    print("✓ ConverterConfig creation works")
 
     # Test from_dict
     config_dict = {
-        "type": "docling",
+        "type": "pymupdf4llm",
         "vision_llm": {
             "model": "llava:latest",
             "provider": "ollama",
@@ -51,7 +45,7 @@ def test_converter_config():
         },
     }
     config = ConverterConfig.from_dict(config_dict)
-    assert config.type == "docling"
+    assert config.type == "pymupdf4llm"
     assert config.vision_llm.model_name == "llava:latest"
     print("✓ ConverterConfig.from_dict works")
 
@@ -90,12 +84,8 @@ def test_crawler_config():
 
     # Verify all configs were created correctly
     assert crawler_config.embeddings.model == "all-minilm:v2"
-    assert (
-        crawler_config.llm.model_name == "llama3.2:3b"
-    )  # Should work with 'model' key
-    assert (
-        crawler_config.vision_llm.model_name == "llava:latest"
-    )  # Should work with 'model_name' key
+    assert crawler_config.llm.model_name == "llama3.2:3b"  # Should work with 'model' key
+    assert crawler_config.vision_llm.model_name == "llava:latest"  # Should work with 'model_name' key
     assert crawler_config.database.collection == "test_collection"
     assert crawler_config.converter.type == "markitdown"
     assert crawler_config.converter.vision_llm.model_name == "llava:latest"
@@ -137,27 +127,6 @@ def test_validation():
     except ValueError as e:
         assert "provider cannot be empty" in str(e)
         print("✓ DatabaseClientConfig validation works")
-
-
-def test_defaults():
-    """Test that default configurations are properly defined."""
-    print("\nTesting default configurations...")
-
-    # Test that defaults exist and have expected values
-    assert DEFAULT_OLLAMA_EMBEDDINGS.model == "all-minilm:v2"
-    assert DEFAULT_OLLAMA_EMBEDDINGS.base_url == "http://localhost:11434"
-
-    assert DEFAULT_OLLAMA_LLM.model_name == "llama3.2:3b"
-    assert DEFAULT_OLLAMA_LLM.base_url == "http://localhost:11434"
-
-    assert DEFAULT_OLLAMA_VISION_LLM.model_name == "llava:latest"
-
-    assert DEFAULT_MILVUS_CONFIG.collection == "documents"
-    assert DEFAULT_MILVUS_CONFIG.host == "localhost"
-
-    assert DEFAULT_CONVERTER_CONFIG.type == "markitdown"
-
-    print("✓ All default configurations are properly defined")
 
 
 def test_sanitize_metadata():
@@ -243,9 +212,7 @@ def test_token_chunking_overlap():
     extractor = BasicExtractor({}, mock_llm)
 
     # Test basic chunking
-    text = (
-        "This is a test document with multiple words that should be chunked properly."
-    )
+    text = "This is a test document with multiple words that should be chunked properly."
     chunks = extractor.chunk_text(text, chunk_size=10)
 
     assert len(chunks) > 0
@@ -273,9 +240,7 @@ def test_milvus_duplicate_filtering():
     mock_client = Mock()
 
     # Create mock config and MilvusDB instance
-    config = DatabaseClientConfig(
-        provider="milvus", collection="test_collection", host="localhost", port=19530
-    )
+    config = DatabaseClientConfig(provider="milvus", collection="test_collection", host="localhost", port=19530)
 
     # Mock the MilvusDB to avoid actual connection
     db = MilvusDB.__new__(MilvusDB)  # Create without calling __init__
@@ -335,7 +300,6 @@ if __name__ == "__main__":
     test_converter_config()
     test_crawler_config()
     test_validation()
-    test_defaults()
 
     # New tests
     test_sanitize_metadata()

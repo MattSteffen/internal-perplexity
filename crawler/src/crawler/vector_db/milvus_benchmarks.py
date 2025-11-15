@@ -1,23 +1,19 @@
-import os
-import time
-import json
 import copy
 import random
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any
 
 import ollama
-import matplotlib.pyplot as plt
-import numpy as np
-from pymilvus import MilvusClient, AnnSearchRequest, RRFRanker
+from pymilvus import AnnSearchRequest, MilvusClient, RRFRanker
 from tqdm import tqdm
 
+from ..llm.embeddings import EmbedderConfig
 from .database_client import (
-    DatabaseBenchmark,
     BenchmarkResult,
     BenchmarkRunResults,
+    DatabaseBenchmark,
     DatabaseClientConfig,
 )
-
 
 OUTPUT_FIELDS = [
     "default_source",
@@ -37,9 +33,7 @@ class MilvusBenchmark(DatabaseBenchmark):
     A class to benchmark Milvus search performance.
     """
 
-    def __init__(
-        self, db_config: "DatabaseClientConfig", embed_config: "EmbedderConfig"
-    ) -> None:
+    def __init__(self, db_config: DatabaseClientConfig, embed_config: EmbedderConfig) -> None:
         """
         Initializes the MilvusBenchmark class, setting up clients for Ollama and Milvus.
         """
@@ -50,7 +44,7 @@ class MilvusBenchmark(DatabaseBenchmark):
 
         self.milvus_client = self._connect_milvus()
 
-    def _connect_milvus(self) -> Optional[MilvusClient]:
+    def _connect_milvus(self) -> MilvusClient | None:
         """
         Connects to the Milvus database and loads the collection.
         """
@@ -60,31 +54,27 @@ class MilvusBenchmark(DatabaseBenchmark):
                 return None
             client.load_collection(collection_name=self.db_config.collection)
             return client
-        except Exception as e:
+        except Exception:
             return None
 
-    def get_embedding(self, text: str) -> Optional[List[float]]:
+    def get_embedding(self, text: str) -> list[float] | None:
         """
         Generates an embedding for the given text using Ollama.
         """
         try:
-            response = self.ollama_client.embeddings(
-                model=self.embed_config.model, prompt=text
-            )
+            response = self.ollama_client.embeddings(model=self.embed_config.model, prompt=text)
             return response.get("embedding")
-        except Exception as e:
+        except Exception:
             return None
 
-    def search(
-        self, queries: List[str], filters: Optional[List[str]] = []
-    ) -> List[Dict[str, Any]]:
+    def search(self, queries: list[str], filters: list[str] | None = []) -> list[dict[str, Any]]:
         """
         Performs a hybrid search in Milvus using the given queries and filters.
         """
         if not self.milvus_client:
             return {"error": "Milvus client not initialized."}
 
-        search_start_time = time.time()
+        # search_start_time = time.time()
         filters = copy.deepcopy(filters)
 
         filters.insert(
@@ -136,7 +126,7 @@ class MilvusBenchmark(DatabaseBenchmark):
             return {"error": "No valid search requests could be created."}
 
         # Perform hybrid search
-        api_start_time = time.time()
+        # api_start_time = time.time()
 
         try:
             ranker = RRFRanker(k=100)
@@ -148,9 +138,6 @@ class MilvusBenchmark(DatabaseBenchmark):
                 limit=100,
             )
 
-            api_time = time.time() - api_start_time
-            total_time = time.time() - search_start_time
-
             # Process results
             processed_results = []
             if results:
@@ -161,28 +148,22 @@ class MilvusBenchmark(DatabaseBenchmark):
 
             return processed_results
 
-        except Exception as e:
-            api_time = time.time() - api_start_time
-            total_time = time.time() - search_start_time
+        except Exception:
             raise
 
     def run_benchmark(self, generate_queries: bool = False) -> BenchmarkRunResults:
         """
         Run comprehensive benchmark.
         """
-        benchmark_start_time = time.time()
+        # benchmark_start_time = time.time()
         top_k_values = list(range(1, 101))
 
         # Load documents from collection
-        docs_start_time = time.time()
-
         all_docs = self.milvus_client.query(
             collection_name=self.db_config.collection,
             output_fields=["default_text"],
             limit=10000,
         )
-
-        docs_load_time = time.time() - docs_start_time
 
         # Generate queries from documents
 
@@ -214,30 +195,19 @@ class MilvusBenchmark(DatabaseBenchmark):
                             limit=1,
                         )
 
-                        if stored_questions_result and stored_questions_result[0].get(
-                            "benchmark_questions"
-                        ):
+                        if stored_questions_result and stored_questions_result[0].get("benchmark_questions"):
                             import json
 
                             try:
-                                stored_questions = json.loads(
-                                    stored_questions_result[0]["benchmark_questions"]
-                                )
-                                if (
-                                    isinstance(stored_questions, list)
-                                    and len(stored_questions) > 0
-                                ):
+                                stored_questions = json.loads(stored_questions_result[0]["benchmark_questions"])
+                                if isinstance(stored_questions, list) and len(stored_questions) > 0:
                                     queries_by_doc[source] = stored_questions
                                     query_generation_stats["docs_with_queries"] += 1
-                                    query_generation_stats[
-                                        "stored_questions_used"
-                                    ] += len(stored_questions)
-                                    pbar.set_postfix_str(
-                                        f"Stored questions: {query_generation_stats['stored_questions_used']}"
-                                    )
+                                    query_generation_stats["stored_questions_used"] += len(stored_questions)
+                                    pbar.set_postfix_str(f"Stored questions: {query_generation_stats['stored_questions_used']}")
                                     pbar.update(1)
                                     continue  # Skip to next document
-                            except (json.JSONDecodeError, KeyError) as e:
+                            except (json.JSONDecodeError, KeyError):
                                 continue
                     except Exception as e:
                         print(f"Error getting stored questions for {source}: {e}")
@@ -246,9 +216,7 @@ class MilvusBenchmark(DatabaseBenchmark):
                 words = text.split()
                 if len(words) > 30:
                     # Generate multiple queries per document for better statistics
-                    num_queries = min(
-                        3, max(1, len(words) // 100)
-                    )  # 1-3 queries based on document length
+                    num_queries = min(3, max(1, len(words) // 100))  # 1-3 queries based on document length
 
                     for _ in range(num_queries):
                         start_index = random.randint(0, len(words) - 30)
@@ -260,9 +228,7 @@ class MilvusBenchmark(DatabaseBenchmark):
                         query_generation_stats["total_queries_generated"] += 1
 
                     query_generation_stats["docs_with_queries"] += 1
-                    pbar.set_postfix_str(
-                        f"Generated queries: {query_generation_stats['total_queries_generated']}"
-                    )
+                    pbar.set_postfix_str(f"Generated queries: {query_generation_stats['total_queries_generated']}")
 
                 pbar.update(1)
 
@@ -275,10 +241,10 @@ class MilvusBenchmark(DatabaseBenchmark):
             raise ValueError("No queries could be generated from documents")
 
         # Run benchmark searches
-        results_by_doc: Dict[str, List[BenchmarkResult]] = {}
-        placement_distribution: Dict[int, int] = {}
-        distance_distribution: List[float] = []
-        search_time_distribution: List[float] = []
+        results_by_doc: dict[str, list[BenchmarkResult]] = {}
+        placement_distribution: dict[int, int] = {}
+        distance_distribution: list[float] = []
+        search_time_distribution: list[float] = []
 
         benchmark_stats = {
             "total_searches": 0,
@@ -288,9 +254,7 @@ class MilvusBenchmark(DatabaseBenchmark):
             "found_in_top_100": 0,
         }
 
-        with tqdm(
-            total=len(queries_by_doc), desc="Benchmarking documents", unit="doc"
-        ) as doc_pbar:
+        with tqdm(total=len(queries_by_doc), desc="Benchmarking documents", unit="doc") as doc_pbar:
             for source, queries in queries_by_doc.items():
                 results_by_doc[source] = []
                 doc_search_start = time.time()
@@ -324,9 +288,7 @@ class MilvusBenchmark(DatabaseBenchmark):
                                         found=True,
                                     )
                                     results_by_doc[source].append(result)
-                                    placement_distribution[placement] = (
-                                        placement_distribution.get(placement, 0) + 1
-                                    )
+                                    placement_distribution[placement] = placement_distribution.get(placement, 0) + 1
                                     distance_distribution.append(distance)
 
                                     # Track success metrics
@@ -349,12 +311,10 @@ class MilvusBenchmark(DatabaseBenchmark):
                                 results_by_doc[source].append(result)
                                 benchmark_stats["failed_searches"] += 1
 
-                            query_pbar.set_postfix_str(
-                                f"Found: {'Yes' if found_in_results else 'No'} ({search_time:.3f}s)"
-                            )
+                            query_pbar.set_postfix_str(f"Found: {'Yes' if found_in_results else 'No'} ({search_time:.3f}s)")
                             query_pbar.update(1)
 
-                        except Exception as e:
+                        except Exception:
                             search_time = time.time() - query_start_time
                             result = BenchmarkResult(
                                 query=query,
@@ -368,9 +328,7 @@ class MilvusBenchmark(DatabaseBenchmark):
                             continue
 
                 doc_time = time.time() - doc_search_start
-                doc_pbar.set_postfix_str(
-                    f"Queries: {len(queries)}, Time: {doc_time:.2f}s"
-                )
+                doc_pbar.set_postfix_str(f"Queries: {len(queries)}, Time: {doc_time:.2f}s")
                 doc_pbar.update(1)
 
         # Calculate percent in top-k
@@ -378,18 +336,14 @@ class MilvusBenchmark(DatabaseBenchmark):
         total_queries = sum(len(q) for q in queries_by_doc.values())
 
         for k in top_k_values:
-            count = sum(
-                1 for placement in placement_distribution.keys() if placement <= k
-            )
-            percent_in_top_k[k] = (
-                (count / total_queries) * 100 if total_queries > 0 else 0
-            )
+            count = sum(1 for placement in placement_distribution.keys() if placement <= k)
+            percent_in_top_k[k] = (count / total_queries) * 100 if total_queries > 0 else 0
 
         # Log final benchmark statistics
-        benchmark_time = time.time() - benchmark_start_time
+        # benchmark_time = time.time() - benchmark_start_time
 
         # Log top-k performance highlights
-        top_k_highlights = [(k, percent_in_top_k[k]) for k in [1, 5, 10, 50, 100]]
+        # top_k_highlights = [(k, percent_in_top_k[k]) for k in [1, 5, 10, 50, 100]]
         # for k, percentage in top_k_highlights:
 
         # Convert integer keys to strings for Pydantic validation

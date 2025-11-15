@@ -1,11 +1,10 @@
 import json
-from typing import Any, Dict, List, Optional, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from crawler.document import Document
-
-from crawler.llm import LLM, schema_to_openai_tools
+from ..document import Document
+from ..llm import LLM, schema_to_openai_tools
 
 
 class MetadataExtractorConfig(BaseModel):
@@ -26,7 +25,7 @@ class MetadataExtractorConfig(BaseModel):
           When False, leave model output intact (still validated if possible).
     """
 
-    json_schema: Dict[str, Any] = Field(
+    json_schema: dict[str, Any] = Field(
         ...,
         description="JSON Schema (object) for the metadata to extract",
     )
@@ -38,12 +37,8 @@ class MetadataExtractorConfig(BaseModel):
         default="json_schema",
         description="How to request structured output from the LLM",
     )
-    include_benchmark_questions: bool = Field(
-        default=False, description="Also generate benchmark questions"
-    )
-    num_benchmark_questions: int = Field(
-        default=3, ge=1, le=20, description="Number of benchmark questions"
-    )
+    include_benchmark_questions: bool = Field(default=False, description="Also generate benchmark questions")
+    num_benchmark_questions: int = Field(default=3, ge=1, le=20, description="Number of benchmark questions")
     truncate_document_chars: int = Field(
         default=4000,
         ge=512,
@@ -52,17 +47,14 @@ class MetadataExtractorConfig(BaseModel):
     )
     strict: bool = Field(
         default=True,
-        description=(
-            "If True, drop extra keys and fill missing required as 'Unknown'. "
-            "Attempts jsonschema validation when available."
-        ),
+        description=("If True, drop extra keys and fill missing required as 'Unknown'. " "Attempts jsonschema validation when available."),
     )
 
     model_config = {"validate_assignment": True}
 
     @field_validator("json_schema")
     @classmethod
-    def validate_json_schema(cls, v: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_json_schema(cls, v: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(v, dict):
             raise ValueError("schema must be a JSON object")
         if v.get("type") != "object":
@@ -76,17 +68,17 @@ class MetadataExtractorConfig(BaseModel):
         return v
 
     @property
-    def required_fields(self) -> List[str]:
+    def required_fields(self) -> list[str]:
         return list(self.json_schema.get("required", []))
 
     @property
-    def allowed_keys(self) -> List[str]:
+    def allowed_keys(self) -> list[str]:
         return list(self.json_schema["properties"].keys())
 
 
 class MetadataExtractionResult(BaseModel):
-    metadata: Dict[str, Any]
-    benchmark_questions: Optional[List[str]] = None
+    metadata: dict[str, Any]
+    benchmark_questions: list[str] | None = None
 
 
 class MetadataExtractor:
@@ -106,17 +98,13 @@ class MetadataExtractor:
     def run(self, document: Document) -> MetadataExtractionResult:
         metadata = self.extract(document.markdown)
 
-        questions: Optional[List[str]] = None
+        questions: list[str] | None = None
         if self.config.include_benchmark_questions:
-            questions = self.generate_benchmark_questions(
-                document.markdown, self.config.num_benchmark_questions
-            )
+            questions = self.generate_benchmark_questions(document.markdown, self.config.num_benchmark_questions)
 
-        return MetadataExtractionResult(
-            metadata=metadata, benchmark_questions=questions
-        )
+        return MetadataExtractionResult(metadata=metadata, benchmark_questions=questions)
 
-    def extract(self, markdown: str) -> Dict[str, Any]:
+    def extract(self, markdown: str) -> dict[str, Any]:
         """
         Returns a dict valid under the configured JSON Schema.
 
@@ -148,7 +136,7 @@ class MetadataExtractor:
         self._maybe_validate_with_jsonschema(metadata, self.config.json_schema)
         return metadata
 
-    def generate_benchmark_questions(self, markdown: str, n: int) -> List[str]:
+    def generate_benchmark_questions(self, markdown: str, n: int) -> list[str]:
         """
         Generate n benchmark questions grounded in the provided document.
         Returns exactly n questions when possible; may return fewer if the
@@ -200,17 +188,11 @@ class MetadataExtractor:
         except Exception:
             return []
 
-    def _build_metadata_prompt(
-        self, schema: Dict[str, Any], context: str, document_text: str
-    ) -> str:
+    def _build_metadata_prompt(self, schema: dict[str, Any], context: str, document_text: str) -> str:
         schema_json = json.dumps(schema, ensure_ascii=False, indent=2)
-        return (
-            EXTRACT_METADATA_PROMPT.replace("{{json_schema}}", schema_json)
-            .replace("{{document_library_context}}", context or "")
-            .replace("{{document_text}}", document_text)
-        )
+        return EXTRACT_METADATA_PROMPT.replace("{{json_schema}}", schema_json).replace("{{document_library_context}}", context or "").replace("{{document_text}}", document_text)
 
-    def _coerce_to_dict(self, result: Any) -> Dict[str, Any]:
+    def _coerce_to_dict(self, result: Any) -> dict[str, Any]:
         if isinstance(result, dict):
             return result
         if isinstance(result, str):
@@ -239,9 +221,7 @@ class MetadataExtractor:
                 pass
         raise ValueError("Unsupported LLM response type for metadata extraction")
 
-    def _enforce_schema(
-        self, data: Dict[str, Any], schema: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def _enforce_schema(self, data: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
         props = schema.get("properties", {})
         allowed = set(props.keys())
         required = schema.get("required", [])
@@ -270,9 +250,7 @@ class MetadataExtractor:
 
         return cleaned
 
-    def _maybe_validate_with_jsonschema(
-        self, data: Dict[str, Any], schema: Dict[str, Any]
-    ) -> None:
+    def _maybe_validate_with_jsonschema(self, data: dict[str, Any], schema: dict[str, Any]) -> None:
         try:
             import jsonschema  # type: ignore
 

@@ -21,26 +21,23 @@ User metadata can now contain any keys without conflict since system fields are 
 """
 
 import json
-from typing import List, Optional, Dict, Any, Tuple, Union
+from typing import Any
+
 from pymilvus import (
     CollectionSchema,
+    DataType,
     FieldSchema,
-    MilvusClient,
     Function,
     FunctionType,
-    DataType,
+    MilvusClient,
 )
 
 # Constants
 MAX_DOC_LENGTH = 65535  # Max length for VARCHAR enforced by Milvus
 DEFAULT_VARCHAR_MAX_LENGTH = 20480
 DEFAULT_ARRAY_CAPACITY = 100  # Default max number of elements in an array field
-DEFAULT_ARRAY_VARCHAR_MAX_LENGTH = (
-    512  # Default max length for string elements within an array
-)
-DEFAULT_SECURITY_GROUP = [
-    "public"
-]  # TODO: Ensure that public is a valid security group and all users get added to it upon creation
+DEFAULT_ARRAY_VARCHAR_MAX_LENGTH = 512  # Default max length for string elements within an array
+DEFAULT_SECURITY_GROUP = ["public"]  # TODO: Ensure that public is a valid security group and all users get added to it upon creation
 # Helper mapping for JSON schema types to Milvus DataType for array elements
 JSON_TYPE_TO_MILVUS_ELEMENT_TYPE = {
     "string": DataType.VARCHAR,
@@ -164,11 +161,12 @@ def _create_base_schema(embedding_size) -> CollectionSchema:
 
 def create_schema(
     embedding_size: int,
-    user_metadata_json_schema: Dict[str, any] = None,
+    user_metadata_json_schema: dict[str, any] = None,
     library_context: str = None,
+    collection_config_json: str | None = None,
 ) -> CollectionSchema:
     fields, functions = _create_base_schema(embedding_size)
-    description = create_description(fields, user_metadata_json_schema, library_context)
+    description = create_description(fields, user_metadata_json_schema, library_context, collection_config_json)
     # TODO: This must have properly formatted collection description.
     schema = CollectionSchema(
         fields=fields,
@@ -216,33 +214,67 @@ def create_index(client: MilvusClient):
     return index_params
 
 
-from typing import Any, Dict, List
-import json
+def parse_collection_config(description: str) -> dict[str, Any] | None:
+    """
+    Parse the collection config JSON from a collection description.
+
+    The description should be pure JSON that can be loaded directly with json.loads.
+    Expected keys: CrawlerConfig, library_context, metadata_schema, llm_prompt
+
+    Args:
+        description: Collection description string (should be pure JSON)
+
+    Returns:
+        Dictionary containing the collection config, or None if not found/invalid
+    """
+    if not description:
+        return None
+
+    try:
+        # Try to parse as pure JSON
+        data = json.loads(description.strip())
+
+        # Validate that it has the expected structure
+        if "CrawlerConfig" in data:
+            return data
+        return None
+    except (json.JSONDecodeError, ValueError):
+        return None
 
 
 def create_description(
-    fields: List["FieldSchema"],
-    user_metadata_json_schema: Dict[str, Any],
+    fields: list["FieldSchema"],
+    user_metadata_json_schema: dict[str, Any],
     library_context: str,
+    collection_config_json: str | None = None,
 ) -> str:
     """
-    Build an LLM-friendly, informative description for a Milvus collection.
+    Build a description for a Milvus collection.
+
+    If collection_config_json is provided, it is used as the description (pure JSON).
+    Otherwise, builds an LLM-friendly, informative description.
 
     Inputs:
       - fields: List[FieldSchema] from pymilvus
       - user_metadata_json_schema: JSON Schema for the user-supplied metadata blob
       - library_context: Human-readable description of what documents live here
+      - collection_config_json: Optional JSON string containing collection configuration
+        (if provided, this becomes the entire description)
 
     Output:
-      - A single string suitable for `CollectionSchema.description`
+      - If collection_config_json is provided: returns it as-is (pure JSON)
+      - Otherwise: returns a human-readable description for LLMs
 
     Notes for LLMs:
       - The user metadata is stored as a JSON object in the `metadata` field.
       - When constructing filters, use Milvus JSON path syntax and JSON operators
         against the `metadata` field (see examples below).
     """
+    # If collection config JSON is provided, use it as the description (pure JSON)
+    if collection_config_json:
+        return collection_config_json
 
-    def _is_json_metadata_field(fs: List["FieldSchema"]) -> bool:
+    def _is_json_metadata_field(fs: list["FieldSchema"]) -> bool:
         for f in fs:
             if f.name == "metadata":
                 # Be tolerant of dtype string representations
@@ -250,13 +282,13 @@ def create_description(
                     return True
         return True  # Default true per system design; caller states it's JSON.
 
-    def _schema_props(schema: Dict[str, Any]) -> Dict[str, Any]:
+    def _schema_props(schema: dict[str, Any]) -> dict[str, Any]:
         return schema.get("properties", {}) if isinstance(schema, dict) else {}
 
     is_json_metadata = _is_json_metadata_field(fields)
     props = _schema_props(user_metadata_json_schema)
 
-    parts: List[str] = []
+    parts: list[str] = []
 
     # 1) Purpose/context
     parts.append(f"Collection purpose and library context:\n{library_context}")
@@ -271,50 +303,24 @@ def create_description(
     # 3) User-defined JSON metadata schema
     parts.append("User-defined metadata schema for the collection (JSON):")
     parts.append(json.dumps(user_metadata_json_schema, indent=2))
-    parts.append(
-        "Note: The user metadata is stored as a JSON object in the 'metadata' field."
-    )
+    parts.append("Note: The user metadata is stored as a JSON object in the 'metadata' field.")
     if not is_json_metadata:
-        parts.append(
-            "WARNING: The 'metadata' field does not appear to be a Milvus JSON field. "
-            "JSON-path filtering requires a JSON field type."
-        )
+        parts.append("WARNING: The 'metadata' field does not appear to be a Milvus JSON field. " "JSON-path filtering requires a JSON field type.")
     parts.append("")
 
     # 4) Milvus JSON filtering quick reference (grounded in docs)
     parts.append("Milvus JSON filtering quick reference:")
-    parts.append(
-        "- Access JSON keys with JSON path syntax: metadata[\"key\"] or metadata['key']"
-    )
-    parts.append(
-        "- Examples:\n  "
-        'filter = \'metadata["category"] == "electronics"\'\n  '
-        "filter = 'metadata[\"price\"] > 50'\n  "
-        'filter = \'json_contains(metadata["tags"], "featured")\''
-    )
-    parts.append(
-        "- JSON operators:\n"
-        "  - json_contains(identifier, expr)\n"
-        "  - json_contains_all(identifier, expr)\n"
-        "  - json_contains_any(identifier, expr)"
-    )
-    parts.append(
-        "- Use standard boolean/filter operators where appropriate: "
-        "==, !=, >, <, >=, <=, IN, NOT IN, LIKE, AND, OR, NOT"
-    )
-    parts.append(
-        "- Ensure the collection is loaded and vector fields are indexed when using "
-        "search with filters."
-    )
-    parts.append(
-        "- JSON fields work best with flat structures. Deeply nested objects are "
-        "treated as strings."
-    )
+    parts.append("- Access JSON keys with JSON path syntax: metadata[\"key\"] or metadata['key']")
+    parts.append("- Examples:\n  " 'filter = \'metadata["category"] == "electronics"\'\n  ' "filter = 'metadata[\"price\"] > 50'\n  " 'filter = \'json_contains(metadata["tags"], "featured")\'')
+    parts.append("- JSON operators:\n" "  - json_contains(identifier, expr)\n" "  - json_contains_all(identifier, expr)\n" "  - json_contains_any(identifier, expr)")
+    parts.append("- Use standard boolean/filter operators where appropriate: " "==, !=, >, <, >=, <=, IN, NOT IN, LIKE, AND, OR, NOT")
+    parts.append("- Ensure the collection is loaded and vector fields are indexed when using " "search with filters.")
+    parts.append("- JSON fields work best with flat structures. Deeply nested objects are " "treated as strings.")
     parts.append("")
 
     # 5) Tailored examples for the provided metadata schema
     parts.append("Examples tailored to this collection's JSON metadata schema:")
-    ex_lines: List[str] = []
+    ex_lines: list[str] = []
 
     # Helper to add examples by property type
     for name, spec in props.items():
@@ -324,104 +330,55 @@ def create_description(
             items_type = (spec.get("items") or {}).get("type")
             if items_type == "string":
                 # Single value
-                ex_lines.append(
-                    f"# {name}: array of strings\n"
-                    f'filter = \'json_contains(metadata["{name}"], "example")\''
-                )
+                ex_lines.append(f"# {name}: array of strings\n" f'filter = \'json_contains(metadata["{name}"], "example")\'')
                 # Any of
-                ex_lines.append(
-                    f'filter = \'json_contains_any(metadata["{name}"], '
-                    f'["val1", "val2"])\''
-                )
+                ex_lines.append(f'filter = \'json_contains_any(metadata["{name}"], ' f'["val1", "val2"])\'')
                 # All of
-                ex_lines.append(
-                    f'filter = \'json_contains_all(metadata["{name}"], '
-                    f'["valA", "valB"])\''
-                )
+                ex_lines.append(f'filter = \'json_contains_all(metadata["{name}"], ' f'["valA", "valB"])\'')
             else:
                 # Generic array examples
-                ex_lines.append(
-                    f"# {name}: array\n"
-                    f'filter = \'json_contains(metadata["{name}"], "value")\''
-                )
+                ex_lines.append(f"# {name}: array\n" f'filter = \'json_contains(metadata["{name}"], "value")\'')
         # Integers / numbers
         elif ptype in ("integer", "number"):
             # Range and membership examples
-            ex_lines.append(
-                f"# {name}: numeric\n" f"filter = 'metadata[\"{name}\"] >= 2020'"
-            )
+            ex_lines.append(f"# {name}: numeric\n" f"filter = 'metadata[\"{name}\"] >= 2020'")
             ex_lines.append(f"filter = 'metadata[\"{name}\"] IN [2020, 2021, 2022]'")
         # Booleans
         elif ptype == "boolean":
-            ex_lines.append(
-                f"# {name}: boolean\n" f"filter = 'metadata[\"{name}\"] == true'"
-            )
+            ex_lines.append(f"# {name}: boolean\n" f"filter = 'metadata[\"{name}\"] == true'")
         # Strings
         elif ptype == "string":
-            ex_lines.append(
-                f"# {name}: string\n"
-                f'filter = \'metadata["{name}"] == "Exact Title"\''
-            )
+            ex_lines.append(f"# {name}: string\n" f'filter = \'metadata["{name}"] == "Exact Title"\'')
             ex_lines.append(f'filter = \'metadata["{name}"] LIKE "%keyword%"\'')
         # Fallback
         else:
-            ex_lines.append(
-                f"# {name}: type={ptype}\n"
-                f'# Use JSON path access: metadata["{name}"] with appropriate operators'
-            )
+            ex_lines.append(f"# {name}: type={ptype}\n" f'# Use JSON path access: metadata["{name}"] with appropriate operators')
 
     # Provide combined, practical examples for the common fields in your schema
     # Author (array of strings)
     if "author" in props and props["author"].get("type") == "array":
-        ex_lines.append(
-            "# Filter by author (array of strings)\n"
-            'filter = \'json_contains(metadata["author"], "John Doe")\''
-        )
-        ex_lines.append(
-            'filter = \'json_contains_any(metadata["author"], '
-            '["John Doe", "Jane Smith"])\''
-        )
+        ex_lines.append("# Filter by author (array of strings)\n" 'filter = \'json_contains(metadata["author"], "John Doe")\'')
+        ex_lines.append('filter = \'json_contains_any(metadata["author"], ' '["John Doe", "Jane Smith"])\'')
 
     # Date (integer year)
     if "date" in props and props["date"].get("type") in ("integer", "number"):
-        ex_lines.append(
-            "# Filter by publication year >= 2021\n"
-            "filter = 'metadata[\"date\"] >= 2021'"
-        )
-        ex_lines.append(
-            "# Filter by year range\n"
-            'filter = \'metadata["date"] >= 2018 AND metadata["date"] <= 2024\''
-        )
+        ex_lines.append("# Filter by publication year >= 2021\n" "filter = 'metadata[\"date\"] >= 2021'")
+        ex_lines.append("# Filter by year range\n" 'filter = \'metadata["date"] >= 2018 AND metadata["date"] <= 2024\'')
 
     # Keywords (array of strings)
     if "keywords" in props and props["keywords"].get("type") == "array":
-        ex_lines.append(
-            '# Must contain the keyword "machine learning"\n'
-            'filter = \'json_contains(metadata["keywords"], "machine learning")\''
-        )
-        ex_lines.append(
-            "# Contains any of these keywords\n"
-            'filter = \'json_contains_any(metadata["keywords"], ["AI", "ML"])\''
-        )
-        ex_lines.append(
-            "# Contains all of these keywords\n"
-            'filter = \'json_contains_all(metadata["keywords"], '
-            '["neural networks", "optimization"])\''
-        )
+        ex_lines.append('# Must contain the keyword "machine learning"\n' 'filter = \'json_contains(metadata["keywords"], "machine learning")\'')
+        ex_lines.append("# Contains any of these keywords\n" 'filter = \'json_contains_any(metadata["keywords"], ["AI", "ML"])\'')
+        ex_lines.append("# Contains all of these keywords\n" 'filter = \'json_contains_all(metadata["keywords"], ' '["neural networks", "optimization"])\'')
 
     # Unique words (array of strings)
     if "unique_words" in props and props["unique_words"].get("type") == "array":
-        ex_lines.append(
-            '# Unique words must include "backpropagation"\n'
-            'filter = \'json_contains(metadata["unique_words"], "backpropagation")\''
-        )
+        ex_lines.append('# Unique words must include "backpropagation"\n' 'filter = \'json_contains(metadata["unique_words"], "backpropagation")\'')
 
     # Title and other strings
     for s in ("title", "description"):
         if s in props and props[s].get("type") == "string":
-            ex_lines.append(
-                f"# {s} fuzzy match\n" f'filter = \'metadata["{s}"] LIKE "%Analysis%"\''
-            )
+            ex_lines.append(f"# {s} fuzzy match\n" f'filter = \'metadata["{s}"] LIKE "%Analysis%"\'')
 
     # Combined filter example
     ex_lines.append(

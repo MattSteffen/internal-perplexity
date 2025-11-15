@@ -12,15 +12,10 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-
 from crawler.converter import (
-    create_converter,
     DocumentInput,
-    MarkItDownConfig,
-    DoclingConfig,
-    PyMuPDFConfig,
     PyMuPDF4LLMConfig,
-    DoclingAPIConfig,
+    create_converter,
 )
 from crawler.llm.llm import LLMConfig
 
@@ -40,9 +35,7 @@ def test_converter(converter_name: str, config, test_pdf_path: Path, output_dir:
     print(f"{'='*60}")
 
     # Create converter-specific output directory
-    converter_output_dir = output_dir / converter_name.replace(" ", "_").replace(
-        ":", "_"
-    )
+    converter_output_dir = output_dir / converter_name.replace(" ", "_").replace(":", "_")
     converter_output_dir.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -59,8 +52,8 @@ def test_converter(converter_name: str, config, test_pdf_path: Path, output_dir:
         result = converter.convert(doc)
 
         # Report results
-        print(f"✅ Conversion completed successfully!")
-        print(f"📊 Results:")
+        print("✅ Conversion completed successfully!")
+        print("📊 Results:")
         print(f"   • Output length: {len(result.markdown)} characters")
         print(f"   • Images found: {len(result.images)}")
         print(f"   • Tables found: {len(result.tables)}")
@@ -89,11 +82,7 @@ def test_converter(converter_name: str, config, test_pdf_path: Path, output_dir:
             "images_count": len(result.images),
             "tables_count": len(result.tables),
             "processing_time_sec": result.stats.total_time_sec,
-            "images_described": (
-                result.stats.images_described
-                if hasattr(result.stats, "images_described")
-                else 0
-            ),
+            "images_described": (result.stats.images_described if hasattr(result.stats, "images_described") else 0),
             "markdown_file": str(markdown_file),
         }
         with open(metadata_file, "w", encoding="utf-8") as f:
@@ -129,12 +118,8 @@ def test_converter(converter_name: str, config, test_pdf_path: Path, output_dir:
             print(f"💾 {len(result.tables)} tables saved to: {tables_file}")
 
         # Show a preview of the markdown output
-        preview = (
-            result.markdown[:500] + "..."
-            if len(result.markdown) > 500
-            else result.markdown
-        )
-        print(f"\n📝 Markdown preview:")
+        preview = result.markdown[:500] + "..." if len(result.markdown) > 500 else result.markdown
+        print("\n📝 Markdown preview:")
         print("-" * 40)
         print(preview)
         print("-" * 40)
@@ -209,32 +194,6 @@ def main():
             ),
         ),
         # (
-        #     "Docling with VLM",
-        #     DoclingConfig(
-        #         type="docling",
-        #         use_vlm=True,
-        #         vlm_config=LLMConfig.ollama(
-        #             model_name="granite3.2-vision:latest",
-        #             base_url="http://localhost:11434",
-        #         ),
-        #     ),
-        # ),
-        # ("Docling without VLM", DoclingConfig(type="docling", use_vlm=False)),
-        # (
-        #     "Docling API with VLM",
-        #     DoclingAPIConfig(
-        #         type="docling_api",
-        #         base_url="http://localhost:5001",
-        #         vlm_config=LLMConfig.ollama(
-        #             model_name="granite3.2-vision:latest",
-        #             base_url="http://localhost:11434",
-        #         ),
-        #         timeout=600,
-        #         do_picture_description=True,
-        #         include_images=True,
-        #     ),
-        # ),
-        # (
         #     "MarkItDown",
         #     MarkItDownConfig(
         #         type="markitdown",
@@ -257,9 +216,7 @@ def main():
 
         pdf_results = {}
         for name, config in test_configs:
-            success, converter_output_dir = test_converter(
-                name, config, pdf_path, output_dir
-            )
+            success, converter_output_dir = test_converter(name, config, pdf_path, output_dir)
             pdf_results[name] = success
             if converter_output_dir:
                 output_dirs.add(converter_output_dir)
@@ -284,7 +241,7 @@ def main():
                 successful_tests += 1
 
     print(f"\n📊 Overall Results: {successful_tests}/{total_tests} tests passed")
-    print(f"📁 Output directories created:")
+    print("📁 Output directories created:")
     for output_dir_path in sorted(output_dirs):
         print(f"   • {output_dir_path}")
 

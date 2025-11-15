@@ -2,7 +2,7 @@
 Document conversion package with support for multiple conversion backends.
 
 This package provides a unified interface for document conversion with support for
-MarkItDown, Docling, PyMuPDF, and Docling API backends. It features type-safe configuration,
+MarkItDown and PyMuPDF backends. It features type-safe configuration,
 progress tracking, and rich result objects.
 """
 
@@ -39,10 +39,8 @@ __all__ = [
     # Configs
     "ConverterConfig",
     "MarkItDownConfig",
-    "DoclingConfig",
     "PyMuPDFConfig",
     "PyMuPDF4LLMConfig",
-    "DoclingAPIConfig",
     # Factory
     "create_converter",
 ]

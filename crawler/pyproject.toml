@@ -8,12 +8,13 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
-    "docling>=2.47.1",
+    "black>=25.9.0",
     "ipython>=9.6.0",
     "jsonschema>=4.25.1",
     "langchain-ollama>=0.2.0",
     "markitdown[all]>=0.1.3",
     "matplotlib>=3.10.5",
+    "mypy>=1.11.0",
     "numpy>=2.3.2",
     "ollama>=0.5.3",
     "openai>=1.101.0",
@@ -22,11 +23,9 @@ dependencies = [
     "pymupdf>=1.26.4",
     "pymupdf4llm>=0.0.27",
     "requests>=2.32.5",
+    "ruff>=0.14.5",
     "tqdm>=4.66.0",
 ]
-
-[project.scripts]
-crawler = "crawler:main"
 
 [build-system]
 requires = ["uv_build>=0.8.13,<0.9.0"]
@@ -37,3 +36,24 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff]
+line-length = 200
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = []
+
+[tool.black]
+line-length = 200
+target-version = ["py313"]
+
+[tool.mypy]
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+strict_optional = true
+explicit_package_bases = true
+ignore_missing_imports = true

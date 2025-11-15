@@ -1,23 +1,23 @@
 import os
-import uuid
 import time
-from typing import Dict, Union, List, Any, Optional
-import json
 from pathlib import Path
-from tqdm import tqdm
-from pydantic import BaseModel, Field, field_validator
+from typing import Any
 
+from pydantic import BaseModel, Field
+from tqdm import tqdm
+
+from .chunker import Chunker, ChunkingConfig
+from .converter import Converter, ConverterConfig, create_converter
 
 # When run as part of the crawler package
 from .document import Document
-from .converter import Converter, ConverterConfig, create_converter
-from .converter.types import DocumentInput
 from .extractor.extractor import (
+    MetadataExtractionResult,
     MetadataExtractor,
     MetadataExtractorConfig,
-    MetadataExtractionResult,
 )
-from .chunker import Chunker, ChunkingConfig
+from .llm.embeddings import Embedder, EmbedderConfig, get_embedder
+from .llm.llm import LLM, LLMConfig, get_llm
 from .vector_db import (
     DatabaseClient,
     DatabaseClientConfig,
@@ -25,9 +25,6 @@ from .vector_db import (
     get_db,
     get_db_benchmark,
 )
-
-from .llm.embeddings import Embedder, EmbedderConfig, get_embedder
-from .llm.llm import LLM, LLMConfig, get_llm
 
 # # Reserved keys that should not appear in metadata to avoid conflicts with database schema
 # RESERVED = {
@@ -71,10 +68,10 @@ def sanitize_metadata(md: dict, schema: dict = None) -> dict:
             import jsonschema
 
             jsonschema.validate(instance=sanitized, schema=schema)
-        except jsonschema.ValidationError as e:
+        except jsonschema.ValidationError:
             pass
 
-        except Exception as e:
+        except Exception:
             pass
 
     return sanitized
@@ -87,43 +84,29 @@ class CrawlerConfig(BaseModel):
     with automatic validation and serialization capabilities.
     """
 
-    embeddings: EmbedderConfig = Field(
-        ..., description="Configuration for the embedding model"
-    )
-    llm: LLMConfig = Field(
-        ..., description="Configuration for the main LLM used for metadata extraction"
-    )
-    vision_llm: LLMConfig = Field(
-        ..., description="Configuration for the vision LLM used for image processing"
-    )
-    database: DatabaseClientConfig = Field(
-        ..., description="Configuration for the vector database"
-    )
+    embeddings: EmbedderConfig = Field(..., description="Configuration for the embedding model")
+    llm: LLMConfig = Field(..., description="Configuration for the main LLM used for metadata extraction")
+    vision_llm: LLMConfig = Field(..., description="Configuration for the vision LLM used for image processing")
+    database: DatabaseClientConfig = Field(..., description="Configuration for the vector database")
     converter: ConverterConfig = Field(
-        default_factory=lambda: ConverterConfig(type="pymupdf"),
+        ...,
         description="Configuration for document conversion to markdown",
     )
     extractor: MetadataExtractorConfig = Field(
-        default_factory=lambda: MetadataExtractorConfig(
-            type="basic", llm=LLMConfig.ollama(model_name="llama3.2:3b")
-        ),
+        ...,
         description="Configuration for metadata extraction",
     )
     chunking: ChunkingConfig = Field(
-        default_factory=lambda: ChunkingConfig.create(chunk_size=10000),
+        ...,
         description="Configuration for text chunking",
     )
-    metadata_schema: Dict[str, Any] = Field(
-        default_factory=dict, description="JSON schema for metadata validation"
-    )
+    metadata_schema: dict[str, Any] = Field(default_factory=dict, description="JSON schema for metadata validation")
     temp_dir: str = Field(
         default="tmp/",
         min_length=1,
         description="Temporary directory for caching processed documents",
     )
-    benchmark: bool = Field(
-        default=False, description="Whether to run benchmarking after crawling"
-    )
+    benchmark: bool = Field(default=False, description="Whether to run benchmarking after crawling")
     generate_benchmark_questions: bool = Field(
         default=False,
         description="Generate benchmark questions during metadata extraction",
@@ -133,7 +116,7 @@ class CrawlerConfig(BaseModel):
         gt=0,
         description="Number of benchmark questions to generate per document",
     )
-    security_groups: Optional[List[str]] = Field(
+    security_groups: list[str] | None = Field(
         default=None,
         description="List of security groups for RBAC access control. If provided, the user must have this role to see the documents.",
     )
@@ -146,15 +129,15 @@ class CrawlerConfig(BaseModel):
         llm: LLMConfig,
         vision_llm: LLMConfig,
         database: DatabaseClientConfig,
-        converter: Optional[ConverterConfig] = None,
-        extractor: Optional[MetadataExtractorConfig] = None,
-        chunking: Optional[ChunkingConfig] = None,
-        metadata_schema: Optional[Dict[str, Any]] = None,
+        converter: ConverterConfig | None = None,
+        extractor: MetadataExtractorConfig | None = None,
+        chunking: ChunkingConfig | None = None,
+        metadata_schema: dict[str, Any] | None = None,
         temp_dir: str = "tmp/",
         benchmark: bool = False,
         generate_benchmark_questions: bool = False,
         num_benchmark_questions: int = 3,
-        security_groups: Optional[List[str]] = None,
+        security_groups: list[str] | None = None,
     ) -> "CrawlerConfig":
         """Create a CrawlerConfig with type-safe parameters."""
         return cls(
@@ -162,9 +145,9 @@ class CrawlerConfig(BaseModel):
             llm=llm,
             vision_llm=vision_llm,
             database=database,
-            converter=converter or ConverterConfig(type="pymupdf"),
-            extractor=extractor or MetadataExtractorConfig(type="basic", llm=llm),
-            chunking=chunking or ChunkingConfig.create(chunk_size=10000),
+            converter=converter,
+            extractor=extractor,
+            chunking=chunking,
             metadata_schema=metadata_schema or {},
             temp_dir=temp_dir,
             benchmark=benchmark,
@@ -174,7 +157,7 @@ class CrawlerConfig(BaseModel):
         )
 
     @classmethod
-    def from_dict(cls, config_dict: Dict[str, Any]) -> "CrawlerConfig":
+    def from_dict(cls, config_dict: dict[str, Any]) -> "CrawlerConfig":
         """Create a CrawlerConfig from a dictionary configuration.
 
         This method provides backward compatibility with dictionary-based configurations
@@ -208,39 +191,34 @@ class CrawlerConfig(BaseModel):
         database = DatabaseClientConfig(**database_dict)
 
         # Handle converter config
-        converter_dict = config_dict.get("converter", {"type": "pymupdf"})
+        converter_dict = config_dict.get("converter")
+        if not converter_dict:
+            raise ValueError("converter configuration is required")
         converter = ConverterConfig(**converter_dict)
 
         # Handle extractor config
-        extractor_dict = config_dict.get("extractor", {})
-        if extractor_dict:
-            # If extractor has its own llm config, convert it
-            if "llm" in extractor_dict and isinstance(extractor_dict["llm"], dict):
-                extractor_dict["llm"] = LLMConfig(**extractor_dict["llm"])
-            extractor = MetadataExtractorConfig(**extractor_dict)
-        else:
-            extractor = MetadataExtractorConfig(type="basic", llm=llm)
+        extractor_dict = config_dict.get("extractor")
+        if not extractor_dict:
+            raise ValueError("extractor configuration is required")
+        # If extractor has its own llm config, convert it
+        if "llm" in extractor_dict and isinstance(extractor_dict["llm"], dict):
+            extractor_dict["llm"] = LLMConfig(**extractor_dict["llm"])
+        extractor = MetadataExtractorConfig(**extractor_dict)
 
         # Handle chunking config
-        chunking_dict = config_dict.get("chunking", {})
-        if chunking_dict:
-            chunking = ChunkingConfig(**chunking_dict)
-        else:
-            # Use legacy chunk_size if no chunking config provided
-            chunk_size = config_dict.get("chunk_size", 10000)
-            chunking = ChunkingConfig.create(chunk_size=chunk_size)
+        chunking_dict = config_dict.get("chunking")
+        if not chunking_dict:
+            raise ValueError("chunking configuration is required")
+        chunking = ChunkingConfig(**chunking_dict)
 
         # Extract utility parameters
         utils = config_dict.get("utils", {})
-        chunk_size = utils.get("chunk_size", 10000)
         temp_dir = utils.get("temp_dir", "tmp/")
         benchmark = utils.get("benchmark", False)
 
         # Extract other top-level parameters
         metadata_schema = config_dict.get("metadata_schema", {})
-        generate_benchmark_questions = config_dict.get(
-            "generate_benchmark_questions", False
-        )
+        generate_benchmark_questions = config_dict.get("generate_benchmark_questions", False)
         num_benchmark_questions = config_dict.get("num_benchmark_questions", 3)
         security_groups = config_dict.get("security_groups", None)
         return cls(
@@ -251,7 +229,6 @@ class CrawlerConfig(BaseModel):
             converter=converter,
             extractor=extractor,
             chunking=chunking,
-            chunk_size=chunk_size,
             metadata_schema=metadata_schema,
             temp_dir=temp_dir,
             benchmark=benchmark,
@@ -293,9 +270,7 @@ class Crawler:
             self.embedder = get_embedder(self.config.embeddings)
 
         if self.extractor is None:
-            self.extractor = MetadataExtractor(
-                config=self.config.extractor, llm=self.llm
-            )
+            self.extractor = MetadataExtractor(config=self.config.extractor, llm=self.llm)
 
         if self.vector_db is None:
             # TODO: This must have properly formatted collection description.
@@ -306,9 +281,7 @@ class Crawler:
                 self.config.extractor.context,
             )
             if self.config.benchmark:
-                self.benchmarker = get_db_benchmark(
-                    self.config.database, self.config.embeddings
-                )
+                self.benchmarker = get_db_benchmark(self.config.database, self.config.embeddings)
 
         if self.converter is None:
             self.converter = create_converter(self.config.converter)
@@ -316,7 +289,7 @@ class Crawler:
         if self.chunker is None:
             self.chunker = Chunker(self.config.chunking)
 
-    def _get_filepaths(self, path: Union[str, list[str]]) -> List[str]:
+    def _get_filepaths(self, path: str | list[str]) -> list[str]:
         """
         Returns a list of file paths based on the input path.
 
@@ -368,9 +341,7 @@ class Crawler:
             bytes_value /= 1024.0
         return f"{bytes_value:.1f}B"
 
-    def _cache_document(
-        self, temp_filepath: Optional[Path], document: Document
-    ) -> None:
+    def _cache_document(self, temp_filepath: Path | None, document: Document) -> None:
         """Cache document to temporary file if temp_filepath is provided."""
         if temp_filepath:
             try:
@@ -378,11 +349,11 @@ class Crawler:
             except Exception:
                 pass
 
-    def crawl(self, path: Union[str, List[str]]) -> None:
+    def crawl(self, path: str | list[str]) -> None:
         """
         Crawl the given path(s) and process the documents.
         """
-        crawl_start_time = time.time()
+        # crawl_start_time = time.time()
 
         filepaths = self._get_filepaths(path)
 
@@ -437,17 +408,15 @@ class Crawler:
                     if temp_filepath.exists():
                         try:
                             document.load(str(temp_filepath))
-                        except Exception as e:
+                        except Exception:
                             pass
 
                 # Convert document if not cached
                 if not document.is_converted():
                     try:
-                        doc_input = DocumentInput.from_document(document)
-                        converted = self.converter.convert(doc_input)
-                        document.markdown = converted.markdown
+                        self.converter.convert_document(document)
                         self._cache_document(temp_filepath, document)
-                    except Exception as e:
+                    except Exception:
                         stats["failed_files"] += 1
                         pbar.update(1)
                         continue
@@ -455,13 +424,9 @@ class Crawler:
                 # Extract metadata
                 if not document.is_extracted():
                     try:
-                        extraction_result: MetadataExtractionResult = (
-                            self.extractor.run(document)
-                        )
+                        extraction_result: MetadataExtractionResult = self.extractor.run(document)
                         document.metadata = extraction_result.metadata
-                        document.benchmark_questions = (
-                            extraction_result.benchmark_questions
-                        )
+                        document.benchmark_questions = extraction_result.benchmark_questions
                         # Sanitize metadata before creating database document
                         document.metadata = (
                             sanitize_metadata(
@@ -471,7 +436,7 @@ class Crawler:
                             or {}
                         )
                         self._cache_document(temp_filepath, document)
-                    except Exception as e:
+                    except Exception:
                         stats["failed_files"] += 1
                         pbar.update(1)
                         continue
@@ -482,27 +447,31 @@ class Crawler:
                     self._cache_document(temp_filepath, document)
 
                 # Generate embeddings for chunks
-                entities: List[DatabaseDocument] = []
-                embeddings = self.embedder.embed_batch(document.chunks)
-                for i, chunk in enumerate(document.chunks):
-                    doc = DatabaseDocument(
-                        default_document_id=document.document_id,
-                        default_minio=document.minio_url or "",
-                        default_text=chunk,
-                        default_text_embedding=embeddings[i],
-                        default_chunk_index=i,
-                        default_source=document.source,
-                        metadata=document.metadata,
-                        security_group=document.security_group,
-                    )
-                    entities.append(doc)
+                if not document.text_embeddings:
+                    try:
+                        document.text_embeddings = self.embedder.embed_batch(document.chunks)
+                        self._cache_document(temp_filepath, document)
+                    except Exception:
+                        stats["failed_files"] += 1
+                        pbar.update(1)
+                        continue
+
+                # Create database entities from document
+                try:
+                    entities = document.to_database_entities()
+                except ValueError:
+                    stats["failed_files"] += 1
+                    pbar.update(1)
+                    continue
 
                 # Store in database
                 if entities:
                     try:
-                        self.vector_db.insert_data(entities)
+                        # Convert entities to DatabaseDocument objects for insertion
+                        db_docs = [DatabaseDocument(**entity) for entity in entities]
+                        self.vector_db.insert_data(db_docs)
                         stats["total_chunks"] += len(entities)
-                    except Exception as e:
+                    except Exception:
                         stats["failed_files"] += 1
                         pbar.update(1)
                         continue

@@ -1,9 +1,7 @@
 import json
 import uuid
-import time
-from typing import List, Dict, Any, Optional, Set, Tuple
+from typing import Any
 
-from numpy import partition
 from pymilvus import (
     MilvusClient,
     MilvusException,
@@ -15,7 +13,7 @@ from .database_client import (
     DatabaseClientConfig,
     DatabaseDocument,
 )
-from .milvus_utils import create_schema, create_index, DEFAULT_SECURITY_GROUP
+from .milvus_utils import DEFAULT_SECURITY_GROUP, create_index, create_schema
 
 
 class MilvusDB(DatabaseClient):
@@ -30,8 +28,9 @@ class MilvusDB(DatabaseClient):
         self,
         config: DatabaseClientConfig,
         embedding_dimension: int,
-        metadata_schema: Dict[str, Any],
+        metadata_schema: dict[str, Any],
         library_context: str,
+        collection_config_json: str | None = None,
     ):
         """
         Initialize the Milvus database client.
@@ -41,12 +40,14 @@ class MilvusDB(DatabaseClient):
             embedding_dimension: Vector embedding dimensionality
             metadata_schema: JSON schema defining user metadata fields
             library_context: Library context for the database client
+            collection_config_json: Optional JSON string containing collection configuration
         """
 
         self.config = config
         self.embedding_dimension = embedding_dimension
         self.metadata_schema = metadata_schema if metadata_schema is not None else {}
         self.library_context = library_context
+        self.collection_config_json = collection_config_json
         # Initialize Milvus client
         try:
             self.client = MilvusClient(uri=self.config.uri, token=self.config.token)
@@ -104,7 +105,10 @@ class MilvusDB(DatabaseClient):
         Internal method to create a new collection with the specified schema.
         """
         collection_schema = create_schema(
-            self.embedding_dimension, self.metadata_schema, self.library_context
+            self.embedding_dimension,
+            self.metadata_schema,
+            self.library_context,
+            self.collection_config_json,
         )
         index = create_index(self.client)
 
@@ -121,7 +125,7 @@ class MilvusDB(DatabaseClient):
         if self.config.partition:
             self.client.create_partition(self.config.collection, self.config.partition)
 
-    def _existing_chunk_indexes(self, source: str) -> Set[int]:
+    def _existing_chunk_indexes(self, source: str) -> set[int]:
         """
         Get all existing chunk indexes for a given source in a single query.
 
@@ -167,10 +171,10 @@ class MilvusDB(DatabaseClient):
 
         except MilvusException as e:
             raise e
-        except Exception as e:
+        except Exception:
             raise
 
-    def insert_data(self, data: List[DatabaseDocument]) -> None:
+    def insert_data(self, data: list[DatabaseDocument]) -> None:
         """
         Insert data into the collection with optimized duplicate detection and progress tracking.
 
@@ -187,13 +191,13 @@ class MilvusDB(DatabaseClient):
         Raises:
             DatabaseError: If insertion fails
         """
-        insert_start_time = time.time()
+        # insert_start_time = time.time()
 
         if not data:
             return
 
         # Group items by source for optimized duplicate detection
-        items_by_source: Dict[str, List[DatabaseDocument]] = {}
+        items_by_source: dict[str, list[DatabaseDocument]] = {}
         for item in data:
             source = item.default_source
             if source not in items_by_source:
@@ -229,9 +233,7 @@ class MilvusDB(DatabaseClient):
                                 prepared_item["default_document_id"] = str(uuid.uuid4())
 
                             # Add metadata as JSON string (include benchmark_questions in all chunks)
-                            prepared_item["default_metadata"] = json.dumps(
-                                item.metadata, separators=(",", ":")
-                            )
+                            prepared_item["default_metadata"] = json.dumps(item.metadata, separators=(",", ":"))
 
                             # Add security group to the item
                             # TODO: Should require a security group to be set not set a default, this should be checked earlier
@@ -250,22 +252,22 @@ class MilvusDB(DatabaseClient):
                             pbar.set_postfix_str(f"Source: {source}")
                             pbar.update(1)
 
-                        except AttributeError as e:
+                        except AttributeError:
                             processing_errors += 1
                             pbar.update(1)
                             continue
-                        except Exception as e:
+                        except Exception:
                             processing_errors += 1
                             pbar.update(1)
                             continue
 
-                except Exception as e:
+                except Exception:
                     processing_errors += len(source_items)
                     pbar.update(len(source_items))
                     continue
 
         # Log processing statistics
-        processing_time = time.time() - insert_start_time
+        # processing_time = time.time() - insert_start_time
 
         # if duplicates_found > 0:
 
@@ -276,25 +278,67 @@ class MilvusDB(DatabaseClient):
 
         # Insert the data with progress tracking
         try:
-            insert_api_start = time.time()
+            # insert_api_start = time.time()
 
-            result = self.client.insert(
+            self.client.insert(
                 collection_name=self.config.collection,
                 partition_name=self.config.partition,
                 data=data_to_insert,
             )
 
-            insert_api_time = time.time() - insert_api_start
-            insert_count = result.get("insert_count", len(data_to_insert))
+            # insert_api_time = time.time() - insert_api_start
+            # insert_count = result.get("insert_count", len(data_to_insert))
 
             # Flush to ensure data is persisted
-            flush_start = time.time()
             self.client.flush(self.config.collection)
-            flush_time = time.time() - flush_start
+            # flush_time = time.time() - flush_start
 
-            total_insert_time = time.time() - insert_start_time
+            # total_insert_time = time.time() - insert_start_time
 
         except MilvusException as e:
             raise e
         except Exception as e:
             raise e
+
+    def get_collection_description(self, collection_name: str) -> str | None:
+        """
+        Retrieve the collection description from Milvus.
+
+        Args:
+            collection_name: Name of the collection
+
+        Returns:
+            Collection description string, or None if collection doesn't exist or has no description
+        """
+        try:
+            if not self.client.has_collection(collection_name):
+                return None
+
+            # Get collection schema which contains the description
+            # describe_collection returns a dict with 'schema' key
+            collection_info = self.client.describe_collection(collection_name)
+
+            # Handle dict response
+            if isinstance(collection_info, dict):
+                schema = collection_info.get("schema")
+                if schema and isinstance(schema, dict):
+                    return schema.get("description")
+                # Try direct description key
+                if "description" in collection_info:
+                    return collection_info["description"]
+
+            # Handle object response (if it's a CollectionSchema object)
+            if hasattr(collection_info, "schema"):
+                schema = collection_info.schema
+                if hasattr(schema, "description"):
+                    return schema.description
+
+            # Try direct description attribute
+            if hasattr(collection_info, "description"):
+                return collection_info.description
+
+            return None
+        except MilvusException:
+            return None
+        except Exception:
+            return None

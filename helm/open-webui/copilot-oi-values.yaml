@@ -85,11 +85,6 @@ extraEnvVars: []
   # To run this, create a user with database create/read privelages and provide token here
   # - name: VECTOR_DB
   #   value: "milvus"
-  # Content extraction as docling:
-  # - name: CONTENT_EXTRACTION_ENGINE
-  #   value: "docling"
-  # - name: DOCLING_SERVER_URL # (default: http://docling:5001)
-  #   value: "http://docling.crawler.svc.cluster.local:3000"
 
 # -- Env vars added to the Open WebUI deployment, common across environments. Most up-to-date environment variables can be found here: https://docs.openwebui.com/getting-started/env-configuration/ (caution: environment variables defined in both `extraEnvVars` and `commonEnvVars` will result in a conflict. Avoid duplicates)
 commonEnvVars:

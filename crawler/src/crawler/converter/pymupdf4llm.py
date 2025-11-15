@@ -18,21 +18,17 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import io
 import re
-import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union, Literal
+from typing import Any, Literal
 
 import fitz  # PyMuPDF
 from pydantic import BaseModel, Field
 
-from .base import Converter
-from .types import DocumentInput, ConvertedDocument, ConversionStats
 from ..llm.llm import LLMConfig
-
+from .base import Converter
+from .types import ConversionStats, ConvertedDocument, DocumentInput
 
 # ----------------------------- VLM Interfaces ---------------------------------
 
@@ -40,9 +36,7 @@ from ..llm.llm import LLMConfig
 class VLMInterface:
     """Abstract interface for image description services."""
 
-    def describe_image(
-        self, image_data: bytes, image_ext: str, prompt: Optional[str] = None
-    ) -> str:
+    def describe_image(self, image_data: bytes, image_ext: str, prompt: str | None = None) -> str:
         raise NotImplementedError
 
 
@@ -69,21 +63,12 @@ class OllamaVLM(VLMInterface):
 
             self.requests = requests
         except ImportError as e:
-            raise ImportError(
-                "requests library not found. Install with: pip install requests"
-            ) from e
+            raise ImportError("requests library not found. Install with: pip install requests") from e
 
-    def describe_image(
-        self, image_data: bytes, image_ext: str, prompt: Optional[str] = None
-    ) -> str:
+    def describe_image(self, image_data: bytes, image_ext: str, prompt: str | None = None) -> str:
         try:
             image_b64 = base64.b64encode(image_data).decode("utf-8")
-            prompt = (
-                prompt
-                or "Describe this image in detail. Focus on the main content, "
-                "objects, text, and any relevant information useful in a "
-                "document context."
-            )
+            prompt = prompt or "Describe this image in detail. Focus on the main content, " "objects, text, and any relevant information useful in a " "document context."
 
             url = f"{self.base_url}/api/generate"
             payload = {
@@ -94,9 +79,7 @@ class OllamaVLM(VLMInterface):
             }
             headers = {"Content-Type": "application/json"}
 
-            resp = self.requests.post(
-                url, json=payload, headers=headers, timeout=self.timeout_sec
-            )
+            resp = self.requests.post(url, json=payload, headers=headers, timeout=self.timeout_sec)
             if resp.status_code == 200:
                 data = resp.json()
                 desc = (data.get("response") or "").strip()
@@ -109,9 +92,7 @@ class OllamaVLM(VLMInterface):
 class DummyVLM(VLMInterface):
     """Dummy implementation for testing and as a safe fallback."""
 
-    def describe_image(
-        self, image_data: bytes, image_ext: str, prompt: Optional[str] = None
-    ) -> str:
+    def describe_image(self, image_data: bytes, image_ext: str, prompt: str | None = None) -> str:
         return f"[Image ({image_ext}), {len(image_data)} bytes]"
 
 
@@ -124,33 +105,23 @@ class PyMuPDF4LLMConfig(BaseModel):
     type: Literal["pymupdf4llm"] = "pymupdf4llm"
 
     # VLM settings
-    vlm_config: Optional[LLMConfig] = Field(
-        default=None, description="VLM configuration"
-    )
-    image_prompt: Optional[str] = Field(
-        default=(
-            "Describe this image in detail. Focus on the main content, objects, "
-            "text, and any relevant information useful in a document context."
-        ),
+    vlm_config: LLMConfig | None = Field(default=None, description="VLM configuration")
+    image_prompt: str | None = Field(
+        default=("Describe this image in detail. Focus on the main content, objects, " "text, and any relevant information useful in a document context."),
         description="Prompt used when describing images",
     )
-    max_workers: int = Field(
-        default=4, ge=1, le=32, description="Max concurrent image descriptions"
-    )
+    max_workers: int = Field(default=4, ge=1, le=32, description="Max concurrent image descriptions")
 
     # to_markdown controls (keep simple; always embed_images=True for this flow)
-    to_markdown_kwargs: Dict[str, Any] = Field(
+    to_markdown_kwargs: dict[str, Any] = Field(
         default_factory=dict,
         description=(
-            "Extra kwargs forwarded to pymupdf4llm.to_markdown(). "
-            "embed_images will be forced to True; page_chunks will be forced "
-            "to False so that a single markdown string is returned."
+            "Extra kwargs forwarded to pymupdf4llm.to_markdown(). " "embed_images will be forced to True; page_chunks will be forced " "to False so that a single markdown string is returned."
         ),
     )
 
 
 # ------------------------------- Utilities ------------------------------------
-import re
 
 
 def fix_paragraph_newlines(md_text: str) -> str:
@@ -171,9 +142,7 @@ def fix_paragraph_newlines(md_text: str) -> str:
 
 
 _DATA_URI_IMG_RE = re.compile(
-    r"!\[(?P<alt>[^\]]*)\]\("
-    r"(?P<uri>data:image/(?P<subtype>[a-zA-Z0-9.+-]+);base64,"
-    r"(?P<b64>[A-Za-z0-9+/=\s]+))\)",
+    r"!\[(?P<alt>[^\]]*)\]\(" r"(?P<uri>data:image/(?P<subtype>[a-zA-Z0-9.+-]+);base64," r"(?P<b64>[A-Za-z0-9+/=\s]+))\)",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -211,26 +180,26 @@ def _open_as_pymupdf_document(doc: DocumentInput) -> fitz.Document:
 
 def _describe_images_concurrently(
     vlm: VLMInterface,
-    items: List[Tuple[str, str, bytes]],
-    prompt: Optional[str],
+    items: list[tuple[str, str, bytes]],
+    prompt: str | None,
     max_workers: int,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """
     Describe a list of images concurrently.
     items: list of (key, ext, bytes) where key is a unique identifier (hash).
     Returns dict key -> description.
     """
-    results: Dict[str, str] = {}
+    results: dict[str, str] = {}
     if not items:
         return results
 
     # Deduplicate by content hash key
-    unique: Dict[str, Tuple[str, bytes]] = {}
+    unique: dict[str, tuple[str, bytes]] = {}
     for key, ext, data in items:
         if key not in unique:
             unique[key] = (ext, data)
 
-    def task(k: str, e: str, d: bytes) -> Tuple[str, str]:
+    def task(k: str, e: str, d: bytes) -> tuple[str, str]:
         desc = vlm.describe_image(d, e, prompt)
         return k, desc
 
@@ -242,7 +211,7 @@ def _describe_images_concurrently(
     return results
 
 
-def _replace_images_with_descriptions(markdown: str, desc_map: Dict[str, str]) -> str:
+def _replace_images_with_descriptions(markdown: str, desc_map: dict[str, str]) -> str:
     """
     Replace markdown data-URI image tags with text descriptions.
     The mapping is keyed by the sha256 hash of the decoded image bytes.
@@ -286,7 +255,7 @@ class PyMuPDF4LLMConverter(Converter):
         import pymupdf4llm  # imported here to make dependency explicit
 
         start_time = time.time()
-        warnings: List[str] = []
+        warnings: list[str] = []
 
         # 1) Open as PyMuPDF Document
         try:
@@ -310,16 +279,14 @@ class PyMuPDF4LLMConverter(Converter):
             if not isinstance(md_text, str):
                 # Safety: if page_chunks somehow enabled, join texts
                 try:
-                    md_text = "\n\n".join(
-                        (p.get("text", "") or "") for p in (md_text or [])
-                    )
+                    md_text = "\n\n".join((p.get("text", "") or "") for p in (md_text or []))
                 except Exception:
                     md_text = ""
 
             md_text = fix_paragraph_newlines(md_text)
 
             # 4) Collect images from markdown for VLM description
-            to_describe: List[Tuple[str, str, bytes]] = []
+            to_describe: list[tuple[str, str, bytes]] = []
             for m in _DATA_URI_IMG_RE.finditer(md_text):
                 subtype = m.group("subtype") or "png"
                 b64 = m.group("b64")
@@ -332,7 +299,7 @@ class PyMuPDF4LLMConverter(Converter):
                     continue
 
             # 5) Describe images (concurrently, with dedup)
-            desc_map: Dict[str, str] = {}
+            desc_map: dict[str, str] = {}
             if to_describe:
                 try:
                     desc_map = _describe_images_concurrently(

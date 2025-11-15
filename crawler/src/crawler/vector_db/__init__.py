@@ -3,9 +3,9 @@ from .database_client import (
     DatabaseClientConfig,
     DatabaseDocument,
 )
-from .milvus_client import MilvusDB
-from .milvus_benchmarks import MilvusBenchmark
 from .database_utils import get_db, get_db_benchmark
+from .milvus_benchmarks import MilvusBenchmark
+from .milvus_client import MilvusDB
 
 __all__ = [
     "DatabaseClient",

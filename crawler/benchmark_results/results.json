@@ -1,374 +1,374 @@
 {
     "results_by_doc": {
-        "461407246271071789": [
+        "462221303050355495": [
             {
-                "query": "in Virtual Simulated Patient** **Yanzeng Li** [1,2] **, Cheng Zeng** [3] **, Jinchao Zhang** [2*] **, Jie Zhou** [2] **, Lei Zou** [1*] 1 Wangxuan Institute of Computer Technology, Peking",
-                "expected_source": "461407246271071789",
-                "placement_order": 2,
-                "distance": 0.028892889618873596,
-                "time_to_search": 0.11890292167663574,
+                "query": "of Computer Technology, Peking University 2 Pattern Recognition Center, WeChat AI, Tencent Inc, China 3 School of Computer Science, Wuhan University liyanzeng@stu.pku.edu.cn, zengc@whu.edu.cn, zoulei@pku.edu.cn _{_ dayerzhang, withtomzhou _}_ @tencent.com, **Abstract**",
+                "expected_source": "462221303050355495",
+                "placement_order": 1,
+                "distance": 0.0197049118578434,
+                "time_to_search": 0.08609986305236816,
                 "found": true
             }
         ],
-        "461407246271071791": [
+        "462221303050355497": [
             {
-                "query": "this paper introduces MedDiT, a novel knowledge-controlled conversational framework that can dynamically generate plausible medical images aligned with simulated patient symptoms, enabling diverse diagnostic skill training. Specifically, MedDiT integrates various",
-                "expected_source": "461407246271071791",
+                "query": "symptoms, enabling diverse diagnostic skill training. Specifically, MedDiT integrates various patient Knowledge Graphs (KGs), which describe the attributes and symptoms of patients, to dynamically prompt Large Language Models\u2019 (LLMs) behavior",
+                "expected_source": "462221303050355497",
                 "placement_order": 2,
                 "distance": 0.02906123921275139,
-                "time_to_search": 0.030770301818847656,
+                "time_to_search": 0.02045893669128418,
                 "found": true
             }
         ],
-        "461407246271071792": [
+        "462221303050355498": [
             {
-                "query": "In this paper, we present the capabilities of MedDiT through a practical demonstration, showcasing its ability to act in diverse simulated patient cases and generate the corresponding medical images. This",
-                "expected_source": "461407246271071792",
-                "placement_order": 3,
-                "distance": 0.02877059392631054,
-                "time_to_search": 0.027679920196533203,
-                "found": true
-            }
-        ],
-        "461407246271071793": [
-            {
-                "query": "development of Large Language Models (LLMs) offers the potential to build practical virtual SPs (VSPs) (Chen et al. 2023; Ben\u00b4\u0131tez et al. 2024; Holderried et al. 2024; Li et al.",
-                "expected_source": "461407246271071793",
+                "query": "interactive learning experience for students, advancing medical education by offering an immersive simulation platform for future healthcare professionals. The work sheds light on the feasibility of incorporating advanced technologies like",
+                "expected_source": "462221303050355498",
                 "placement_order": 2,
-                "distance": 0.029041806235909462,
-                "time_to_search": 0.02660679817199707,
+                "distance": 0.02914777398109436,
+                "time_to_search": 0.022127151489257812,
                 "found": true
             }
         ],
-        "461407246271071794": [
+        "462221303050355499": [
             {
-                "query": "offers the potential to build practical virtual SPs (VSPs) (Chen et al. 2023; Ben\u00b4\u0131tez et al. 2024; Holderried et al. 2024; Li et al. 2024a), the scarcity of - Coresponding",
-                "expected_source": "461407246271071794",
+                "query": "healthcare professionals, relying extensively on Simulated Patients (SPs) to provide a safe and controlled environment for practicing clinical skills (Gaba 2007; Ziv et al. 2006; Sanko et al. 2013; Mesquita",
+                "expected_source": "462221303050355499",
+                "placement_order": 1,
+                "distance": 0.029235942289233208,
+                "time_to_search": 0.017578840255737305,
+                "found": true
+            }
+        ],
+        "462221303050355500": [
+            {
+                "query": "(LLMs) offers the potential to build practical virtual SPs (VSPs) (Chen et al. 2023; Ben\u00b4\u0131tez et al. 2024; Holderried et al. 2024; Li et al. 2024a), the scarcity of -",
+                "expected_source": "462221303050355500",
                 "placement_order": 1,
                 "distance": 0.02932579070329666,
-                "time_to_search": 0.02937793731689453,
+                "time_to_search": 0.018703937530517578,
                 "found": true
             }
         ],
-        "461407246271071795": [
+        "462221303050355501": [
             {
-                "query": "we introduce MedDiT, a novel VSP framework designed to enhance the educational experience. The core of MedDiT\u2019s functionality is the integration of patient Knowledge Graphs (KGs) (Fensel et al. 2020;",
-                "expected_source": "461407246271071795",
+                "query": "the behavior of LLMs. By dynamically prompting LLM behavior, MedDiT ensures that patient characteristics are accurately represented, effectively mitigating issues such as hallucination during medical conversations (Li et al. 2024a).",
+                "expected_source": "462221303050355501",
                 "placement_order": 1,
-                "distance": 0.029417365789413452,
-                "time_to_search": 0.026997089385986328,
+                "distance": 0.02932029590010643,
+                "time_to_search": 0.01753687858581543,
                 "found": true
             }
         ],
-        "461407246271071796": [
+        "462221303050355502": [
             {
-                "query": "incorporates a series of well-tuned Diffusion Transformer (DiT) models (Yang et al. 2023; Pan et al. 2023). These models can generate medical images that correspond to the specified patient attributes",
-                "expected_source": "461407246271071796",
-                "placement_order": 1,
-                "distance": 0.029413649812340736,
-                "time_to_search": 0.036443233489990234,
+                "query": "patient attributes within the KGs, providing a realistic and varied set of scenarios for students to engage with. Essentially, MedDiT is a multi-agent system that integrates KG agent, chat agent,",
+                "expected_source": "462221303050355502",
+                "placement_order": 2,
+                "distance": 0.029318464919924736,
+                "time_to_search": 0.01865410804748535,
                 "found": true
             }
         ],
-        "461407246271071797": [
+        "462221303050355503": [
             {
-                "query": "an immersive simulation environment. **2** **System Design & Architecture** We developed MedDiT with a focus on modularity and configurability. The KG, chat, and multimodal components are constructed as microservices, while",
-                "expected_source": "461407246271071797",
+                "query": "LLM server is utilized to support the entire prompt workflow. In practice, we employ the Qwen2 72B instruction-tuned version (Yang et al. 2024) [1] as our backbone LLM for building",
+                "expected_source": "462221303050355503",
                 "placement_order": 1,
                 "distance": 0.02960590273141861,
-                "time_to_search": 0.03713369369506836,
+                "time_to_search": 0.01671600341796875,
                 "found": true
             }
         ],
-        "461407246271071798": [
+        "462221303050355504": [
             {
-                "query": "building all the agents. The overview of MedDiT is illustrated in Figure 1. Figure 2 presents demonstration of MedDiT. 1 https://huggingface.co/Qwen/Qwen2-72B-Instruct *The image depicts a flowchart illustrating a medical diagnosis",
-                "expected_source": "461407246271071798",
+                "query": "to the KG Agent for further analysis.* Figure 1: The overview diagram of MedDiT. There are 3 distinct LLM-based agents for controlling information flow across various modalities, including graph, text",
+                "expected_source": "462221303050355504",
                 "placement_order": 1,
                 "distance": 0.029702968895435333,
-                "time_to_search": 0.03840827941894531,
+                "time_to_search": 0.017268896102905273,
                 "found": true
             }
         ],
-        "461407246271071799": [
+        "462221303050355505": [
             {
-                "query": "subgraph is linearized into natural language to serve as rolesetting for prompting the chat agent\u2019s responses. In this manner, MedDiT maintains dialogue consistency effectively, reduces the hallucinations, and saves token",
-                "expected_source": "461407246271071799",
+                "query": "To construct a controllable and less-hallucinatory VSP system, we introduce the patient KG as the core information source as Li et al. (2024a). A KG agent is applied to retrieve",
+                "expected_source": "462221303050355505",
                 "placement_order": 4,
                 "distance": 0.019801979884505272,
-                "time_to_search": 0.03593182563781738,
+                "time_to_search": 0.020149946212768555,
                 "found": true
             }
         ],
-        "461407246271071800": [
+        "462221303050355506": [
             {
-                "query": "a subset of Chest X-ray images from the Open-i dataset (Demner-Fushman et al. 2016) for training, comprising 3,314 images along with their corresponding textual descriptions. Detailed training parameters are provided",
-                "expected_source": "461407246271071800",
+                "query": "effectively, reduces the hallucinations, and saves token costs. **KG-controlled DiT Model** We utilize HunyuanDiT (Li et al. 2024b) as our backbone generative model and train a LoRA adaptor for the",
+                "expected_source": "462221303050355506",
                 "placement_order": 2,
                 "distance": 0.019801979884505272,
-                "time_to_search": 0.030833959579467773,
+                "time_to_search": 0.024682998657226562,
                 "found": true
             }
         ],
-        "461407246271071801": [
+        "462221303050355507": [
             {
-                "query": "to analysis the dialogue history across multiple aspects, including the completeness of necessary information, thoroughness of symptom inquiry, and the emotions conveyed to the patient. Finally, a detailed evaluation report,",
-                "expected_source": "461407246271071801",
-                "placement_order": 2,
-                "distance": 0.019801979884505272,
-                "time_to_search": 0.03564882278442383,
-                "found": true
-            }
-        ],
-        "461407246271071802": [
-            {
-                "query": "experiencing these symptoms for about a week now,\" \"You need to get a check up,\" and \"There are no signs of infiltration.\"* Figure 2: Screenshot of MedDiT. Left: Visualization of",
-                "expected_source": "461407246271071802",
-                "placement_order": 5,
-                "distance": 0.019801979884505272,
-                "time_to_search": 0.0336308479309082,
-                "found": true
-            }
-        ],
-        "461407246271071804": [
-            {
-                "query": "ability to generate diverse and realistic medical images, combined with its interactive conversational capabilities, offers an abundant learning experience that can significantly improve medical education. In future work, we plan",
-                "expected_source": "461407246271071804",
-                "placement_order": 5,
-                "distance": 0.0197049118578434,
-                "time_to_search": 0.03560805320739746,
-                "found": true
-            }
-        ],
-        "461407246271071805": [
-            {
-                "query": "the KG to encompass a broader range of medical conditions, symptoms, and patient profiles. We will also increase the number of SP cases and explore training more kinds of medical",
-                "expected_source": "461407246271071805",
-                "placement_order": 12,
-                "distance": 0.009803921915590763,
-                "time_to_search": 0.035318851470947266,
-                "found": true
-            }
-        ],
-        "461407246271071806": [
-            {
-                "query": "B.; Shooshan, S. E.; Rodriguez, L.; Antani, S.; Thoma, G. R.; and McDonald, C. J. 2016. Preparing a collection of radiology examinations for distribution and retrieval. _Journal of_ _the American",
-                "expected_source": "461407246271071806",
-                "placement_order": 1,
-                "distance": 0.0197049118578434,
-                "time_to_search": 0.036545753479003906,
-                "found": true
-            }
-        ],
-        "461407246271071807": [
-            {
-                "query": "D.; S\u00b8ims\u00b8ek, U.; Angele, K.; Huaman, E.; K\u00a8arle, E.; Panasiuk, O.; Toma, I.; Umbrich, J.; Wahler, A.; Fensel, D.; et al. 2020. Introduction: what is a knowledge graph? _Knowledge graphs:",
-                "expected_source": "461407246271071807",
-                "placement_order": 1,
-                "distance": 0.019801979884505272,
-                "time_to_search": 0.03560280799865723,
-                "found": true
-            }
-        ],
-        "461407246271071808": [
-            {
-                "query": "imaging_, 32(1): 110\u2013118. Gyrard, A.; Gaur, M.; Shekarpour, S.; Thirunarayan, K.; and Sheth, A. 2018. Personalized health knowledge graph. In _CEUR workshop proceedings_, volume 2317. NIH Public Access. Hillier, M.;",
-                "expected_source": "461407246271071808",
-                "placement_order": 2,
-                "distance": 0.0197049118578434,
-                "time_to_search": 0.03456902503967285,
-                "found": true
-            }
-        ],
-        "461407246271071809": [
-            {
-                "query": "to Practice History Taking: Prospective, Mixed Methods Study. _JMIR Medical Educa-_ _tion_, 10(1): e53961. Hu, E. J.; Shen, Y.; Wallis, P.; Allen-Zhu, Z.; Li, Y.; Wang, S.; Wang, L.; and",
-                "expected_source": "461407246271071809",
-                "placement_order": 1,
-                "distance": 0.0197049118578434,
-                "time_to_search": 0.0318150520324707,
-                "found": true
-            }
-        ],
-        "461407246271071810": [
-            {
-                "query": "Zhang, R.; Zhang, M.; and Zou, L. 2024a. Leveraging Large Language Model as Simulated Patients for Clinical Education. _arXiv preprint_ _arXiv:2404.13066_. Li, Z.; Zhang, J.; Lin, Q.; Xiong, J.; Long,",
-                "expected_source": "461407246271071810",
+                "query": "it is crucial to assess the dialogue history between the SP and students, score the interactions, and provide feedback to help students enhance their medical conversation skills through iterative practice.",
+                "expected_source": "462221303050355507",
                 "placement_order": 3,
                 "distance": 0.019801979884505272,
-                "time_to_search": 0.03398489952087402,
+                "time_to_search": 0.018710851669311523,
                 "found": true
             }
         ],
-        "461407246271071811": [
+        "462221303050355508": [
             {
-                "query": "Y.; Liu, Y.; Liu, W.; Wang, D.; Yang, Y.; Jiang, J.; and Lu, Q. 2024b. Hunyuan-DiT: A Powerful Multi-Resolution Diffusion Transformer with Fine-Grained Chinese Understanding. arXiv:2405.08748. Mesquita, A. R.; Lyra",
-                "expected_source": "461407246271071811",
-                "placement_order": 1,
-                "distance": 0.0197049118578434,
-                "time_to_search": 0.03848099708557129,
+                "query": "two sections: on the left is a network diagram of nodes connected by lines, likely representing patient data or symptoms, while on the right, there's a chat box where users",
+                "expected_source": "462221303050355508",
+                "placement_order": 2,
+                "distance": 0.01951637491583824,
+                "time_to_search": 0.016404390335083008,
                 "found": true
             }
         ],
-        "461407246271071812": [
+        "462221303050355510": [
             {
-                "query": ", I.; Kyle Jr, R. R.; Di Benedetto, S.; and Birnbach, D. J. 2013. Establishing a convention for acting in healthcare simulation: merging art and science. _Sim-_ _ulation in Healthcare_,",
-                "expected_source": "461407246271071812",
+                "query": "abundant learning experience that can significantly improve medical education. In future work, we plan to further expand the scope of the KG to encompass a broader range of medical conditions,",
+                "expected_source": "462221303050355510",
+                "placement_order": 11,
+                "distance": 0.009900989942252636,
+                "time_to_search": 0.016600847244262695,
+                "found": true
+            }
+        ],
+        "462221303050355511": [
+            {
+                "query": "also increase the number of SP cases and explore training more kinds of medical image adaptors. Furthermore, we aim to conduct evaluation experiments on MedDiT to test large vision models",
+                "expected_source": "462221303050355511",
+                "placement_order": 5,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.01782083511352539,
+                "found": true
+            }
+        ],
+        "462221303050355512": [
+            {
+                "query": "J. 2016. Preparing a collection of radiology examinations for distribution and retrieval. _Journal of_ _the American Medical Informatics Association_, 23(2): 304\u2013 310. Felix, H. M.; and Simon, L. V. 2019.",
+                "expected_source": "462221303050355512",
                 "placement_order": 1,
                 "distance": 0.019801979884505272,
-                "time_to_search": 0.04523611068725586,
+                "time_to_search": 0.019911766052246094,
                 "found": true
             }
         ],
-        "461407246271071813": [
+        "462221303050355513": [
             {
-                "query": "H.; Lin, H.; Tang, J.; Wang, J.; Yang, J.; Tu, J.; Zhang, J.; Ma, J.; Xu, J.; Zhou, J.; Bai, J.; He, J.; Lin, J.; Dang, K.; Lu, K.; Chen,",
-                "expected_source": "461407246271071813",
+                "query": "K\u00a8arle, E.; Panasiuk, O.; Toma, I.; Umbrich, J.; Wahler, A.; Fensel, D.; et al. 2020. Introduction: what is a knowledge graph? _Knowledge graphs: Methodology, tools and selected use_ _cases_, 1\u201310.",
+                "expected_source": "462221303050355513",
                 "placement_order": 2,
-                "distance": 0.018991898745298386,
-                "time_to_search": 0.0474240779876709,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.019783973693847656,
                 "found": true
             }
         ],
-        "461407246271071814": [
+        "462221303050355514": [
             {
-                "query": "Diffusion models: A comprehensive survey of methods and applications. _ACM Computing Surveys_, 56(4): 1\u201339. Ziv, A.; Wolpe, P. R.; Small, S. D.; and Glick, S. 2006. Simulation-based medical education: an",
-                "expected_source": "461407246271071814",
+                "query": "imaging platform for multi-modality medical image simulation. _IEEE transactions on medical imaging_, 32(1): 110\u2013118. Gyrard, A.; Gaur, M.; Shekarpour, S.; Thirunarayan, K.; and Sheth, A. 2018. Personalized health knowledge graph.",
+                "expected_source": "462221303050355514",
                 "placement_order": 3,
                 "distance": 0.019801979884505272,
-                "time_to_search": 0.03642582893371582,
+                "time_to_search": 0.01957106590270996,
                 "found": true
             }
         ],
-        "461407246271071815": [
+        "462221303050355515": [
             {
-                "query": "ethical imperative. _Simulation in Healthcare_, 1(4): 252\u2013256. **A** **Knowledge Controlled Image Generation** In this study, we propose a framework for generating knowledge-driven imagery from structured KGs, delineated through following processes:",
-                "expected_source": "461407246271071815",
+                "query": "and Chidume, T. 2020. Standardization of standardized patient training in medical simulation. Holderried, F.; Stegemann-Philipps, C.; Herschbach, L.; Moldt, J.-A.; Nevins, A.; Griewatz, J.; Holderried, M.; Herrmann-Werner, A.; Festl-Wietek, T.;",
+                "expected_source": "462221303050355515",
                 "placement_order": 4,
-                "distance": 0.019801979884505272,
-                "time_to_search": 0.037606239318847656,
+                "distance": 0.019334953278303146,
+                "time_to_search": 0.01970815658569336,
                 "found": true
             }
         ],
-        "461407246271071816": [
+        "462221303050355516": [
             {
-                "query": "We define a function that represents the knowledge implied by arguments as: Knowledge: _X \u2192K,_ where _X_ can be a graph, text, or images, and _K_ is the set of",
-                "expected_source": "461407246271071816",
+                "query": "M.; Liu, J.; Fang, Z.; Wang, W.; Xue, J.; Tao, Y.; Zhu, J.; Liu, K.; Lin, S.; Sun, Y.; Li, Y.; Wang, D.; Chen, M.; Hu, Z.; Xiao, X.; Chen,",
+                "expected_source": "462221303050355516",
                 "placement_order": 1,
                 "distance": 0.019801979884505272,
-                "time_to_search": 0.04123687744140625,
+                "time_to_search": 0.021539926528930664,
                 "found": true
             }
         ],
-        "461407246271071817": [
+        "462221303050355517": [
             {
-                "query": "subgraph. In practice, we employ a strong LLM as the _f_ for encoding subgraph to text as losslessly as possible. Subsequently, this textual representation IP = _f_ ( _G_ _[\u2032]_",
-                "expected_source": "461407246271071817",
-                "placement_order": 1,
-                "distance": 0.019801979884505272,
-                "time_to_search": 0.03812003135681152,
-                "found": true
-            }
-        ],
-        "461407246271071818": [
-            {
-                "query": "ensuring that the generated image _I_ accurately reflects the knowledge embedded in _G_ _[\u2032]_. This comprehensive approach _g_ describes the integration of graph-based data with text and image modalities, fostering",
-                "expected_source": "461407246271071818",
+                "query": "2010. Developing communication skills in pharmacy: a systematic review of the use of simulated patient methods. _Patient edu-_ _cation and counseling_, 78(2): 143\u2013148. Pan, S.; Wang, T.; Qiu, R. L.;",
+                "expected_source": "462221303050355517",
                 "placement_order": 2,
                 "distance": 0.019801979884505272,
-                "time_to_search": 0.04516315460205078,
+                "time_to_search": 0.025557994842529297,
                 "found": true
             }
         ],
-        "461407246271071819": [
+        "462221303050355518": [
             {
-                "query": "a student\u2019s performance. MedDiT concludes with a comprehensive score and a letter of advice to guide the student in their future practice. Listing 1: An assessment example of a student\u2019s",
-                "expected_source": "461407246271071819",
-                "placement_order": 4,
-                "distance": 0.01941930688917637,
-                "time_to_search": 0.03844094276428223,
+                "query": "Curran, W. J.; Liu, T.; and Yang, X. 2021. A review on medical imaging synthesis using deep learning and its clinical applications. _Journal of_ _applied clinical medical physics_, 22(1): 11\u201336.",
+                "expected_source": "462221303050355518",
+                "placement_order": 2,
+                "distance": 0.0197049118578434,
+                "time_to_search": 0.024782180786132812,
                 "found": true
             }
         ],
-        "461407246271071820": [
+        "462221303050355519": [
+            {
+                "query": "deep learning and its clinical applications. _Journal of_ _applied clinical medical physics_, 22(1): 11\u201336. Yang, A.; Yang, B.; Hui, B.; Zheng, B.; Yu, B.; Zhou, C.; Li, C.; Li, C.;",
+                "expected_source": "462221303050355519",
+                "placement_order": 1,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.023738861083984375,
+                "found": true
+            }
+        ],
+        "462221303050355520": [
+            {
+                "query": "W.; Cui, B.; and Yang, M.-H. 2023. Diffusion models: A comprehensive survey of methods and applications. _ACM Computing Surveys_, 56(4): 1\u201339. Ziv, A.; Wolpe, P. R.; Small, S. D.; and",
+                "expected_source": "462221303050355520",
+                "placement_order": 1,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.02421402931213379,
+                "found": true
+            }
+        ],
+        "462221303050355521": [
+            {
+                "query": "= ( _E, R, T_ ), where _E_ represents entities, _R_ is the set of relations, and _T \u2286_ _E \u00d7 R \u00d7 E_ is the collection of knowledge triples",
+                "expected_source": "462221303050355521",
+                "placement_order": 1,
+                "distance": 0.0197049118578434,
+                "time_to_search": 0.01806497573852539,
+                "found": true
+            }
+        ],
+        "462221303050355522": [
+            {
+                "query": "_E, R, T_ ), ensuring that _E_ _[\u2032]_ _\u2286_ _E_, _R_ _[\u2032]_ _\u2286_ _R_, _T_ _[\u2032]_ _\u2286_ _T_, and Knowledge( _G_ _[\u2032]_ ) _\u2286_ Knowledge( _G_ ). This subgraph serves",
+                "expected_source": "462221303050355522",
+                "placement_order": 1,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.02201104164123535,
+                "found": true
+            }
+        ],
+        "462221303050355523": [
+            {
+                "query": ") is utilized as an image prompt within the DiT model, denoted as _I_ = DiT(IP) _,_ and the total progress can be denoted as: _g_: Text _\u2192_ _I,_ s.t.",
+                "expected_source": "462221303050355523",
+                "placement_order": 2,
+                "distance": 0.0197049118578434,
+                "time_to_search": 0.020326852798461914,
+                "found": true
+            }
+        ],
+        "462221303050355524": [
+            {
+                "query": "accurately reflects the knowledge embedded in _G_ _[\u2032]_. This comprehensive approach _g_ describes the integration of graph-based data with text and image modalities, fostering enhanced interpretability and control in image",
+                "expected_source": "462221303050355524",
+                "placement_order": 2,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.019685029983520508,
+                "found": true
+            }
+        ],
+        "462221303050355525": [
+            {
+                "query": "aligned with the configuration of Li et al. (2024b). **Name** **Description** **Setting** _size_ Image size 1024 _\u00d7_ 1024 _d_ rank LoRA rank 64 _t_ lora Weights applied with LoRA _W_",
+                "expected_source": "462221303050355525",
+                "placement_order": 2,
+                "distance": 0.019801979884505272,
+                "time_to_search": 0.020684003829956055,
+                "found": true
+            }
+        ],
+        "462221303050355526": [
             {
                 "query": "a comprehensive score and a letter of advice to guide the student in their future practice. Listing 1: An assessment example of a student\u2019s performance in medical conversation. The ID",
-                "expected_source": "461407246271071820",
+                "expected_source": "462221303050355526",
                 "placement_order": 3,
                 "distance": 0.019801979884505272,
-                "time_to_search": 0.03898000717163086,
+                "time_to_search": 0.01849222183227539,
                 "found": true
             }
         ],
-        "461407246271071821": [
+        "462221303050355527": [
             {
-                "query": "to many key factors, such as marriage, smoking, infectious diseases, vomiting, hepatitis, fatigue, tuberculosis, and parents\u2019 information. However, you seem to have not fully covered some important details, such as",
-                "expected_source": "461407246271071821",
+                "query": "focus on existing fields is commendable. Improving comprehensiveness, not only focusing on current symptoms but also delving into patients\u2019 past medical history and family health conditions, can help you develop",
+                "expected_source": "462221303050355527",
                 "placement_order": 1,
                 "distance": 0.0197049118578434,
-                "time_to_search": 0.026679039001464844,
+                "time_to_search": 0.01691412925720215,
                 "found": true
             }
         ],
-        "461407246271071822": [
+        "462221303050355528": [
             {
-                "query": "is essential to fully understand the patient\u2019s symptoms. This includes not only current symptoms but also any discomfort experienced in the past few months or years. This helps to piece",
-                "expected_source": "461407246271071822",
+                "query": "groups. Symptom Assessment: In every consultation, it is essential to fully understand the patient\u2019s symptoms. This includes not only current symptoms but also any discomfort experienced in the past few",
+                "expected_source": "462221303050355528",
                 "placement_order": 1,
                 "distance": 0.019801979884505272,
-                "time_to_search": 0.028645753860473633,
+                "time_to_search": 0.01890420913696289,
                 "found": true
             }
         ],
-        "461407246271071823": [
+        "462221303050355529": [
             {
-                "query": "continue exploring the latest medical research, which not only helps you acquire new information but also provides strong support when dealing with complex diseases. On this basis, every effort you",
-                "expected_source": "461407246271071823",
-                "placement_order": 1,
+                "query": "work is constantly committed to expanding knowledge boundaries and improving clinical skills. Encourage you to continue exploring the latest medical research, which not only helps you acquire new information but",
+                "expected_source": "462221303050355529",
+                "placement_order": 2,
                 "distance": 0.019801979884505272,
-                "time_to_search": 0.03696012496948242,
+                "time_to_search": 0.02024698257446289,
                 "found": true
             }
         ]
     },
     "placement_distribution": {
-        "2": 8,
-        "3": 4,
-        "1": 15,
-        "4": 3,
-        "5": 2,
-        "12": 1
+        "1": 14,
+        "2": 12,
+        "4": 2,
+        "3": 3,
+        "11": 1,
+        "5": 1
     },
     "distance_distribution": [
-        0.028892889618873596,
+        0.0197049118578434,
         0.02906123921275139,
-        0.02877059392631054,
-        0.029041806235909462,
+        0.02914777398109436,
+        0.029235942289233208,
         0.02932579070329666,
-        0.029417365789413452,
-        0.029413649812340736,
+        0.02932029590010643,
+        0.029318464919924736,
         0.02960590273141861,
         0.029702968895435333,
         0.019801979884505272,
         0.019801979884505272,
         0.019801979884505272,
+        0.01951637491583824,
+        0.009900989942252636,
+        0.019801979884505272,
+        0.019801979884505272,
+        0.019801979884505272,
+        0.019801979884505272,
+        0.019334953278303146,
+        0.019801979884505272,
         0.019801979884505272,
         0.0197049118578434,
-        0.009803921915590763,
+        0.019801979884505272,
+        0.019801979884505272,
         0.0197049118578434,
         0.019801979884505272,
         0.0197049118578434,
-        0.0197049118578434,
-        0.019801979884505272,
-        0.0197049118578434,
-        0.019801979884505272,
-        0.018991898745298386,
         0.019801979884505272,
         0.019801979884505272,
-        0.019801979884505272,
-        0.019801979884505272,
-        0.019801979884505272,
-        0.01941930688917637,
         0.019801979884505272,
         0.0197049118578434,
         0.019801979884505272,
@@ -385,7 +385,7 @@
         "8": 15.151515151515152,
         "9": 15.151515151515152,
         "10": 15.151515151515152,
-        "11": 15.151515151515152,
+        "11": 18.181818181818183,
         "12": 18.181818181818183,
         "13": 18.181818181818183,
         "14": 18.181818181818183,
@@ -477,38 +477,38 @@
         "100": 18.181818181818183
     },
     "search_time_distribution": [
-        0.11890292167663574,
-        0.030770301818847656,
-        0.027679920196533203,
-        0.02660679817199707,
-        0.02937793731689453,
-        0.026997089385986328,
-        0.036443233489990234,
-        0.03713369369506836,
-        0.03840827941894531,
-        0.03593182563781738,
-        0.030833959579467773,
-        0.03564882278442383,
-        0.0336308479309082,
-        0.03560805320739746,
-        0.035318851470947266,
-        0.036545753479003906,
-        0.03560280799865723,
-        0.03456902503967285,
-        0.0318150520324707,
-        0.03398489952087402,
-        0.03848099708557129,
-        0.04523611068725586,
-        0.0474240779876709,
-        0.03642582893371582,
-        0.037606239318847656,
-        0.04123687744140625,
-        0.03812003135681152,
-        0.04516315460205078,
-        0.03844094276428223,
-        0.03898000717163086,
-        0.026679039001464844,
-        0.028645753860473633,
-        0.03696012496948242
+        0.08609986305236816,
+        0.02045893669128418,
+        0.022127151489257812,
+        0.017578840255737305,
+        0.018703937530517578,
+        0.01753687858581543,
+        0.01865410804748535,
+        0.01671600341796875,
+        0.017268896102905273,
+        0.020149946212768555,
+        0.024682998657226562,
+        0.018710851669311523,
+        0.016404390335083008,
+        0.016600847244262695,
+        0.01782083511352539,
+        0.019911766052246094,
+        0.019783973693847656,
+        0.01957106590270996,
+        0.01970815658569336,
+        0.021539926528930664,
+        0.025557994842529297,
+        0.024782180786132812,
+        0.023738861083984375,
+        0.02421402931213379,
+        0.01806497573852539,
+        0.02201104164123535,
+        0.020326852798461914,
+        0.019685029983520508,
+        0.020684003829956055,
+        0.01849222183227539,
+        0.01691412925720215,
+        0.01890420913696289,
+        0.02024698257446289
     ]
 }

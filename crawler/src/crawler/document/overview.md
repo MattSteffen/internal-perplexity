@@ -2,7 +2,7 @@
 
 ## Overview
 
-The document module provides a unified `Document` class that serves as the central data structure for the document processing pipeline. This class is designed to be mutable and flows through multiple processing stages, with each stage populating specific fields.
+The document module provides a unified `Document` class that serves as the central data structure for the document processing pipeline. This class is designed to be mutable and flows through multiple processing stages, with each stage populating specific fields. The Document class uses Pydantic BaseModel for automatic validation, serialization, and type safety.
 
 ## Files
 
@@ -16,106 +16,113 @@ Contains the core `Document` class (Pydantic BaseModel) with the following respo
 
 - Defines the document structure with fields for all processing stages
 - Provides automatic validation and serialization via Pydantic
-- Provides factory methods for creating new documents
+- Provides factory methods for creating new documents (`create()`, `from_file()`)
 - Implements validation and status checking methods
 - Tracks document state through the pipeline
-
-### `integration_examples.py`
-
-Provides example integration methods for each processing module:
-
-- `convert_document()`: Example method for Converter class
-- `extract_document()`: Example method for MetadataExtractor class
-- `chunk_document()`: Example method for Chunker class
-- `store_document()`: Example method for DatabaseClient class
-- `process_document_pipeline()`: Complete end-to-end pipeline example
-
-These examples demonstrate the pattern for adding Document support to each module.
-
-### `test_document.py`
-
-Unit tests demonstrating Document functionality:
-
-- `test_document_creation()`: Tests basic document creation and factory method
-- `test_document_pipeline_states()`: Tests state transitions through the pipeline
-- `test_document_validation()`: Tests validation logic and error handling
-- `test_document_repr()`: Tests string representation at various states
-- `test_pydantic_features()`: Tests Pydantic serialization and validation features
-
-Run tests with: `uv run python -m crawler.document.test_document`
+- Provides methods for saving/loading documents to/from JSON files
+- Converts documents to database entities for storage
 
 ## Document Processing Pipeline
 
 The `Document` class flows through the following stages:
 
-1. **Creation**: Document is created with `document_id` and `source`
-2. **Converter**: Populates `content` (bytes) and `markdown` (str)
-3. **Extractor**: Populates `metadata` (dict) and `benchmark_questions` (list)
-4. **Chunker**: Populates `chunks` (list of strings)
-5. **Vector DB**: Reads all fields to create `DatabaseDocument` instances for storage
+1. **Creation**: Document is created with `document_id` (UUID) and `source` (file path/URL)
+2. **Converter**: Populates `content` (bytes), `markdown` (str), `source_name` (str), `images` (list), `tables` (list), `stats` (ConversionStats), and `warnings` (list)
+3. **Extractor**: Populates `metadata` (dict) and `benchmark_questions` (list of strings)
+4. **Chunker**: Populates `chunks` (list of strings) - caller assigns the result
+5. **Embedder**: Populates `text_embeddings` (list of list[float]), `sparse_text_embeddings` (list of list[float]), and `sparse_metadata_embeddings` (list[float])
+6. **Vector DB**: Uses `to_database_entities()` to create database entities for storage
 
 ## Document Class Fields
 
 ### Required (at creation)
 
-- `document_id`: Unique identifier (UUID string)
-- `source`: Source identifier (file path, URL, etc.)
+- `document_id` (str): Unique identifier (UUID string, auto-generated if not provided)
+- `source` (str): Source identifier (file path, URL, etc.)
 
-### Converter Stage
+### Converter Stage (populated by converter)
 
-- `content`: Raw binary content of the document
-- `markdown`: Markdown representation of the document
+- `content` (bytes | None): Raw binary content of the document
+- `markdown` (str | None): Markdown representation of the document
+- `source_name` (str | None): Source name from converter (e.g., filename)
+- `images` (list[ImageAsset]): Extracted images from document
+- `tables` (list[TableAsset]): Extracted tables from document
+- `stats` (ConversionStats): Conversion statistics
+- `warnings` (list[str]): Conversion warnings
 
-### Extractor Stage
+### Extractor Stage (populated by extractor)
 
-- `metadata`: Extracted structured metadata (dict)
-- `benchmark_questions`: Generated questions for testing (list of strings)
+- `metadata` (dict[str, Any] | None): Extracted structured metadata
+- `benchmark_questions` (list[str] | None): Generated questions for testing
 
-### Chunker Stage
+### Chunker Stage (populated by chunker)
 
-- `chunks`: Text chunks for embedding and storage (list of strings)
+- `chunks` (list[str] | None): Text chunks for embedding and storage
+
+### Embedder Stage (populated by embedder)
+
+- `text_embeddings` (list[list[float]] | None): Dense vector embeddings for each chunk
+- `sparse_text_embeddings` (list[list[float]] | None): Sparse embeddings for text chunks
+- `sparse_metadata_embeddings` (list[float] | None): Sparse embedding for metadata
 
 ### Optional
 
-- `security_group`: RBAC access control groups (defaults to ["public"])
-- `minio_url`: URL to document in object storage
+- `security_group` (list[str]): RBAC access control groups (defaults to ["public"])
+- `minio_url` (str | None): URL to document in object storage
 
 ## Usage Example
 
 ```python
 from crawler.document import Document
-from crawler.converter import DoclingConverter
-from crawler.extractor import MetadataExtractor
-from crawler.chunker import Chunker
-from crawler.vector_db import MilvusClient
+from crawler.converter import create_converter, PyMuPDF4LLMConfig
+from crawler.extractor import MetadataExtractor, MetadataExtractorConfig
+from crawler.chunker import Chunker, ChunkingConfig
+from crawler.vector_db import get_db, DatabaseClientConfig
+from crawler.llm import LLMConfig, get_llm, get_embedder, EmbedderConfig
 
 # 1. Create document
 doc = Document.create(source="example.pdf")
 
 # 2. Convert to markdown
-converter = DoclingConverter(config)
+converter_config = PyMuPDF4LLMConfig(type="pymupdf4llm", vlm_config=LLMConfig.ollama(model_name="llava"))
+converter = create_converter(converter_config)
 converter.convert_document(doc)  # Modifies doc in place
 
 # 3. Extract metadata
-extractor = MetadataExtractor(llm, config)
-extractor.extract_document(doc)  # Modifies doc in place
+llm = get_llm(LLMConfig.ollama(model_name="llama3.2"))
+extractor_config = MetadataExtractorConfig(json_schema={...}, context="")
+extractor = MetadataExtractor(llm=llm, config=extractor_config)
+result = extractor.run(doc)  # Returns MetadataExtractionResult
+doc.metadata = result.metadata
+doc.benchmark_questions = result.benchmark_questions
 
 # 4. Chunk the markdown
-chunker = Chunker(config)
-chunker.chunk_document(doc)  # Modifies doc in place
+chunker = Chunker(ChunkingConfig.create(chunk_size=1000))
+doc.chunks = chunker.chunk_text(doc)  # Returns list[str], assign to doc.chunks
 
-# 5. Store in vector database
-db = MilvusClient(config)
-db.store_document(doc)  # Converts to DatabaseDocument and stores
+# 5. Generate embeddings
+embedder = get_embedder(EmbedderConfig.ollama(model="all-minilm:v2"))
+doc.text_embeddings = embedder.embed_batch(doc.chunks)
+
+# 6. Store in vector database
+db_config = DatabaseClientConfig.milvus(collection="my_collection")
+db = get_db(db_config, embedder.get_dimension(), {}, "")
+entities = doc.to_database_entities()  # Convert to database entities
+db_docs = [DatabaseDocument(**entity) for entity in entities]
+db.insert_data(db_docs)
 
 # Check status at any point
-print(doc)  # Shows processing status
-doc.validate()  # Raises if invalid state
+print(doc)  # Shows processing status (e.g., "Document(id=abc123..., source=example.pdf, status=[converted, extracted, chunked(5), embedded(5)])")
+doc.validate()  # Raises ValueError if invalid state
 
 # Pydantic features
 doc_dict = doc.model_dump()  # Convert to dict
 doc_json = doc.model_dump_json()  # Convert to JSON string
 doc_copy = Document.model_validate(doc_dict)  # Recreate from dict
+
+# Save and load
+doc.save("document.json")  # Save to JSON file (content is base64-encoded)
+doc2 = Document.from_file("document.json")  # Load from JSON file
 ```
 
 ## Design Decisions
@@ -142,4 +149,21 @@ The `validate()` method enforces logical dependencies:
 
 ### Status Tracking
 
-Helper methods (`is_converted()`, `is_extracted()`, `is_chunked()`, `is_ready_for_storage()`) allow checking document state without directly inspecting fields.
+Helper methods allow checking document state without directly inspecting fields:
+
+- `is_converted() -> bool`: Returns True if document has markdown
+- `is_extracted() -> bool`: Returns True if metadata has been extracted
+- `is_chunked() -> bool`: Returns True if document has chunks
+- `is_ready_for_storage() -> bool`: Returns True if document has markdown, metadata, chunks, and embeddings (with matching lengths)
+
+### Serialization
+
+The Document class provides methods for saving and loading:
+
+- `save(filepath: str) -> None`: Save document to JSON file (content is base64-encoded, images/tables/stats/embeddings are not saved)
+- `load(filepath: str) -> None`: Load document from JSON file (updates current instance)
+- `from_file(filepath: str) -> Document`: Class method to create a new Document from a JSON file
+
+### Database Conversion
+
+- `to_database_entities() -> list[dict[str, Any]]`: Converts document to a list of entity dictionaries for database insertion. Each entity represents one chunk. Uses `default_` prefix for system fields to match DatabaseDocument schema. Raises ValueError if document is not ready for storage.

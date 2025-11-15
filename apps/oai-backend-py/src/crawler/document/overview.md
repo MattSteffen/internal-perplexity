@@ -84,7 +84,7 @@ The `Document` class flows through the following stages:
 
 ```python
 from crawler.document import Document
-from crawler.converter import DoclingConverter
+from crawler.converter import create_converter, PyMuPDF4LLMConfig
 from crawler.extractor import MetadataExtractor
 from crawler.chunker import Chunker
 from crawler.vector_db import MilvusClient
@@ -93,7 +93,8 @@ from crawler.vector_db import MilvusClient
 doc = Document.create(source="example.pdf")
 
 # 2. Convert to markdown
-converter = DoclingConverter(config)
+config = PyMuPDF4LLMConfig(type="pymupdf4llm")
+converter = create_converter(config)
 converter.convert_document(doc)  # Modifies doc in place
 
 # 3. Extract metadata

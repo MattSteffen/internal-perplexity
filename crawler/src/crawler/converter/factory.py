@@ -7,10 +7,11 @@ configuration, using a type-safe discriminated union approach.
 
 from __future__ import annotations
 
-from .base import Converter
-from typing import Union
-from pydantic import Field
 from typing import Annotated
+
+from pydantic import Field
+
+from .base import Converter
 
 # Import configs from their respective files
 from .markitdown import MarkItDownConfig
@@ -18,10 +19,7 @@ from .pymupdf4llm import PyMuPDF4LLMConfig
 
 # Discriminated union for all converter configs
 ConverterConfig = Annotated[
-    Union[
-        MarkItDownConfig,
-        PyMuPDF4LLMConfig,
-    ],
+    MarkItDownConfig | PyMuPDF4LLMConfig,
     Field(discriminator="type"),
 ]
 
@@ -51,7 +49,4 @@ def create_converter(config: ConverterConfig) -> Converter:
 
         return PyMuPDF4LLMConverter(config)
     else:
-        raise ValueError(
-            f"Unsupported converter type: {config.type}. "
-            f"Supported types: ['markitdown', 'pymupdf4llm']"
-        )
+        raise ValueError(f"Unsupported converter type: {config.type}. " f"Supported types: ['markitdown', 'pymupdf4llm']")

@@ -16,10 +16,12 @@ Core abstractions and data models for the storage layer. Contains:
 
 **Pydantic Models:**
 - `DatabaseDocument` - Type-safe model for document chunks with validation
-  - Required fields: document_id, text, text_embedding, chunk_index, source, security_group
-  - Optional fields: metadata, id, minio URL, sparse embeddings, benchmark questions
-  - Validates chunk_index >= 0
-  - Provides dict-like access for backward compatibility
+  - Required fields: `default_document_id` (str, UUID), `default_text` (str), `default_text_embedding` (list[float]), `default_chunk_index` (int, >= 0), `default_source` (str), `security_group` (list[str]), `metadata` (dict)
+  - Optional fields: `id` (int, default: -1), `default_metadata` (str, JSON), `default_minio` (str), `default_text_sparse_embedding` (list[float]), `default_metadata_sparse_embedding` (list[float]), `default_benchmark_questions` (list[str])
+  - All system fields use `default_` prefix to avoid conflicts with user metadata
+  - Validates `default_chunk_index >= 0`
+  - Provides dict-like access methods (`__getitem__`, `get()`) for backward compatibility
+  - Methods: `to_dict()`, `from_dict()`, `to_string()`
   
 - `DatabaseClientConfig` - Configuration model for database connections
   - Required: provider, collection
@@ -45,8 +47,8 @@ Core abstractions and data models for the storage layer. Contains:
 
 ### `database_utils.py`
 Factory functions for creating database and benchmark instances based on provider:
-- `get_db(config, dimension, metadata)` - Returns appropriate DatabaseClient implementation
-- `get_db_benchmark(db_config, embed_config)` - Returns appropriate DatabaseBenchmark implementation
+- `get_db(config: DatabaseClientConfig, dimension: int, metadata: dict, library_context: str) -> DatabaseClient` - Returns appropriate DatabaseClient implementation
+- `get_db_benchmark(db_config: DatabaseClientConfig, embed_config: EmbedderConfig) -> DatabaseBenchmark` - Returns appropriate DatabaseBenchmark implementation
 - Currently supports "milvus" provider, raises ValueError for unsupported providers
 
 ### `milvus_client.py`
@@ -55,6 +57,9 @@ Concrete implementation of DatabaseClient for Milvus vector database:
 **Class: MilvusDB**
 - Implements the DatabaseClient interface for Milvus
 - Uses MilvusClient from pymilvus library
+- Constructor: `__init__(config: DatabaseClientConfig, embedding_dimension: int, metadata_schema: dict, library_context: str)`
+  - Automatically creates collection on initialization if it doesn't exist
+  - Tests connection on initialization
 - Key features:
   - Automatic collection creation with schema from `milvus_utils`
   - Partition support for data organization
@@ -64,26 +69,27 @@ Concrete implementation of DatabaseClient for Milvus vector database:
   - Comprehensive logging of insertion statistics
   
 **Methods:**
-- `create_collection(recreate)` - Creates collection and partition if needed
-- `insert_data(data)` - Inserts DatabaseDocument instances with duplicate detection
-- `check_duplicate(source, chunk_index)` - Checks if a specific chunk exists
-- `_create_collection()` - Internal method to create collection with schema
-- `_existing_chunk_indexes(source)` - Bulk fetches existing chunks for a source
+- `create_collection(recreate: bool = False) -> None` - Creates collection and partition if needed
+- `insert_data(data: list[DatabaseDocument]) -> None` - Inserts DatabaseDocument instances with duplicate detection
+- `check_duplicate(source: str, chunk_index: int) -> bool` - Checks if a specific chunk exists
+- `_create_collection() -> None` - Internal method to create collection with schema
+- `_existing_chunk_indexes(source: str) -> set[int]` - Bulk fetches existing chunk indexes for a source
 
 ### `milvus_utils.py`
 Schema and index definitions for Milvus collections:
 
 **Functions:**
-- `create_schema(embedding_size, user_metadata_json_schema)` - Creates Milvus collection schema
-  - Defines base fields: id, document_id, minio URL, chunk_index, text, embeddings
-  - Adds sparse embeddings for BM25 full-text search
+- `create_schema(embedding_size: int, user_metadata_json_schema: dict, library_context: str) -> CollectionSchema` - Creates Milvus collection schema
+  - Defines base fields: `id`, `default_document_id`, `default_minio`, `default_chunk_index`, `default_text`, `default_text_embedding`
+  - Adds sparse embeddings for BM25 full-text search (`default_text_sparse_embedding`, `default_metadata_sparse_embedding`)
   - Includes metadata fields and security group for RBAC
   - Sets up BM25 functions for automatic sparse embedding generation
   - Enables dynamic fields for flexibility
+  - All system fields use `default_` prefix
   
-- `create_index(client)` - Creates search indexes
-  - AUTOINDEX with COSINE metric for dense text embeddings
-  - SPARSE_INVERTED_INDEX with BM25 for full-text search (text and metadata)
+- `create_index(client: MilvusClient) -> None` - Creates search indexes on the collection
+  - AUTOINDEX with COSINE metric for dense text embeddings (`default_text_embedding`)
+  - SPARSE_INVERTED_INDEX with BM25 for full-text search on text and metadata
   - BITMAP index for security group filtering
   - Configures BM25 parameters (k1=1.2, b=0.75)
 

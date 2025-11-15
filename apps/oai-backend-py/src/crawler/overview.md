@@ -34,7 +34,6 @@ This module is responsible for converting various document formats into clean Ma
 - **`Converter` (Abstract Base Class)**: Defines the standard interface for all converter implementations.
 - **Implementations**:
   - `MarkItDownConverter`: Uses the `markitdown` library for conversion.
-  - `DoclingConverter`: Leverages the `docling` library, specializing in PDF processing with VLM (Vision Language Model) integration.
   - `PyMuPDFConverter`: A comprehensive converter that uses `PyMuPDF` to extract not only text but also tables and images. It includes an `ImageDescriptionInterface` to generate text descriptions for images using a VLM, embedding them directly into the Markdown output.
 - **Factory Function**: `create_converter` provides a simple way to instantiate a specific converter based on a configuration string.
 

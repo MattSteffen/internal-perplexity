@@ -70,8 +70,8 @@ Desired workflow:
 - Design new architecture
   - [ ] Upload -> process -> insert into db
     - [ ] upload via some constructed UI with drag/drop or filepath
-    - [ ] process via docling
-      - [ ] docling: pdf/doc -> md, perform chunking too
+    - [ ] process documents
+      - [ ] pdf/doc -> md, perform chunking too
       - [ ] metadata via extractor (llm)
     - [ ] insert into db
       - [ ] do i stick with milvus?
@@ -210,8 +210,6 @@ configs.py # Discriminated union config models
 factory.py # create_converter(config: ConverterConfig)
 registry.py # Plugin registry for converters by name
 markitdown.py # MarkItDownConverter
-docling.py # DoclingConverter
-docling_vlm.py # DoclingVLMConverter
 pymupdf.py # PyMuPDFConverter and ImageDescriber impls
 
 # other modules: llm/, extractor/, embeddings/
@@ -243,8 +241,6 @@ Types and functions you should have
 - Configs (discriminated union)
 
   - MarkItDownConfig
-  - DoclingConfig
-  - DoclingVLMConfig
   - PyMuPDFConfig
 
 - Factories/registry
@@ -517,20 +513,6 @@ class MarkItDownConfig(BaseConverterConfig):
     enable_plugins: bool = False
 
 
-class DoclingConfig(BaseConverterConfig):
-    type: Literal["docling"]
-    vlm_base_url: str = "http://localhost:11434"
-    vlm_model: str = "llava"
-    prompt: Optional[str] = None
-    timeout_sec: float = 600.0
-    scale: float = 1.0
-
-
-class DoclingVLMConfig(BaseConverterConfig):
-    type: Literal["docling_vlm"]
-    # relies on docling defaults; keep minimal for clarity
-
-
 class PyMuPDFConfig(BaseConverterConfig):
     type: Literal["pymupdf"]
     image_describer: Optional[Dict[str, Any]] = None  # {type, model, base_url}
@@ -538,7 +520,7 @@ class PyMuPDFConfig(BaseConverterConfig):
 
 
 ConverterConfig = Annotated[
-    Union[MarkItDownConfig, DoclingConfig, DoclingVLMConfig, PyMuPDFConfig],
+    Union[MarkItDownConfig, PyMuPDFConfig],
     Field(discriminator="type"),
 ]
 ```
@@ -551,14 +533,10 @@ from __future__ import annotations
 from .configs import ConverterConfig
 from .base import Converter
 from .markitdown import MarkItDownConverter
-from .docling import DoclingConverter
-from .docling_vlm import DoclingVLMConverter
 from .pymupdf import PyMuPDFConverter
 
 _MAP = {
     "markitdown": MarkItDownConverter,
-    "docling": DoclingConverter,
-    "docling_vlm": DoclingVLMConverter,
     "pymupdf": PyMuPDFConverter,
 }
 
@@ -678,21 +656,14 @@ Why this API?
 
 Notes on migration from your current code
 
-- Move provider-specific fields out of a generic ConverterConfig into specific config classes (MarkItDownConfig, DoclingConfig, PyMuPDFConfig).
+- Move provider-specific fields out of a generic ConverterConfig into specific config classes (MarkItDownConfig, PyMuPDFConfig).
 - Retain your existing ExtractedImage semantics by mapping it to ImageAsset.
 - Keep your PyMuPDF image describer as a pluggable option under PyMuPDFConfig.image_describer and/or ConvertOptions.describe_images/image_prompt.
 - Maintain your logging but channel user-facing progress through ProgressEvent callbacks.
 
 This keeps creation simple, usage ergonomic, and implementation details isolated, while giving you a consistent, type-safe API across backends.
 
-Launch docling with:
-
 ```bash
-docker run -p 5001:5001 -e DOCLING_SERVE_ENABLE_UI=1 -e DOCLING_SERVE_ENABLE_REMOTE_SERVICES=1 quay.io/docling-project/docling-serve
-```
-
-```bash
-# curl -X POST 'http://localhost:5001/v1/convert/source' \
 curl -X POST 'https://api.meatheadmathematician.com/test/v1/convert/source' \
   -H 'accept: application/json' \
   -H 'Content-Type: application/json' \
