@@ -8,8 +8,13 @@ install:
 check-install:
 	uv run python -c "import crawler; from crawler import Crawler, CrawlerConfig; print('✓ Installation verified')"
 
-# Lint code
+# Lint code: auto-fix issues, then report remaining errors
 lint:
+	@echo "Auto-fixing issues..."
+	uv run black src/
+	uv run ruff check --fix src/ || true
+	@echo ""
+	@echo "Checking for remaining issues..."
 	uv run ruff check src/
 	uv run black --check src/
 	# TODO: Enable mypy

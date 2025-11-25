@@ -12,6 +12,8 @@ from src.milvus_client import get_milvus_client
 logger = logging.getLogger(__name__)
 
 
+# TODO: This needs to have a sepcific format for the frontend to display it correctly.
+# TODO: This also needs to have the parsing of the description field to be json formatted for the frontend to display it correctly.
 class CollectionMetadata(BaseModel):
     """Collection metadata model.
 
@@ -250,9 +252,9 @@ async def create_collection(
     Raises:
         HTTPException: Various error codes based on failure type
     """
-    from src.crawler import CrawlerConfig
-    from src.crawler.vector_db.database_client import DatabaseClientConfig
-    from src.crawler.vector_db.milvus_utils import create_schema
+    from crawler import CrawlerConfig
+    from crawler.vector_db import DatabaseClientConfig
+    from crawler.vector_db.milvus_utils import create_schema
     from src.endpoints.document_pipelines import ConfigOverrides, _override_config
     from src.endpoints.pipeline_registry import get_registry
 
@@ -359,13 +361,13 @@ async def create_collection(
         }
 
         # Get embedding dimension
-        from src.crawler.llm.embeddings import get_embedder
+        from crawler.llm.embeddings import get_embedder
 
         embedder = get_embedder(config.embeddings)
         embedding_dimension = embedder.get_dimension()
 
         # Create schema fields (we'll use the same structure as milvus_utils)
-        from src.crawler.vector_db.milvus_utils import _create_base_schema
+        from crawler.vector_db.milvus_utils import _create_base_schema
 
         fields, _ = _create_base_schema(embedding_dimension)
 
@@ -382,7 +384,7 @@ async def create_collection(
         )
 
         # Create the collection
-        from src.crawler.vector_db.milvus_utils import create_index
+        from crawler.vector_db.milvus_utils import create_index
 
         index_params = create_index(client)
         client.create_collection(

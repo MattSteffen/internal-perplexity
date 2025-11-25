@@ -8,13 +8,49 @@ must follow, providing a consistent API for document conversion operations.
 import abc
 from typing import TYPE_CHECKING
 
-from .types import (
-    ConvertedDocument,
-    DocumentInput,
-)
-
 if TYPE_CHECKING:
     from ..document import Document
+
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+from .pymupdf4llm import PyMuPDF4LLMConfig
+
+
+class ConversionStats(BaseModel):
+    """Statistics about a conversion operation."""
+
+    total_pages: int = 0
+    processed_pages: int = 0
+    text_blocks: int = 0
+    images: int = 0
+    images_described: int = 0
+    tables: int = 0
+    total_time_sec: float | None = None
+    extra: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProgressEvent(BaseModel):
+    """Event emitted during conversion progress."""
+
+    stage: str
+    page: int | None = None
+    total_pages: int | None = None
+    message: str | None = None
+    metrics: dict[str, Any] = Field(default_factory=dict)
+
+
+class Capabilities(BaseModel):
+    """Describes what a converter can handle."""
+
+    name: str
+    supports_pdf: bool = True
+    supports_docx: bool = True
+    supports_images: bool = True
+    supports_tables: bool = True
+    requires_vision: bool = False
+    supported_mime_types: list[str] = Field(default_factory=list)
 
 
 class Converter(abc.ABC):
@@ -25,7 +61,7 @@ class Converter(abc.ABC):
     multiple conversions in a row.
     """
 
-    def __init__(self, config: any):
+    def __init__(self, config: Any):
         """Initialize the converter with configuration."""
         self.config = config
 
@@ -36,37 +72,37 @@ class Converter(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def convert(
-        self,
-        doc: DocumentInput,
-    ) -> ConvertedDocument:
-        """Convert a single document (blocking)."""
-        raise NotImplementedError
-
-    def convert_document(self, document: "Document") -> None:
+    def convert(self, document: "Document") -> None:
         """
-        Convert a Document in place, populating all converter fields.
+        Convert a Document in place, populating converter fields.
 
-        This is the preferred method for the unified Document class.
-        It modifies the document directly rather than returning a new object.
+        This method modifies the document directly, populating:
+        - content: Raw binary content (if not already set)
+        - markdown: Converted markdown text
+        - stats: Conversion statistics
+        - source_name: Source filename (if not already set)
+        - warnings: List of warning messages
 
         Args:
             document: Document instance to convert (modified in place)
         """
-        # Create DocumentInput from Document
-        doc_input = DocumentInput.from_document(document)
+        raise NotImplementedError
 
-        # Call the converter's convert method
-        converted = self.convert(doc_input)
 
-        # Populate document fields from ConvertedDocument
-        document.markdown = converted.markdown
-        document.source_name = converted.source_name
-        document.images = converted.images
-        document.tables = converted.tables
-        document.stats = converted.stats
-        document.warnings = converted.warnings
+# ConverterConfig is just an alias for PyMuPDF4LLMConfig since we only support one converter
+ConverterConfig = PyMuPDF4LLMConfig
 
-        # If document doesn't have content yet, try to get it from DocumentInput
-        if document.content is None and doc_input.bytes_data:
-            document.content = doc_input.bytes_data
+
+def create_converter(config: ConverterConfig) -> Converter:
+    """
+    Create a converter instance based on configuration.
+
+    Args:
+        config: PyMuPDF4LLMConfig object specifying the converter parameters
+
+    Returns:
+        PyMuPDF4LLMConverter instance
+    """
+    from .pymupdf4llm import PyMuPDF4LLMConverter
+
+    return PyMuPDF4LLMConverter(config)

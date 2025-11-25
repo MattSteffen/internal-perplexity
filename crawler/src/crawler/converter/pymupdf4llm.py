@@ -21,14 +21,16 @@ import hashlib
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 from typing import Any, Literal
 
 import fitz  # PyMuPDF
 from pydantic import BaseModel, Field
 
+from ..document import Document
 from ..llm.llm import LLMConfig
 from .base import Converter
-from .types import ConversionStats, ConvertedDocument, DocumentInput
+from .types import ConversionStats
 
 # ----------------------------- VLM Interfaces ---------------------------------
 
@@ -68,7 +70,7 @@ class OllamaVLM(VLMInterface):
     def describe_image(self, image_data: bytes, image_ext: str, prompt: str | None = None) -> str:
         try:
             image_b64 = base64.b64encode(image_data).decode("utf-8")
-            prompt = prompt or "Describe this image in detail. Focus on the main content, " "objects, text, and any relevant information useful in a " "document context."
+            prompt = prompt or "Describe this image in detail. Focus on the main content, objects, text, and any relevant information useful in a document context."
 
             url = f"{self.base_url}/api/generate"
             payload = {
@@ -107,7 +109,7 @@ class PyMuPDF4LLMConfig(BaseModel):
     # VLM settings
     vlm_config: LLMConfig | None = Field(default=None, description="VLM configuration")
     image_prompt: str | None = Field(
-        default=("Describe this image in detail. Focus on the main content, objects, " "text, and any relevant information useful in a document context."),
+        default="Describe this image in detail. Focus on the main content, objects, text, and any relevant information useful in a document context.",
         description="Prompt used when describing images",
     )
     max_workers: int = Field(default=4, ge=1, le=32, description="Max concurrent image descriptions")
@@ -115,9 +117,7 @@ class PyMuPDF4LLMConfig(BaseModel):
     # to_markdown controls (keep simple; always embed_images=True for this flow)
     to_markdown_kwargs: dict[str, Any] = Field(
         default_factory=dict,
-        description=(
-            "Extra kwargs forwarded to pymupdf4llm.to_markdown(). " "embed_images will be forced to True; page_chunks will be forced " "to False so that a single markdown string is returned."
-        ),
+        description=("Extra kwargs forwarded to pymupdf4llm.to_markdown(). embed_images will be forced to True; page_chunks will be forced to False so that a single markdown string is returned."),
     )
 
 
@@ -162,20 +162,16 @@ def _ext_from_subtype(subtype: str) -> str:
     return st or "png"
 
 
-def _open_as_pymupdf_document(doc: DocumentInput) -> fitz.Document:
+def _open_as_pymupdf_document(document: Document) -> fitz.Document:
     """
-    Return a fitz.Document for the given DocumentInput.
-    Uses file path if available, else opens from bytes.
+    Return a fitz.Document for the given Document.
+    Uses content bytes if available, else reads from source path.
     """
-    if getattr(doc, "source", None) == "path" and getattr(doc, "path", None):
-        return fitz.open(str(doc.path))
-    # else read bytes from fileobj or bytes_data
-    if getattr(doc, "bytes_data", None):
-        return fitz.open(stream=doc.bytes_data, filetype="pdf")
-    if getattr(doc, "fileobj", None):
-        data = doc.fileobj.read()
-        return fitz.open(stream=data, filetype="pdf")
-    raise ValueError("Unsupported DocumentInput: no path, bytes_data, or fileobj")
+    # If document has content bytes, use them directly
+    if document.content is not None:
+        return fitz.open(stream=document.content, filetype="pdf")
+    # Otherwise, read from source path
+    return fitz.open(str(document.source))
 
 
 def _describe_images_concurrently(
@@ -251,30 +247,41 @@ class PyMuPDF4LLMConverter(Converter):
     def name(self) -> str:
         return "PyMuPDF4LLM"
 
-    def convert(self, doc: DocumentInput) -> ConvertedDocument:
+    def convert(self, document: Document) -> None:
+        """
+        Convert a Document in place, populating content, markdown, stats, source_name, and warnings.
+        """
         import pymupdf4llm  # imported here to make dependency explicit
 
         start_time = time.time()
         warnings: list[str] = []
 
-        # 1) Open as PyMuPDF Document
+        # 1) Read content if not already set
+        if document.content is None:
+            source_path = Path(document.source)
+            if source_path.exists():
+                document.content = source_path.read_bytes()
+
+        # 2) Open as PyMuPDF Document
         try:
-            pdf_doc = _open_as_pymupdf_document(doc)
+            pdf_doc = _open_as_pymupdf_document(document)
         except Exception as e:
             raise RuntimeError(f"Failed to open document: {e}")
 
         try:
-            # 2) Prepare to_markdown kwargs
+            # 3) Prepare to_markdown kwargs
             kwargs = dict(self.config.to_markdown_kwargs or {})
             # Force a single markdown string and embedded images
             kwargs["embed_images"] = True
             kwargs["page_chunks"] = False
 
-            # Optional: propagate filename for nicer metadata in pymupdf4llm
-            if getattr(doc, "filename", None) and "filename" not in kwargs:
-                kwargs["filename"] = str(doc.filename)
+            # Extract filename from source for nicer metadata in pymupdf4llm
+            source_path = Path(document.source)
+            filename = source_path.name if source_path.name else document.source.split("/")[-1]
+            if filename and "filename" not in kwargs:
+                kwargs["filename"] = filename
 
-            # 3) Generate markdown
+            # 4) Generate markdown
             md_text = pymupdf4llm.to_markdown(pdf_doc, **kwargs)
             if not isinstance(md_text, str):
                 # Safety: if page_chunks somehow enabled, join texts
@@ -285,7 +292,7 @@ class PyMuPDF4LLMConverter(Converter):
 
             md_text = fix_paragraph_newlines(md_text)
 
-            # 4) Collect images from markdown for VLM description
+            # 5) Collect images from markdown for VLM description
             to_describe: list[tuple[str, str, bytes]] = []
             for m in _DATA_URI_IMG_RE.finditer(md_text):
                 subtype = m.group("subtype") or "png"
@@ -298,7 +305,7 @@ class PyMuPDF4LLMConverter(Converter):
                 except Exception:
                     continue
 
-            # 5) Describe images (concurrently, with dedup)
+            # 6) Describe images (concurrently, with dedup)
             desc_map: dict[str, str] = {}
             if to_describe:
                 try:
@@ -311,26 +318,26 @@ class PyMuPDF4LLMConverter(Converter):
                 except Exception as e:
                     warnings.append(f"Image description failed: {e}")
 
-            # 6) Replace images with descriptions
+            # 7) Replace images with descriptions
             if desc_map:
                 md_text = _replace_images_with_descriptions(md_text, desc_map)
 
             total_time = time.time() - start_time
 
-            # 7) Return ConvertedDocument (minimal fields required)
-            # If your ConvertedDocument supports more fields (metadata, stats),
-            # extend here as needed.
-            return ConvertedDocument(
-                markdown=md_text,
-                metadata=getattr(pdf_doc, "metadata", {}) or {},
-                warnings=warnings,
-                stats=ConversionStats(
-                    total_pages=len(pdf_doc),
-                    processed_pages=len(pdf_doc),
-                    total_time_sec=total_time,
-                    images_described=len(desc_map),
-                ),
+            # 8) Populate document fields in place
+            document.markdown = md_text
+            document.stats = ConversionStats(
+                total_pages=len(pdf_doc),
+                processed_pages=len(pdf_doc),
+                total_time_sec=total_time,
+                images_described=len(desc_map),
             )
+            document.warnings = warnings
+
+            # Set source_name if not already set
+            if document.source_name is None:
+                source_path = Path(document.source)
+                document.source_name = source_path.name if source_path.name else document.source.split("/")[-1]
         finally:
             try:
                 pdf_doc.close()

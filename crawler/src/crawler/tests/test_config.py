@@ -75,8 +75,8 @@ def test_crawler_config():
         },
         "database": {"provider": "milvus", "collection": "test_collection"},
         "converter": {
-            "type": "markitdown",
-            "vision_llm": {"model": "llava:latest", "provider": "ollama"},
+            "type": "pymupdf4llm",
+            "vlm_config": {"model_name": "llava:latest", "provider": "ollama", "base_url": "http://localhost:11434"},
         },
     }
 
@@ -87,8 +87,8 @@ def test_crawler_config():
     assert crawler_config.llm.model_name == "llama3.2:3b"  # Should work with 'model' key
     assert crawler_config.vision_llm.model_name == "llava:latest"  # Should work with 'model_name' key
     assert crawler_config.database.collection == "test_collection"
-    assert crawler_config.converter.type == "markitdown"
-    assert crawler_config.converter.vision_llm.model_name == "llava:latest"
+    assert crawler_config.converter.type == "pymupdf4llm"
+    assert crawler_config.converter.vlm_config.model_name == "llava:latest"
 
     print("✓ CrawlerConfig with new converter structure works")
     print("✓ LLM config accepts both 'model' and 'model_name' keys")

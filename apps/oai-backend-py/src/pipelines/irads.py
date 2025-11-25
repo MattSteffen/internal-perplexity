@@ -1,12 +1,12 @@
 from typing import Any, cast
 
-from .chunker import ChunkingConfig
-from .converter.pymupdf4llm import PyMuPDF4LLMConfig
-from .extractor import MetadataExtractorConfig
-from .llm.embeddings import EmbedderConfig
-from .llm.llm import LLMConfig
-from .main import CrawlerConfig
-from .vector_db.database_client import DatabaseClientConfig
+from crawler import CrawlerConfig
+from crawler.chunker import ChunkingConfig
+from crawler.converter import PyMuPDF4LLMConfig
+from crawler.extractor import MetadataExtractorConfig
+from crawler.llm.embeddings import EmbedderConfig
+from crawler.llm.llm import LLMConfig
+from crawler.vector_db import DatabaseClientConfig
 
 irad_library_description = (
     "You are about to process a collection of internal company research documents focused on "
@@ -176,3 +176,4 @@ def create_irad_config() -> CrawlerConfig:
     )
 
     return config
+

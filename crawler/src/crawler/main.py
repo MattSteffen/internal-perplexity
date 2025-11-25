@@ -1,9 +1,12 @@
+import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
+from pymilvus import MilvusClient
 from tqdm import tqdm
 
 from .chunker import Chunker, ChunkingConfig
@@ -27,6 +30,7 @@ from .vector_db import (
 )
 
 # # Reserved keys that should not appear in metadata to avoid conflicts with database schema
+# TODO: Change the prefix to be `_` instead of `default_`
 # RESERVED = {
 #     "default_document_id",
 #     "default_chunk_index",
@@ -237,6 +241,135 @@ class CrawlerConfig(BaseModel):
             security_groups=security_groups,
         )
 
+    @classmethod
+    def from_collection(
+        cls,
+        text: str,
+        database_config: DatabaseClientConfig,
+    ) -> "CrawlerConfig":
+        """Create a CrawlerConfig from a collection by parsing natural language.
+
+        Parses natural language like "add <doc> to <collection X>" to extract
+        the collection name, then loads the config from that collection's description.
+
+        Args:
+            text: Natural language text containing collection name (e.g., "add doc.pdf to collection my_collection")
+            database_config: Database configuration for connecting to Milvus
+
+        Returns:
+            CrawlerConfig instance loaded from the collection description
+
+        Raises:
+            ValueError: If collection name cannot be extracted or collection not found
+            RuntimeError: If connection to Milvus fails or description is invalid
+
+        Example:
+            >>> db_config = DatabaseClientConfig.milvus(collection="temp", host="localhost")
+            >>> config = CrawlerConfig.from_collection("add doc.pdf to collection my_collection", db_config)
+        """
+        # Parse collection name from natural language
+        # Try various patterns: "to collection X", "collection X", "to X", etc.
+        collection_name = None
+
+        # Pattern 1: "to collection <name>" or "to <name>"
+        match = re.search(r"to\s+(?:collection\s+)?([a-zA-Z0-9_]+)", text, re.IGNORECASE)
+        if match:
+            collection_name = match.group(1)
+
+        # Pattern 2: "collection <name>"
+        if not collection_name:
+            match = re.search(r"collection\s+([a-zA-Z0-9_]+)", text, re.IGNORECASE)
+            if match:
+                collection_name = match.group(1)
+
+        # Pattern 3: Just look for a word that might be a collection name
+        # (fallback - less reliable)
+        if not collection_name:
+            # Try to find a word that looks like a collection name
+            words = re.findall(r"\b([a-zA-Z][a-zA-Z0-9_]*)\b", text)
+            # Filter out common words
+            common_words = {"add", "to", "the", "a", "an", "this", "that", "doc", "document", "file"}
+            candidates = [w for w in words if w.lower() not in common_words]
+            if candidates:
+                collection_name = candidates[-1]  # Take the last candidate
+
+        if not collection_name:
+            raise ValueError(f"Could not extract collection name from text: {text}")
+
+        # Connect to Milvus
+        try:
+            client = MilvusClient(uri=database_config.uri, token=database_config.token)
+        except Exception as e:
+            raise RuntimeError(f"Failed to connect to Milvus: {str(e)}") from e
+
+        # Check if collection exists
+        try:
+            collections = client.list_collections()
+            if collection_name not in collections:
+                raise ValueError(f"Collection '{collection_name}' not found. Available collections: {collections}")
+        except Exception as e:
+            raise RuntimeError(f"Failed to list collections: {str(e)}") from e
+
+        # Get collection description
+        try:
+            collection_info = client.describe_collection(collection_name)
+        except Exception as e:
+            raise RuntimeError(f"Failed to describe collection '{collection_name}': {str(e)}") from e
+
+        # Extract description string
+        description_str = None
+        if isinstance(collection_info, dict):
+            schema = collection_info.get("schema")
+            if schema and isinstance(schema, dict):
+                description_str = schema.get("description")
+            elif "description" in collection_info:
+                description_str = collection_info["description"]
+        elif hasattr(collection_info, "schema"):
+            schema = collection_info.schema
+            if hasattr(schema, "description"):
+                description_str = schema.description
+        elif hasattr(collection_info, "description"):
+            description_str = collection_info.description
+
+        if not description_str:
+            raise ValueError(f"Collection '{collection_name}' does not have a description")
+
+        # Parse description JSON
+        try:
+            description_dict = json.loads(description_str) if isinstance(description_str, str) else description_str
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Failed to parse collection description as JSON: {str(e)}") from e
+
+        # Extract collection_config_json
+        if not isinstance(description_dict, dict):
+            raise ValueError(f"Collection description is not a dictionary: {type(description_dict)}")
+
+        collection_config_dict = description_dict.get("collection_config_json")
+        if not collection_config_dict:
+            raise ValueError("Collection description does not contain 'collection_config_json'")
+
+        # Create CrawlerConfig from the config dictionary
+        try:
+            config = cls.from_dict(collection_config_dict)
+        except Exception as e:
+            raise ValueError(f"Failed to create CrawlerConfig from collection config: {str(e)}") from e
+
+        # Override collection name in database config
+        original_db_config = config.database
+        config.database = DatabaseClientConfig(
+            provider=original_db_config.provider,
+            collection=collection_name,
+            host=original_db_config.host,
+            port=original_db_config.port,
+            username=original_db_config.username,
+            password=original_db_config.password,
+            partition=original_db_config.partition,
+            recreate=False,
+            collection_description=original_db_config.collection_description,
+        )
+
+        return config
+
 
 class Crawler:
     def __init__(
@@ -273,12 +406,13 @@ class Crawler:
             self.extractor = MetadataExtractor(config=self.config.extractor, llm=self.llm)
 
         if self.vector_db is None:
-            # TODO: This must have properly formatted collection description.
+            # Pass the crawler config as a dict to be stored in collection description
             self.vector_db = get_db(
                 self.config.database,
                 self.embedder.get_dimension(),
                 self.config.metadata_schema,
                 self.config.extractor.context,
+                collection_config_json=self.config.model_dump(),
             )
             if self.config.benchmark:
                 self.benchmarker = get_db_benchmark(self.config.database, self.config.embeddings)
@@ -414,7 +548,7 @@ class Crawler:
                 # Convert document if not cached
                 if not document.is_converted():
                     try:
-                        self.converter.convert_document(document)
+                        self.converter.convert(document)
                         self._cache_document(temp_filepath, document)
                     except Exception:
                         stats["failed_files"] += 1

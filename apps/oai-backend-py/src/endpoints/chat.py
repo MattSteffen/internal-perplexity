@@ -24,11 +24,13 @@ from src.utils import map_openai_error_to_http
 
 async def _execute_tool_calls(
     tool_calls: list[ChatCompletionMessageFunctionToolCall],
+    user_metadata: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Execute tool calls and return tool messages.
 
     Args:
         tool_calls: List of function tool calls from the LLM response.
+        user_metadata: Optional user metadata containing authentication token.
 
     Returns:
         List of tool message dictionaries to add to the conversation.
@@ -40,8 +42,10 @@ async def _execute_tool_calls(
         try:
             # Parse the arguments JSON
             arguments = json.loads(tool_call.function.arguments)
-            # Execute the tool
-            result = await tool_registry.execute_tool(tool_name, arguments)
+            # Execute the tool with user metadata if available
+            result = await tool_registry.execute_tool(
+                tool_name, arguments, metadata=user_metadata
+            )
             # Add tool message to conversation
             tool_messages.append(
                 {
@@ -69,6 +73,7 @@ async def _handle_non_streaming_completion(
     model: str,
     messages: list[dict[str, Any]],
     max_iterations: int = 5,
+    user_metadata: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> ChatCompletion:
     """Handle non-streaming completion with tool call support.
@@ -134,7 +139,7 @@ async def _handle_non_streaming_completion(
             )
 
             # Execute tool calls
-            tool_messages = await _execute_tool_calls(function_tool_calls)
+            tool_messages = await _execute_tool_calls(function_tool_calls, user_metadata)
             current_messages.extend(tool_messages)
 
             # Continue loop to get final response
@@ -153,6 +158,7 @@ async def _handle_non_streaming_completion(
 
 async def create_chat_completion(
     request: Request,
+    user: dict[str, Any] | None = None,
 ) -> StreamingResponse | ChatCompletion:
     """Handle chat completion requests with streaming support.
 
@@ -190,6 +196,14 @@ async def create_chat_completion(
     stream = body.get("stream", False)
     # Extract other parameters (like temperature, etc.)
     other_params = {k: v for k, v in body.items() if k not in ("model", "messages", "stream")}
+
+    # Prepare user metadata for tools if user is authenticated
+    user_metadata = None
+    if user:
+        user_metadata = {
+            "milvus_token": user.get("milvus_token"),
+            "username": user.get("username"),
+        }
 
     # Add tools to the request if not explicitly provided
     # User can override by providing their own tools parameter
@@ -273,7 +287,7 @@ async def create_chat_completion(
                                     )
                                 )
 
-                            tool_messages = await _execute_tool_calls(tool_calls_list)
+                            tool_messages = await _execute_tool_calls(tool_calls_list, user_metadata)
                             current_messages.extend(tool_messages)
 
                             # Get final response (streaming)
@@ -316,6 +330,7 @@ async def create_chat_completion(
             return await _handle_non_streaming_completion(
                 model=model,
                 messages=messages,
+                user_metadata=user_metadata,
                 **other_params,
             )
     except APIError as e:

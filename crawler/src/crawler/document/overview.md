@@ -45,8 +45,6 @@ The `Document` class flows through the following stages:
 - `content` (bytes | None): Raw binary content of the document
 - `markdown` (str | None): Markdown representation of the document
 - `source_name` (str | None): Source name from converter (e.g., filename)
-- `images` (list[ImageAsset]): Extracted images from document
-- `tables` (list[TableAsset]): Extracted tables from document
 - `stats` (ConversionStats): Conversion statistics
 - `warnings` (list[str]): Conversion warnings
 

@@ -10,10 +10,10 @@ from fastapi import Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel
 
 from src.auth_utils import verify_token
-from src.crawler import Crawler, CrawlerConfig
-from src.crawler.llm.embeddings import EmbedderConfig
-from src.crawler.llm.llm import LLMConfig
-from src.crawler.vector_db.database_client import DatabaseClientConfig
+from crawler import Crawler, CrawlerConfig
+from crawler.llm.embeddings import EmbedderConfig
+from crawler.llm.llm import LLMConfig
+from crawler.vector_db import DatabaseClientConfig
 from src.endpoints.pipeline_registry import get_registry
 
 
@@ -126,13 +126,13 @@ async def process_document(
     import uuid
     from pathlib import Path
 
-    from src.crawler import CrawlerConfig
-    from src.crawler.converter import create_converter
-    from src.crawler.converter.types import DocumentInput
-    from src.crawler.document import Document
-    from src.crawler.llm.embeddings import EmbedderConfig
-    from src.crawler.llm.llm import LLMConfig
-    from src.crawler.vector_db.database_client import DatabaseClientConfig
+    from crawler import CrawlerConfig
+    from crawler.converter import create_converter
+    from crawler.converter.types import DocumentInput
+    from crawler.document import Document
+    from crawler.llm.embeddings import EmbedderConfig
+    from crawler.llm.llm import LLMConfig
+    from crawler.vector_db import DatabaseClientConfig
     from src.endpoints.pipeline_registry import get_registry
 
     temp_file_path: Path | None = None
@@ -190,8 +190,8 @@ async def process_document(
         document.markdown = converted.markdown
 
         # Extract metadata
-        from src.crawler.extractor.extractor import MetadataExtractor
-        from src.crawler.llm.llm import get_llm
+        from crawler.extractor import MetadataExtractor
+        from crawler.llm.llm import get_llm
 
         llm = get_llm(config.llm)
         extractor = MetadataExtractor(config=config.extractor, llm=llm)
@@ -243,7 +243,7 @@ def load_config_from_collection(
         HTTPException: If collection not found or config invalid
     """
 
-    from src.crawler.main import CrawlerConfig
+    from crawler import CrawlerConfig
     from src.milvus_client import get_milvus_client
 
     client = get_milvus_client(milvus_token)
@@ -540,8 +540,8 @@ async def upload_document_to_collection(
 # Initialize pipeline registry with predefined pipelines
 def _initialize_pipelines() -> None:
     """Register all predefined pipelines in the registry."""
-    from src.crawler.arxiv_math import create_arxiv_math_config
-    from src.crawler.irads import create_irad_config
+    from src.pipelines.arxiv_math import create_arxiv_math_config
+    from src.pipelines.irads import create_irad_config
 
     registry = get_registry()
 

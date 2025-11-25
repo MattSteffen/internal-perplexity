@@ -327,25 +327,36 @@ manager.add_documents(
 
 # Add documents with custom converter
 from crawler.converter import Converter
-from crawler.converter.types import DocumentInput, ConvertedDocument
+from crawler.document import Document
+from crawler.converter.types import ConversionStats
+import json
 
 class JSONConverter(Converter):
     @property
     def name(self) -> str:
         return "JSONConverter"
     
-    def convert(self, doc: DocumentInput) -> ConvertedDocument:
+    def convert(self, document: Document) -> None:
         # Custom conversion logic for JSON files
-        import json
-        if doc.source == "path":
-            with open(doc.path, 'r') as f:
-                data = json.load(f)
-        else:
-            data = json.loads(doc.bytes_data.decode('utf-8'))
+        # Read content if not already set
+        if document.content is None:
+            from pathlib import Path
+            source_path = Path(document.source)
+            document.content = source_path.read_bytes()
+        
+        # Parse JSON from content
+        data = json.loads(document.content.decode('utf-8'))
         
         # Convert JSON to markdown
         markdown = self._json_to_markdown(data)
-        return ConvertedDocument(markdown=markdown, source_name=doc.filename)
+        
+        # Populate document fields
+        document.markdown = markdown
+        document.stats = ConversionStats(total_pages=1, processed_pages=1)
+        if document.source_name is None:
+            from pathlib import Path
+            source_path = Path(document.source)
+            document.source_name = source_path.name if source_path.name else document.source.split("/")[-1]
     
     def _json_to_markdown(self, data: dict) -> str:
         # Your custom conversion logic
@@ -408,27 +419,33 @@ doc.text_embeddings = embedder.embed_batch(doc.chunks)  # Returns list[list[floa
 
 ```python
 from crawler.converter import Converter
-from crawler.converter.types import DocumentInput, ConvertedDocument
+from crawler.document import Document
+from crawler.converter.types import ConversionStats
 
 class MyCustomConverter(Converter):
     @property
     def name(self) -> str:
         return "MyCustomConverter"
     
-    def convert(self, doc: DocumentInput) -> ConvertedDocument:
+    def convert(self, document: Document) -> None:
         # Custom conversion logic
-        if doc.source == "path":
-            with open(doc.path, 'r', encoding='utf-8') as f:
-                content = f.read()
-        else:
-            content = doc.bytes_data.decode('utf-8')
-
-        # Process content and return ConvertedDocument
+        # Read content if not already set
+        if document.content is None:
+            from pathlib import Path
+            source_path = Path(document.source)
+            document.content = source_path.read_bytes()
+        
+        # Process content
+        content = document.content.decode('utf-8')
         markdown = self._custom_to_markdown(content)
-        return ConvertedDocument(
-            markdown=markdown,
-            source_name=doc.filename
-        )
+        
+        # Populate document fields
+        document.markdown = markdown
+        document.stats = ConversionStats(total_pages=1, processed_pages=1)
+        if document.source_name is None:
+            from pathlib import Path
+            source_path = Path(document.source)
+            document.source_name = source_path.name if source_path.name else document.source.split("/")[-1]
 
     def _custom_to_markdown(self, content: str) -> str:
         # Your custom processing logic

@@ -9,6 +9,7 @@ import { FileMetadataEditor } from "@/components/FileMetadataEditor";
 import { SubmitSection } from "@/components/SubmitSection";
 import { CollectionSchemaDisplay } from "@/components/CollectionSchemaDisplay";
 import { CreateCollectionModal } from "@/components/CreateCollectionModal";
+import { LoginModal } from "@/components/LoginModal";
 import { Button } from "@/components/ui/button";
 import { fetchCollections, processDocument, uploadDocument, createCollection } from "@/lib/api";
 import type { Collection, DocumentMetadata } from "@/lib/types";
@@ -49,11 +50,37 @@ export default function Home() {
   const [clearDropzone, setClearDropzone] = useState(false);
   const [modalSelectedFile, setModalSelectedFile] = useState<File | null>(null);
   const [isCreateCollectionModalOpen, setIsCreateCollectionModalOpen] = useState(false);
+  const [username, setUsername] = useState<string>("");
+  const [password, setPassword] = useState<string>("");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const firstFileReadyRef = useRef(false);
 
   useEffect(() => {
-    loadCollections();
+    // Check for saved credentials in localStorage
+    const savedUsername = localStorage.getItem("username");
+    const savedPassword = localStorage.getItem("password");
+
+    if (savedUsername && savedPassword) {
+      setUsername(savedUsername);
+      setPassword(savedPassword);
+      setIsAuthenticated(true);
+      loadCollections();
+    } else {
+      setIsLoginModalOpen(true);
+    }
   }, []);
+
+  const handleLogin = (enteredUsername: string, enteredPassword: string) => {
+    setUsername(enteredUsername);
+    setPassword(enteredPassword);
+    setIsAuthenticated(true);
+    setIsLoginModalOpen(false);
+    // Save to localStorage
+    localStorage.setItem("username", enteredUsername);
+    localStorage.setItem("password", enteredPassword);
+    loadCollections();
+  };
 
   const loadCollections = async () => {
     try {
@@ -479,293 +506,311 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-black">
-      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-100">
-                Document Upload
-              </h1>
-              <p className="mt-2 text-zinc-600 dark:text-zinc-400">
-                Select a collection and upload PDF documents
-              </p>
-            </div>
-            <Button
-              variant="outline"
-              asChild
-            >
-              <a href={process.env.NEXT_PUBLIC_CHAT_URL || "http://localhost:3000"} target="_self">
-                Chat
-              </a>
-            </Button>
-          </div>
+      <LoginModal
+        isOpen={isLoginModalOpen}
+        onSubmit={handleLogin}
+      />
+      {!isAuthenticated && (
+        <div className="flex min-h-screen items-center justify-center">
+          <p className="text-zinc-600 dark:text-zinc-400">Please log in to continue</p>
         </div>
-
-        {error && (
-          <div className="mb-6 rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950/30">
-            <div className="flex items-center gap-2">
-              <svg
-                className="h-5 w-5 text-red-600 dark:text-red-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              <p className="text-sm font-medium text-red-800 dark:text-red-300">
-                {error}
-              </p>
-            </div>
-          </div>
-        )}
-
-        <div className="grid gap-8 lg:grid-cols-2">
-          <div>
-            {isLoading ? (
-              <div className="rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-                <p className="text-center text-zinc-500 dark:text-zinc-400">
-                  Loading collections...
+      )}
+      {isAuthenticated && (
+        <main className="mx-auto max-w-8xl px-4 py-8 sm:px-6 lg:px-8">
+          <div className="mb-8">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-100">
+                  Document Upload for {username}
+                </h1>
+                <p className="mt-2 text-zinc-600 dark:text-zinc-400">
+                  Select a collection and upload PDF documents
                 </p>
               </div>
-            ) : (
-              <CollectionsList
-                collections={collections}
-                selectedCollection={selectedCollection}
-                onSelectCollection={handleSelectCollection}
-                onRefresh={loadCollections}
-                isRefreshing={isLoading}
-                onCreateCollection={() => setIsCreateCollectionModalOpen(true)}
-              />
-            )}
+              <Button
+                variant="outline"
+                asChild
+              >
+                <a href={process.env.NEXT_PUBLIC_CHAT_URL || "http://localhost:3000"} target="_self">
+                  Chat
+                </a>
+              </Button>
+            </div>
           </div>
 
-          <div>
-            <h2 className="mb-4 text-xl font-semibold text-zinc-900 dark:text-zinc-100">
-              Upload Document
-            </h2>
-            {Array.from(fileProcessingStatus.values()).some((status) => status.isProcessing) || isProcessingMetadata ? (
-              <div className="rounded-lg border border-zinc-200 bg-white p-8 text-center dark:border-zinc-800 dark:bg-zinc-900">
-                <div className="flex flex-col items-center gap-4">
-                  <div className="h-8 w-8 animate-spin rounded-full border-4 border-zinc-300 border-t-blue-600 dark:border-zinc-700 dark:border-t-blue-400"></div>
-                  <p className="text-zinc-600 dark:text-zinc-400">
-                    {uploadProgress
-                      ? `Processing ${uploadProgress.current} of ${uploadProgress.total}: ${uploadProgress.fileName}`
-                      : "Processing document..."}
+          {error && (
+            <div className="mb-6 rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950/30">
+              <div className="flex items-center gap-2">
+                <svg
+                  className="h-5 w-5 text-red-600 dark:text-red-400"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+                <p className="text-sm font-medium text-red-800 dark:text-red-300">
+                  {error}
+                </p>
+              </div>
+            </div>
+          )}
+
+          <div className="grid gap-8 lg:grid-cols-3">
+            <div>
+              {isLoading ? (
+                <div className="rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+                  <p className="text-center text-zinc-500 dark:text-zinc-400">
+                    Loading collections...
                   </p>
-                  {uploadProgress && (
-                    <div className="w-full max-w-xs">
-                      <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
-                        <div
-                          className="h-full bg-blue-600 transition-all duration-300 dark:bg-blue-500"
-                          style={{
-                            width: `${(uploadProgress.current / uploadProgress.total) * 100}%`,
-                          }}
-                        />
+                </div>
+              ) : (
+                <CollectionsList
+                  collections={collections}
+                  selectedCollection={selectedCollection}
+                  onSelectCollection={handleSelectCollection}
+                  onRefresh={loadCollections}
+                  isRefreshing={isLoading}
+                  onCreateCollection={() => setIsCreateCollectionModalOpen(true)}
+                />
+              )}
+            </div>
+
+            <div>
+              <h2 className="mb-4 text-xl font-semibold text-zinc-900 dark:text-zinc-100">
+                Upload Document
+              </h2>
+              {Array.from(fileProcessingStatus.values()).some((status) => status.isProcessing) || isProcessingMetadata ? (
+                <div className="rounded-lg border border-zinc-200 bg-white p-8 text-center dark:border-zinc-800 dark:bg-zinc-900">
+                  <div className="flex flex-col items-center gap-4">
+                    <div className="h-8 w-8 animate-spin rounded-full border-4 border-zinc-300 border-t-blue-600 dark:border-zinc-700 dark:border-t-blue-400"></div>
+                    <p className="text-zinc-600 dark:text-zinc-400">
+                      {uploadProgress
+                        ? `Processing ${uploadProgress.current} of ${uploadProgress.total}: ${uploadProgress.fileName}`
+                        : "Processing document..."}
+                    </p>
+                    {uploadProgress && (
+                      <div className="w-full max-w-xs">
+                        <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
+                          <div
+                            className="h-full bg-blue-600 transition-all duration-300 dark:bg-blue-500"
+                            style={{
+                              width: `${(uploadProgress.current / uploadProgress.total) * 100}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <FileUpload
+                    onFileSelect={handleFileSelect}
+                    disabled={!selectedCollection}
+                    clearFiles={clearDropzone}
+                  />
+                  {selectedCollection && (
+                    <div className="mt-4 space-y-3 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+                      <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                        Upload Options
+                      </h3>
+                      <div className="space-y-2">
+                        <label className="flex cursor-pointer items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={confirmSecurity}
+                            onChange={(e) => setConfirmSecurity(e.target.checked)}
+                            className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800"
+                          />
+                          <span className="text-sm text-zinc-700 dark:text-zinc-300">
+                            Add extra security roles
+                          </span>
+                        </label>
+                        <label className="flex cursor-pointer items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={confirmMetadata}
+                            onChange={(e) => setConfirmMetadata(e.target.checked)}
+                            className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800"
+                          />
+                          <span className="text-sm text-zinc-700 dark:text-zinc-300">
+                            Confirm metadata
+                          </span>
+                        </label>
+                        <label className="flex cursor-pointer items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={confirmUpload}
+                            onChange={(e) => setConfirmUpload(e.target.checked)}
+                            className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800"
+                          />
+                          <span className="text-sm text-zinc-700 dark:text-zinc-300">
+                            Confirm upload
+                          </span>
+                        </label>
                       </div>
                     </div>
                   )}
-                </div>
-              </div>
-            ) : (
-              <>
-                <FileUpload
-                  onFileSelect={handleFileSelect}
-                  disabled={!selectedCollection}
-                  clearFiles={clearDropzone}
+                  {selectedFiles.length > 0 && !isProcessingMetadata && (
+                    <>
+                      {!confirmSecurity && (
+                        <SecurityUserForm
+                          selectedGroupId={selectedGroupId}
+                          selectedUserIds={selectedUserIds}
+                          onGroupChange={setSelectedGroupId}
+                          onUsersChange={setSelectedUserIds}
+                          onCreateGroup={handleCreateGroup}
+                        />
+                      )}
+                      {selectedFiles.length > 1 && confirmMetadata && (
+                        <FileMetadataEditor
+                          files={selectedFiles.map((file) => ({
+                            file,
+                            metadata: fileMetadataMap.get(file) || {},
+                          }))}
+                          onMetadataChange={(fileIndex, metadata) => {
+                            const file = selectedFiles[fileIndex];
+                            if (file) {
+                              handleMetadataUpdate(file, metadata);
+                            }
+                          }}
+                        />
+                      )}
+                      <SubmitSection
+                        files={selectedFiles}
+                        onSubmit={handleConfirmUpload}
+                        onCancel={handleCancelPreview}
+                        isUploading={isUploading}
+                        disabled={
+                          (!confirmSecurity &&
+                            !confirmMetadata &&
+                            selectedUserIds.length === 0 &&
+                            selectedFiles.some(
+                              (file) =>
+                                !fileSecurityMap.get(file) ||
+                                fileSecurityMap.get(file)?.userIds.length === 0,
+                            )) ||
+                          (confirmSecurity &&
+                            selectedFiles.some(
+                              (file) =>
+                                !fileSecurityMap.get(file) ||
+                                fileSecurityMap.get(file)?.userIds.length === 0,
+                            )) ||
+                          (confirmMetadata &&
+                            selectedFiles.some(
+                              (file) =>
+                                fileProcessingStatus.get(file)?.isReady !== true,
+                            ))
+                        }
+                      />
+                    </>
+                  )}
+                </>
+              )}
+              {selectedCollection && (
+                <CollectionSchemaDisplay
+                  collection={
+                    collections.find((c) => c.name === selectedCollection) || null
+                  }
                 />
-                {selectedCollection && (
-                  <div className="mt-4 space-y-3 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-                    <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                      Upload Options
-                    </h3>
-                    <div className="space-y-2">
-                      <label className="flex cursor-pointer items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={confirmSecurity}
-                          onChange={(e) => setConfirmSecurity(e.target.checked)}
-                          className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800"
-                        />
-                        <span className="text-sm text-zinc-700 dark:text-zinc-300">
-                          Add extra security roles
-                        </span>
-                      </label>
-                      <label className="flex cursor-pointer items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={confirmMetadata}
-                          onChange={(e) => setConfirmMetadata(e.target.checked)}
-                          className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800"
-                        />
-                        <span className="text-sm text-zinc-700 dark:text-zinc-300">
-                          Confirm metadata
-                        </span>
-                      </label>
-                      <label className="flex cursor-pointer items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={confirmUpload}
-                          onChange={(e) => setConfirmUpload(e.target.checked)}
-                          className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-600 dark:bg-zinc-800"
-                        />
-                        <span className="text-sm text-zinc-700 dark:text-zinc-300">
-                          Confirm upload
-                        </span>
-                      </label>
-                    </div>
-                  </div>
-                )}
-                {selectedFiles.length > 0 && !isProcessingMetadata && (
-                  <>
-                    {!confirmSecurity && (
-                      <SecurityUserForm
-                        selectedGroupId={selectedGroupId}
-                        selectedUserIds={selectedUserIds}
-                        onGroupChange={setSelectedGroupId}
-                        onUsersChange={setSelectedUserIds}
-                        onCreateGroup={handleCreateGroup}
-                      />
-                    )}
-                    {selectedFiles.length > 1 && confirmMetadata && (
-                      <FileMetadataEditor
-                        files={selectedFiles.map((file) => ({
-                          file,
-                          metadata: fileMetadataMap.get(file) || {},
-                        }))}
-                        onMetadataChange={(fileIndex, metadata) => {
-                          const file = selectedFiles[fileIndex];
-                          if (file) {
-                            handleMetadataUpdate(file, metadata);
-                          }
-                        }}
-                      />
-                    )}
-                    <SubmitSection
-                      files={selectedFiles}
-                      onSubmit={handleConfirmUpload}
-                      onCancel={handleCancelPreview}
-                      isUploading={isUploading}
-                      disabled={
-                        (!confirmSecurity &&
-                          !confirmMetadata &&
-                          selectedUserIds.length === 0 &&
-                          selectedFiles.some(
-                            (file) =>
-                              !fileSecurityMap.get(file) ||
-                              fileSecurityMap.get(file)?.userIds.length === 0,
-                          )) ||
-                        (confirmSecurity &&
-                          selectedFiles.some(
-                            (file) =>
-                              !fileSecurityMap.get(file) ||
-                              fileSecurityMap.get(file)?.userIds.length === 0,
-                          )) ||
-                        (confirmMetadata &&
-                          selectedFiles.some(
-                            (file) =>
-                              fileProcessingStatus.get(file)?.isReady !== true,
-                          ))
-                      }
-                    />
-                  </>
-                )}
-              </>
-            )}
-            {selectedCollection && (
-              <CollectionSchemaDisplay
-                collection={
-                  collections.find((c) => c.name === selectedCollection) || null
-                }
-              />
-            )}
-          </div>
-        </div>
+              )}
+            </div>
 
-        {selectedFile &&
-          !isProcessingMetadata &&
-          (confirmMetadata || confirmSecurity) && (
-            <MetadataPreview
-              metadata={processedMetadata || {}}
-              fileName={selectedFile.name}
-              fileSize={selectedFile.size}
-              onConfirm={handleSingleFileMetadataUpdate}
-              onCancel={handleCancelPreview}
-              isUploading={isUploading}
-              hasSelectedUsers={
-                !confirmSecurity ||
-                (modalSelectedFile
-                  ? (fileSecurityMap.get(modalSelectedFile)?.userIds.length || 0) > 0
-                  : selectedUserIds.length > 0)
-              }
-              showSecurity={confirmSecurity}
-              selectedGroupId={
-                modalSelectedFile
-                  ? fileSecurityMap.get(modalSelectedFile)?.groupId || null
-                  : selectedGroupId
-              }
-              selectedUserIds={
-                modalSelectedFile
-                  ? fileSecurityMap.get(modalSelectedFile)?.userIds || []
-                  : selectedUserIds
-              }
-              onGroupChange={(groupId) => {
-                if (modalSelectedFile) {
-                  const security = fileSecurityMap.get(modalSelectedFile) || {
-                    groupId: null,
-                    userIds: [],
-                  };
-                  handleSecurityUpdate(modalSelectedFile, groupId, security.userIds);
-                } else {
-                  setSelectedGroupId(groupId);
+            <div>
+              <h2 className="mb-4 text-xl font-semibold text-zinc-900 dark:text-zinc-100">Search for Documents in {selectedCollection || "a Collection"}</h2>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  placeholder="Search documents..."
+                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400"
+                />
+                <Button variant="outline">Search</Button>
+              </div>
+            </div>
+          </div>
+
+          {selectedFile &&
+            !isProcessingMetadata &&
+            (confirmMetadata || confirmSecurity) && (
+              <MetadataPreview
+                metadata={processedMetadata || {}}
+                fileName={selectedFile.name}
+                fileSize={selectedFile.size}
+                onConfirm={handleSingleFileMetadataUpdate}
+                onCancel={handleCancelPreview}
+                isUploading={isUploading}
+                selectedUserIds={
+                  modalSelectedFile
+                    ? fileSecurityMap.get(modalSelectedFile)?.userIds || []
+                    : selectedUserIds
                 }
-              }}
-              onUsersChange={(userIds) => {
-                if (modalSelectedFile) {
-                  const security = fileSecurityMap.get(modalSelectedFile) || {
-                    groupId: null,
-                    userIds: [],
-                  };
-                  handleSecurityUpdate(modalSelectedFile, security.groupId, userIds);
-                } else {
-                  setSelectedUserIds(userIds);
+                showSecurity={confirmSecurity}
+                selectedGroupId={
+                  modalSelectedFile
+                    ? fileSecurityMap.get(modalSelectedFile)?.groupId || null
+                    : selectedGroupId
                 }
-              }}
-              onCreateGroup={handleCreateGroup}
-              files={
-                selectedFiles.length > 1
-                  ? selectedFiles.map((file) => ({
-                    file,
-                    metadata: fileMetadataMap.get(file) || {},
-                    security: fileSecurityMap.get(file) || {
+                onGroupChange={(groupId) => {
+                  if (modalSelectedFile) {
+                    const security = fileSecurityMap.get(modalSelectedFile) || {
                       groupId: null,
                       userIds: [],
-                    },
-                    isProcessing:
-                      fileProcessingStatus.get(file)?.isProcessing || false,
-                    isReady: fileProcessingStatus.get(file)?.isReady || false,
-                  }))
-                  : undefined
-              }
-              onMetadataUpdate={handleMetadataUpdate}
-              onAllDocumentsMetadataUpdate={handleAllDocumentsMetadataUpdate}
-              onSecurityUpdate={handleSecurityUpdate}
-              onAllDocumentsSecurityUpdate={handleAllDocumentsSecurityUpdate}
-              selectedFile={modalSelectedFile}
-              onSelectedFileChange={setModalSelectedFile}
-            />
-          )}
+                    };
+                    handleSecurityUpdate(modalSelectedFile, groupId, security.userIds);
+                  } else {
+                    setSelectedGroupId(groupId);
+                  }
+                }}
+                onUsersChange={(userIds) => {
+                  if (modalSelectedFile) {
+                    const security = fileSecurityMap.get(modalSelectedFile) || {
+                      groupId: null,
+                      userIds: [],
+                    };
+                    handleSecurityUpdate(modalSelectedFile, security.groupId, userIds);
+                  } else {
+                    setSelectedUserIds(userIds);
+                  }
+                }}
+                onCreateGroup={handleCreateGroup}
+                files={
+                  selectedFiles.length > 1
+                    ? selectedFiles.map((file) => ({
+                      file,
+                      metadata: fileMetadataMap.get(file) || {},
+                      security: fileSecurityMap.get(file) || {
+                        groupId: null,
+                        userIds: [],
+                      },
+                      isProcessing:
+                        fileProcessingStatus.get(file)?.isProcessing || false,
+                      isReady: fileProcessingStatus.get(file)?.isReady || false,
+                    }))
+                    : undefined
+                }
+                onMetadataUpdate={handleMetadataUpdate}
+                onAllDocumentsMetadataUpdate={handleAllDocumentsMetadataUpdate}
+                onSecurityUpdate={handleSecurityUpdate}
+                onAllDocumentsSecurityUpdate={handleAllDocumentsSecurityUpdate}
+                selectedFile={modalSelectedFile}
+                onSelectedFileChange={setModalSelectedFile}
+              />
+            )}
 
-        <CreateCollectionModal
-          isOpen={isCreateCollectionModalOpen}
-          onClose={() => setIsCreateCollectionModalOpen(false)}
-          onCreate={handleCreateCollection}
-        />
-      </main>
+          <CreateCollectionModal
+            isOpen={isCreateCollectionModalOpen}
+            onClose={() => setIsCreateCollectionModalOpen(false)}
+            onCreate={handleCreateCollection}
+          />
+
+        </main>
+      )}
     </div>
   );
 }

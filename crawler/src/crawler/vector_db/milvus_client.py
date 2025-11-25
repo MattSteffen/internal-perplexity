@@ -30,7 +30,7 @@ class MilvusDB(DatabaseClient):
         embedding_dimension: int,
         metadata_schema: dict[str, Any],
         library_context: str,
-        collection_config_json: str | None = None,
+        collection_config_json: dict[str, Any] | None = None,
     ):
         """
         Initialize the Milvus database client.
@@ -40,7 +40,7 @@ class MilvusDB(DatabaseClient):
             embedding_dimension: Vector embedding dimensionality
             metadata_schema: JSON schema defining user metadata fields
             library_context: Library context for the database client
-            collection_config_json: Optional JSON string containing collection configuration
+            collection_config_json: Optional dictionary containing collection configuration
         """
 
         self.config = config

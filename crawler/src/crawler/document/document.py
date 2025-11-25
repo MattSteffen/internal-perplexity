@@ -20,8 +20,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-# Import types from converter for assets and stats
-from ..converter.types import ConversionStats, ImageAsset, TableAsset
+# Import types from converter for stats
+from ..converter.base import ConversionStats
 
 # Type alias for bounding box
 BBox = tuple[float, float, float, float]
@@ -32,7 +32,7 @@ class Document(BaseModel):
     Unified document class for the entire processing pipeline.
 
     This class is mutable and designed to be modified by each processing stage:
-    - Converter: Sets content, markdown, images, tables, stats, warnings, source_name
+    - Converter: Sets content, markdown, stats, warnings, source_name
     - Extractor: Sets metadata and benchmark_questions
     - Chunker: Sets chunks
     - Embedder: Sets text_embeddings, sparse_text_embeddings, sparse_metadata_embeddings
@@ -44,8 +44,6 @@ class Document(BaseModel):
         content: Raw binary content (set by converter)
         markdown: Markdown representation (set by converter)
         source_name: Optional source name from converter
-        images: Extracted images from document (set by converter)
-        tables: Extracted tables from document (set by converter)
         stats: Conversion statistics (set by converter)
         warnings: Conversion warnings (set by converter)
         metadata: Extracted metadata (set by extractor)
@@ -66,8 +64,6 @@ class Document(BaseModel):
     content: bytes | None = Field(default=None, description="Raw binary content (set by converter)")
     markdown: str | None = Field(default=None, description="Markdown representation (set by converter)")
     source_name: str | None = Field(default=None, description="Source name from converter (e.g., filename)")
-    images: list[ImageAsset] = Field(default_factory=list, description="Extracted images from document (set by converter)")
-    tables: list[TableAsset] = Field(default_factory=list, description="Extracted tables from document (set by converter)")
     stats: ConversionStats = Field(default_factory=ConversionStats, description="Conversion statistics (set by converter)")
     warnings: list[str] = Field(default_factory=list, description="Conversion warnings (set by converter)")
 

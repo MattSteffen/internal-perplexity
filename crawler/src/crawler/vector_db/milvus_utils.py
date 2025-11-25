@@ -163,11 +163,10 @@ def create_schema(
     embedding_size: int,
     user_metadata_json_schema: dict[str, any] = None,
     library_context: str = None,
-    collection_config_json: str | None = None,
+    collection_config_json: dict[str, Any] | None = None,
 ) -> CollectionSchema:
     fields, functions = _create_base_schema(embedding_size)
     description = create_description(fields, user_metadata_json_schema, library_context, collection_config_json)
-    # TODO: This must have properly formatted collection description.
     schema = CollectionSchema(
         fields=fields,
         functions=functions,
@@ -219,13 +218,13 @@ def parse_collection_config(description: str) -> dict[str, Any] | None:
     Parse the collection config JSON from a collection description.
 
     The description should be pure JSON that can be loaded directly with json.loads.
-    Expected keys: CrawlerConfig, library_context, metadata_schema, llm_prompt
+    Expected keys: metadata_schema, library_context, collection_config_json, llm_prompt
 
     Args:
         description: Collection description string (should be pure JSON)
 
     Returns:
-        Dictionary containing the collection config, or None if not found/invalid
+        Dictionary containing the collection_config_json, or None if not found/invalid
     """
     if not description:
         return None
@@ -234,9 +233,9 @@ def parse_collection_config(description: str) -> dict[str, Any] | None:
         # Try to parse as pure JSON
         data = json.loads(description.strip())
 
-        # Validate that it has the expected structure
-        if "CrawlerConfig" in data:
-            return data
+        # Validate that it has the expected structure and extract collection_config_json
+        if isinstance(data, dict) and "collection_config_json" in data:
+            return data.get("collection_config_json")
         return None
     except (json.JSONDecodeError, ValueError):
         return None
@@ -246,33 +245,31 @@ def create_description(
     fields: list["FieldSchema"],
     user_metadata_json_schema: dict[str, Any],
     library_context: str,
-    collection_config_json: str | None = None,
+    collection_config_json: dict[str, Any] | None = None,
 ) -> str:
     """
     Build a description for a Milvus collection.
 
-    If collection_config_json is provided, it is used as the description (pure JSON).
-    Otherwise, builds an LLM-friendly, informative description.
+    Returns a JSON string containing a dictionary with:
+    - metadata_schema: The user-provided metadata schema (dict)
+    - library_context: The user-provided description of the collection data (string)
+    - collection_config_json: The crawler config (dict, or None if not provided)
+    - llm_prompt: The human-readable prompt text with metadata filtering instructions
 
     Inputs:
       - fields: List[FieldSchema] from pymilvus
       - user_metadata_json_schema: JSON Schema for the user-supplied metadata blob
       - library_context: Human-readable description of what documents live here
-      - collection_config_json: Optional JSON string containing collection configuration
-        (if provided, this becomes the entire description)
+      - collection_config_json: Optional dictionary containing collection configuration
 
     Output:
-      - If collection_config_json is provided: returns it as-is (pure JSON)
-      - Otherwise: returns a human-readable description for LLMs
+      - JSON string containing a dictionary with the four keys above
 
     Notes for LLMs:
       - The user metadata is stored as a JSON object in the `metadata` field.
       - When constructing filters, use Milvus JSON path syntax and JSON operators
         against the `metadata` field (see examples below).
     """
-    # If collection config JSON is provided, use it as the description (pure JSON)
-    if collection_config_json:
-        return collection_config_json
 
     def _is_json_metadata_field(fs: list["FieldSchema"]) -> bool:
         for f in fs:
@@ -394,4 +391,16 @@ def create_description(
     parts.extend(ex_lines)
     parts.append("```")
 
-    return "\n".join(parts)
+    # Build the llm_prompt from all the parts
+    llm_prompt = "\n".join(parts)
+
+    # Build the description dictionary
+    description_dict = {
+        "metadata_schema": user_metadata_json_schema,
+        "library_context": library_context,
+        "collection_config_json": collection_config_json,
+        "llm_prompt": llm_prompt,
+    }
+
+    # Return as JSON string
+    return json.dumps(description_dict)

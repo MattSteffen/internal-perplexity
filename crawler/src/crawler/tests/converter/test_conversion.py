@@ -13,10 +13,10 @@ from datetime import datetime
 from pathlib import Path
 
 from crawler.converter import (
-    DocumentInput,
     PyMuPDF4LLMConfig,
     create_converter,
 )
+from crawler.document import Document
 from crawler.llm.llm import LLMConfig
 
 
@@ -43,24 +43,23 @@ def test_converter(converter_name: str, config, test_pdf_path: Path, output_dir:
         converter = create_converter(config)
         print(f"✅ {converter_name} converter created successfully")
 
-        # Load test PDF
-        doc = DocumentInput.from_path(test_pdf_path)
-        print(f"✅ Test PDF loaded: {doc.filename}")
+        # Load test PDF as Document
+        doc = Document.create(source=str(test_pdf_path))
+        print(f"✅ Test PDF loaded: {doc.source}")
 
         # Convert document
         print(f"🔄 Starting conversion with {converter_name}...")
-        result = converter.convert(doc)
+        converter.convert(doc)
 
         # Report results
         print("✅ Conversion completed successfully!")
         print("📊 Results:")
-        print(f"   • Output length: {len(result.markdown)} characters")
-        print(f"   • Images found: {len(result.images)}")
-        print(f"   • Tables found: {len(result.tables)}")
-        print(f"   • Processing time: {result.stats.total_time_sec:.2f}s")
-
-        if result.images:
-            print(f"   • Images described: {result.stats.images_described}")
+        if doc.markdown:
+            print(f"   • Output length: {len(doc.markdown)} characters")
+        if doc.stats and doc.stats.total_time_sec is not None:
+            print(f"   • Processing time: {doc.stats.total_time_sec:.2f}s")
+        if doc.stats:
+            print(f"   • Images described: {doc.stats.images_described}")
 
         # Save outputs to files
         pdf_name = test_pdf_path.stem
@@ -68,9 +67,10 @@ def test_converter(converter_name: str, config, test_pdf_path: Path, output_dir:
 
         # Save markdown output
         markdown_file = converter_output_dir / f"{pdf_name}_{timestamp}.md"
-        with open(markdown_file, "w", encoding="utf-8") as f:
-            f.write(result.markdown)
-        print(f"💾 Markdown saved to: {markdown_file}")
+        if doc.markdown:
+            with open(markdown_file, "w", encoding="utf-8") as f:
+                f.write(doc.markdown)
+            print(f"💾 Markdown saved to: {markdown_file}")
 
         # Save metadata
         metadata_file = converter_output_dir / f"{pdf_name}_{timestamp}_metadata.json"
@@ -78,51 +78,22 @@ def test_converter(converter_name: str, config, test_pdf_path: Path, output_dir:
             "converter": converter_name,
             "source_file": str(test_pdf_path),
             "conversion_time": timestamp,
-            "output_length": len(result.markdown),
-            "images_count": len(result.images),
-            "tables_count": len(result.tables),
-            "processing_time_sec": result.stats.total_time_sec,
-            "images_described": (result.stats.images_described if hasattr(result.stats, "images_described") else 0),
+            "output_length": len(doc.markdown) if doc.markdown else 0,
+            "processing_time_sec": doc.stats.total_time_sec if doc.stats and doc.stats.total_time_sec else None,
+            "images_described": doc.stats.images_described if doc.stats else 0,
             "markdown_file": str(markdown_file),
         }
         with open(metadata_file, "w", encoding="utf-8") as f:
             json.dump(metadata, f, indent=2)
         print(f"💾 Metadata saved to: {metadata_file}")
 
-        # Save images if any
-        if result.images:
-            images_dir = converter_output_dir / f"{pdf_name}_{timestamp}_images"
-            images_dir.mkdir(exist_ok=True)
-            for i, image in enumerate(result.images):
-                image_file = images_dir / f"image_{i:03d}.png"
-                with open(image_file, "wb") as f:
-                    f.write(image.data)
-            print(f"💾 {len(result.images)} images saved to: {images_dir}")
-
-        # Save tables if any
-        if result.tables:
-            tables_file = converter_output_dir / f"{pdf_name}_{timestamp}_tables.json"
-            tables_data = []
-            for i, table in enumerate(result.tables):
-                tables_data.append(
-                    {
-                        "index": i,
-                        "markdown": table.markdown,
-                        "rows": table.rows,
-                        "cols": table.cols,
-                        "bbox": table.bbox,
-                    }
-                )
-            with open(tables_file, "w", encoding="utf-8") as f:
-                json.dump(tables_data, f, indent=2)
-            print(f"💾 {len(result.tables)} tables saved to: {tables_file}")
-
         # Show a preview of the markdown output
-        preview = result.markdown[:500] + "..." if len(result.markdown) > 500 else result.markdown
-        print("\n📝 Markdown preview:")
-        print("-" * 40)
-        print(preview)
-        print("-" * 40)
+        if doc.markdown:
+            preview = doc.markdown[:500] + "..." if len(doc.markdown) > 500 else doc.markdown
+            print("\n📝 Markdown preview:")
+            print("-" * 40)
+            print(preview)
+            print("-" * 40)
 
         return True, converter_output_dir
 

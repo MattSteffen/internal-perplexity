@@ -149,15 +149,13 @@ class MilvusDocument(BaseModel):
 
 
 def connect_milvus(
-    username: str | None = None,
-    password: str | None = None,
+    token: str | None = None,
     collection_name: str | None = None,
 ) -> MilvusClient:
     """Connect to Milvus and load the specified collection.
 
     Args:
-        username: Milvus username (uses config default if not provided).
-        password: Milvus password (uses config default if not provided).
+        token: Milvus authentication token in format 'username:password' (uses config default if not provided).
         collection_name: Collection name (uses config default if not provided).
 
     Returns:
@@ -167,12 +165,18 @@ def connect_milvus(
         CollectionNotFoundError: If the collection does not exist.
         Exception: If connection or loading fails.
     """
-    username = username or radchat_config.milvus.username
-    password = password or radchat_config.milvus.password
+    from src.auth_utils import extract_username_from_token
+    
+    # If no token provided, use config defaults (backward compatibility)
+    if token is None:
+        username = radchat_config.milvus.username
+        password = radchat_config.milvus.password
+        token = f"{username}:{password}"
+    
     collection_name = collection_name or radchat_config.milvus.collection_name
     uri = f"http://{radchat_config.milvus.host}:{radchat_config.milvus.port}"
     try:
-        client = MilvusClient(uri=uri, token=f"{username}:{password}")
+        client = MilvusClient(uri=uri, token=token)
     except Exception as e:
         error_msg = f"Failed to connect to Milvus at {uri}: {str(e)}. Check if Milvus is running and the connection settings are correct."
         logging.error(error_msg)
@@ -236,7 +240,7 @@ def perform_search(
     queries: list[str] = [],
     filters: list[str] = [],
     collection_name: str | None = None,
-    username: str | None = None,
+    token: str | None = None,
     partition_name: str | None = None,
 ) -> list[MilvusDocument]:
     """Perform hybrid search (dense + sparse embeddings) on the Milvus collection.
@@ -246,14 +250,25 @@ def perform_search(
         queries: List of query strings for semantic search.
         filters: List of filter expressions (will not be mutated).
         collection_name: Name of the collection to search.
-        username: Username for role-based access control.
+        token: Authentication token in format 'username:password' for role-based access control.
         partition_name: Optional partition name to search. If not provided, searches all partitions.
 
     Returns:
         List of matching MilvusDocument objects.
     """
+    from src.auth_utils import extract_username_from_token
+    
     collection_name = collection_name or radchat_config.milvus.collection_name
-    username = username or radchat_config.milvus.username
+    
+    # Extract username from token
+    if token:
+        try:
+            username = extract_username_from_token(token)
+        except ValueError:
+            # Fallback to config default if token format is invalid
+            username = radchat_config.milvus.username
+    else:
+        username = radchat_config.milvus.username
 
     search_requests = []
 
@@ -350,7 +365,7 @@ def perform_search(
         # If no search requests, fall back to query with filters
         # Note: perform_query will add the security filter, so pass only user filters
         if len(filters) > 0 or len(user_roles) > 0:
-            return perform_query(filters, client, collection_name, username, partition_name)
+            return perform_query(filters, client, collection_name, token, partition_name)
         return []
 
     # Build hybrid_search kwargs, including partition_name if provided
@@ -392,7 +407,7 @@ def perform_query(
     filters: list[str],
     client: MilvusClient,
     collection_name: str | None = None,
-    username: str | None = None,
+    token: str | None = None,
     partition_name: str | None = None,
 ) -> list[MilvusDocument]:
     """Perform a query on Milvus with filters.
@@ -401,14 +416,25 @@ def perform_query(
         filters: List of filter expressions.
         client: MilvusClient instance.
         collection_name: Name of the collection to query.
-        username: Username for role-based access control.
+        token: Authentication token in format 'username:password' for role-based access control.
         partition_name: Optional partition name to query. If not provided, queries all partitions.
 
     Returns:
         List of matching MilvusDocument objects.
     """
+    from src.auth_utils import extract_username_from_token
+    
     collection_name = collection_name or radchat_config.milvus.collection_name
-    username = username or radchat_config.milvus.username
+    
+    # Extract username from token
+    if token:
+        try:
+            username = extract_username_from_token(token)
+        except ValueError:
+            # Fallback to config default if token format is invalid
+            username = radchat_config.milvus.username
+    else:
+        username = radchat_config.milvus.username
 
     # Build security filter for role-based access control
     try:
@@ -595,21 +621,18 @@ class MilvusSearchTool:
     def __init__(
         self,
         client: MilvusClient | None = None,
-        username: str | None = None,
-        password: str | None = None,
+        token: str | None = None,
         collection_name: str | None = None,
     ) -> None:
         """Initialize the Milvus search tool.
 
         Args:
             client: Optional MilvusClient instance. If None, will connect on first use.
-            username: Optional username for authentication. Uses config default if None.
-            password: Optional password for authentication. Uses config default if None.
+            token: Optional authentication token in format 'username:password'. Uses config default if None.
             collection_name: Optional collection name. Uses config default if None.
         """
         self._client = client
-        self._username = username or radchat_config.milvus.username
-        self._password = password or radchat_config.milvus.password
+        self._token = token
         self._collection_name = collection_name or radchat_config.milvus.collection_name
 
     def get_definition(self) -> ChatCompletionToolParam:
@@ -656,7 +679,8 @@ class MilvusSearchTool:
 
         Args:
             arguments: Dictionary with 'queries', optionally 'filters',
-                'collection_name', and 'partition_name' keys.
+                'collection_name', and 'partition_name' keys. May also contain
+                '_metadata' with 'milvus_token' for authentication.
 
         Returns:
             JSON string with search results or error message.
@@ -665,10 +689,14 @@ class MilvusSearchTool:
         filters = arguments.get("filters", [])
         collection_name = arguments.get("collection_name") or self._collection_name
         partition_name = arguments.get("partition_name")
+        
+        # Get token from metadata if provided, otherwise use instance token
+        metadata = arguments.get("_metadata", {})
+        token = metadata.get("milvus_token") if isinstance(metadata, dict) else self._token
 
         # Get or create client with the requested collection
         try:
-            client = self.get_client(collection_name=collection_name)
+            client = self.get_client(collection_name=collection_name, token=token)
         except CollectionNotFoundError as e:
             return json.dumps({"error": str(e), "error_type": "CollectionNotFoundError"})
         except Exception as e:
@@ -682,7 +710,7 @@ class MilvusSearchTool:
                 queries=queries if queries else [],
                 filters=filters if filters else [],
                 collection_name=collection_name,
-                username=self._username,
+                token=token,
                 partition_name=partition_name,
             )
         except CollectionNotFoundError as e:
@@ -707,13 +735,15 @@ class MilvusSearchTool:
             logging.error(error_msg)
             return json.dumps({"error": error_msg, "error_type": "RenderingError"})
 
-    def get_client(self, collection_name: str | None = None) -> MilvusClient:
+    def get_client(self, collection_name: str | None = None, token: str | None = None) -> MilvusClient:
         """Get the Milvus client instance, optionally for a specific collection.
 
         Args:
             collection_name: Optional collection name. If provided and differs from
                 the cached collection, will connect/reconnect to the new collection.
                 If None, uses the default collection from initialization.
+            token: Optional authentication token. If provided, will use this token
+                for authentication. Otherwise uses instance token or config defaults.
 
         Returns:
             MilvusClient instance.
@@ -722,12 +752,12 @@ class MilvusSearchTool:
             CollectionNotFoundError: If the collection does not exist.
         """
         target_collection = collection_name or self._collection_name
+        auth_token = token or self._token
 
         # If no client exists, connect to the target collection
         if self._client is None:
             self._client = connect_milvus(
-                username=self._username,
-                password=self._password,
+                token=auth_token,
                 collection_name=target_collection,
             )
             return self._client
@@ -736,8 +766,7 @@ class MilvusSearchTool:
         if collection_name is not None and collection_name != self._collection_name:
             # Switching to a different collection - reconnect with the new collection
             self._client = connect_milvus(
-                username=self._username,
-                password=self._password,
+                token=auth_token,
                 collection_name=target_collection,
             )
         else:
@@ -749,8 +778,7 @@ class MilvusSearchTool:
             except Exception as e:
                 logging.warning(f"Error ensuring collection is loaded, reconnecting: {e}")
                 self._client = connect_milvus(
-                    username=self._username,
-                    password=self._password,
+                    token=auth_token,
                     collection_name=target_collection,
                 )
 

@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 
-from src.crawler.main import CrawlerConfig
+from crawler import CrawlerConfig
 
 
 class PipelineRegistry:

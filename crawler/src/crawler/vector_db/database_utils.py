@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .database_client import DatabaseBenchmark, DatabaseClient, DatabaseClientConfig
 from .milvus_benchmarks import MilvusBenchmark
@@ -13,7 +13,7 @@ def get_db(
     dimension: int,
     metadata: dict[str, any],
     library_context: str,
-    collection_config_json: str | None = None,
+    collection_config_json: dict[str, Any] | None = None,
 ) -> DatabaseClient:
     """
     Get a database client based on the provider.
@@ -22,7 +22,7 @@ def get_db(
         dimension: Dimension of the embeddings.
         metadata: Metadata schema for the database client.
         library_context: Library context for the database client.
-        collection_config_json: Optional JSON string containing collection configuration.
+        collection_config_json: Optional dictionary containing collection configuration.
     Returns:
         A DatabaseClient object.
     """

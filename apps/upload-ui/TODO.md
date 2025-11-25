@@ -1,5 +1,10 @@
 # TODO
 
+- How does it fetch collection information?
+  - How is that stored, is it parsed correctly??
+  - Sync these between frontend and backend.
+- Does it use the user name and password to authenticate on backend?
+
 ## General
 - [ ] Add a deployment system to the page
 - [ ] Add a monitoring system to the page

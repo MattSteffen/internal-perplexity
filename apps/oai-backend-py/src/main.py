@@ -7,7 +7,7 @@ from openai.types import CreateEmbeddingResponse
 from openai.types.chat import ChatCompletion
 
 from src.auth import init_oauth
-from src.auth_utils import verify_token
+from src.auth_utils import get_optional_token, verify_token
 from src.config import settings
 from src.endpoints import auth, chat, collections, document_pipelines, embeddings, models, tools
 
@@ -40,9 +40,22 @@ async def health_check() -> JSONResponse:
 
 
 @app.post("/v1/chat/completions", response_model=None)
-async def chat_completions(request: Request) -> StreamingResponse | ChatCompletion:
-    """OpenAI-compatible chat completions endpoint."""
-    return await chat.create_chat_completion(request)
+async def chat_completions(
+    request: Request,
+    user: dict[str, any] | None = Depends(get_optional_token),
+) -> StreamingResponse | ChatCompletion:
+    """OpenAI-compatible chat completions endpoint.
+    
+    curl -X POST http://localhost:8000/v1/chat/completions \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer $TOKEN" \
+      -d '{
+        "model": "llama3.2:1b",
+        "messages": [{"role": "user", "content": "Hello!"}],
+        "stream": false
+      }'
+    """
+    return await chat.create_chat_completion(request, user=user)
 
 
 @app.post("/v1/embeddings")

@@ -1,12 +1,12 @@
 """ArXiv mathematics paper processing pipeline configuration."""
 
-from .chunker import ChunkingConfig
-from .converter.pymupdf4llm import PyMuPDF4LLMConfig
-from .extractor import MetadataExtractorConfig
-from .llm.embeddings import EmbedderConfig
-from .llm.llm import LLMConfig
-from .main import CrawlerConfig
-from .vector_db.database_client import DatabaseClientConfig
+from crawler import CrawlerConfig
+from crawler.chunker import ChunkingConfig
+from crawler.converter import PyMuPDF4LLMConfig
+from crawler.extractor import MetadataExtractorConfig
+from crawler.llm.embeddings import EmbedderConfig
+from crawler.llm.llm import LLMConfig
+from crawler.vector_db import DatabaseClientConfig
 
 arxiv_math_library_description = (
     "You are processing a collection of academic mathematics papers from arXiv. "
@@ -138,3 +138,4 @@ def create_arxiv_math_config() -> CrawlerConfig:
     )
 
     return config
+
