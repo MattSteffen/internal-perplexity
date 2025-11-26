@@ -182,32 +182,109 @@ export async function fetchCollections(): Promise<Collection[]> {
     };
 
     // Parse description from JSON string if it exists
+    // The API now returns library_context as the description field directly,
+    // but we also support parsing the full CollectionDescription JSON format
     let parsedDescription: string | undefined;
     let pipelineConfig: PipelineConfig | undefined;
     let permissions: CollectionPermissions | undefined;
     let metadataSchema: unknown | undefined;
 
+    // Check if metadata_schema is already extracted by the backend (new format)
+    if (metadata && "metadata_schema" in metadata && metadata.metadata_schema) {
+      if (typeof metadata.metadata_schema === "string") {
+        try {
+          const parsed = JSON.parse(metadata.metadata_schema);
+          // Only use if it's a non-empty object
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && Object.keys(parsed).length > 0) {
+            metadataSchema = parsed;
+          }
+        } catch {
+          // Ignore parse errors
+        }
+      } else if (
+        typeof metadata.metadata_schema === "object" &&
+        !Array.isArray(metadata.metadata_schema) &&
+        Object.keys(metadata.metadata_schema).length > 0
+      ) {
+        metadataSchema = metadata.metadata_schema;
+      }
+    }
+
+    // Check if pipeline_config and permissions are already extracted by the backend
+    if (metadata && "pipeline_config" in metadata && metadata.pipeline_config) {
+      pipelineConfig = metadata.pipeline_config as PipelineConfig;
+    }
+    if (metadata && "permissions" in metadata && metadata.permissions) {
+      permissions = metadata.permissions as CollectionPermissions;
+    }
+
+    // Parse description field (may contain full CollectionDescription JSON or just library_context string)
     if (metadata?.description && typeof metadata.description === "string") {
       try {
-        const parsed: CollectionMetadataJson = JSON.parse(metadata.description);
-        parsedDescription = parsed.description;
-        pipelineConfig = parsed.pipeline_config;
-        permissions = parsed.permissions;
-        // Parse metadata_schema if it's a JSON string
-        if (parsed.metadata_schema) {
-          metadataSchema =
-            typeof parsed.metadata_schema === "string"
-              ? JSON.parse(parsed.metadata_schema)
-              : parsed.metadata_schema;
+        const parsed: CollectionMetadataJson & {
+          library_context?: string;
+          collection_config_json?: {
+            pipeline_config?: PipelineConfig;
+            permissions?: CollectionPermissions;
+          };
+        } = JSON.parse(metadata.description);
+        // New format: look for library_context first
+        if (parsed.library_context) {
+          parsedDescription = parsed.library_context;
+        } else if (parsed.description) {
+          // Old format: fallback to description field
+          parsedDescription = parsed.description;
+        }
+        // If we still don't have a description, use the original string as fallback
+        if (!parsedDescription) {
+          parsedDescription = metadata.description;
+        }
+        // Extract pipeline_config and permissions from parsed JSON if not already extracted
+        if (!pipelineConfig) {
+          pipelineConfig =
+            parsed.pipeline_config || parsed.collection_config_json?.pipeline_config;
+        }
+        if (!permissions) {
+          permissions =
+            parsed.permissions || parsed.collection_config_json?.permissions;
+        }
+        // Extract metadata_schema from parsed JSON if not already extracted
+        if (!metadataSchema && parsed.metadata_schema) {
+          if (typeof parsed.metadata_schema === "string") {
+            try {
+              const parsedSchema = JSON.parse(parsed.metadata_schema);
+              // Only use if it's a non-empty object
+              if (
+                parsedSchema &&
+                typeof parsedSchema === "object" &&
+                !Array.isArray(parsedSchema) &&
+                Object.keys(parsedSchema).length > 0
+              ) {
+                metadataSchema = parsedSchema;
+              }
+            } catch {
+              // Ignore parse errors
+            }
+          } else if (
+            typeof parsed.metadata_schema === "object" &&
+            !Array.isArray(parsed.metadata_schema) &&
+            Object.keys(parsed.metadata_schema).length > 0
+          ) {
+            metadataSchema = parsed.metadata_schema;
+          }
         }
       } catch (error) {
-        // If parsing fails, use the description as-is (fallback for old format)
-        console.warn(
-          `Failed to parse collection metadata JSON for ${collectionName}:`,
-          error,
-        );
-        parsedDescription = metadata.description;
+        // If parsing fails, check if library_context is available as a separate field
+        if (metadata && "library_context" in metadata && metadata.library_context) {
+          parsedDescription = metadata.library_context as string;
+        } else {
+          // Fallback: use description as-is (might be plain library_context string)
+          parsedDescription = metadata.description;
+        }
       }
+    } else if (metadata && "library_context" in metadata && metadata.library_context) {
+      // Direct access to library_context field (new backend format)
+      parsedDescription = metadata.library_context as string;
     }
 
     // Create enhanced metadata object with parsed schema

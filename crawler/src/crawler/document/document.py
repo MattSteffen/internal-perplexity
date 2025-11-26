@@ -21,7 +21,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 # Import types from converter for stats
-from ..converter.base import ConversionStats
+from ..converter import ConversionStats
 
 # Type alias for bounding box
 BBox = tuple[float, float, float, float]
@@ -139,7 +139,7 @@ class Document(BaseModel):
         Convert document to database entities for insertion.
 
         Creates a list of entity dictionaries, one per chunk, with all fields
-        required for database storage. Uses the default_ prefix for system fields
+        required for database storage. Uses descriptive names for internal fields
         to match DatabaseDocument schema.
 
         Returns:
@@ -162,27 +162,27 @@ class Document(BaseModel):
 
         for i, (chunk, embedding) in enumerate(zip(self.chunks, self.text_embeddings)):
             entity: dict[str, Any] = {
-                "default_document_id": self.document_id,
-                "default_text": chunk,
-                "default_text_embedding": embedding,
-                "default_chunk_index": i,
-                "default_source": self.source,
-                "default_metadata": metadata_json,
-                "default_minio": self.minio_url or "",
+                "document_id": self.document_id,
+                "text": chunk,
+                "text_embedding": embedding,
+                "chunk_index": i,
+                "source": self.source,
+                "str_metadata": metadata_json,
+                "minio": self.minio_url or "",
                 "security_group": self.security_group,
                 "metadata": self.metadata or {},
             }
 
             # Add sparse embeddings if available
             if self.sparse_text_embeddings and i < len(self.sparse_text_embeddings):
-                entity["default_text_sparse_embedding"] = self.sparse_text_embeddings[i]
+                entity["text_sparse_embedding"] = self.sparse_text_embeddings[i]
 
             if self.sparse_metadata_embeddings:
-                entity["default_metadata_sparse_embedding"] = self.sparse_metadata_embeddings
+                entity["metadata_sparse_embedding"] = self.sparse_metadata_embeddings
 
             # Add benchmark questions if available (only to first chunk)
             if self.benchmark_questions and i == 0:
-                entity["default_benchmark_questions"] = self.benchmark_questions
+                entity["benchmark_questions"] = self.benchmark_questions
 
             entities.append(entity)
 

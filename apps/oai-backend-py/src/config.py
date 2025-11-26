@@ -80,10 +80,10 @@ class SearchConfig(BaseModel):
     output_fields: list[str] = Field(
         default=[
             "metadata",
-            "default_text",
-            "default_document_id",
-            "default_chunk_index",
-            "default_source",
+            "text",
+            "document_id",
+            "chunk_index",
+            "source",
         ]
     )
 

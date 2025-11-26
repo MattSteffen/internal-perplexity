@@ -52,10 +52,10 @@ class MilvusDocument(BaseModel):
     """Milvus document with metadata and content."""
 
     id: Any | None = -1
-    default_document_id: str
-    default_text: str
-    default_chunk_index: int
-    default_source: str
+    document_id: str
+    text: str
+    chunk_index: int
+    source: str
     security_group: list[str] = Field(default_factory=lambda: ["public"])
     metadata: MilvusDocumentMetadata = Field(default_factory=MilvusDocumentMetadata)
     distance: float | None = 1.0
@@ -113,8 +113,8 @@ class MilvusDocument(BaseModel):
             parts.append(f"**Date:** {self.metadata.date}")
 
         # Source
-        if self.default_source:
-            parts.append(f"**Source:** `{self.default_source}` (Chunk: {self.default_chunk_index})")
+        if self.source:
+            parts.append(f"**Source:** `{self.source}` (Chunk: {self.chunk_index})")
 
         # Dynamically render other metadata fields, excluding those already handled or empty
         fields_to_ignore = {
@@ -139,8 +139,8 @@ class MilvusDocument(BaseModel):
             parts.extend(other_metadata)
 
         # Include full text if requested
-        if include_text and self.default_text:
-            parts.append("\n---\n" + self.default_text)
+        if include_text and self.text:
+            parts.append("\n---\n" + self.text)
 
         return "\n".join(parts)
 
@@ -289,12 +289,12 @@ def perform_search(
 
     search_configs: list[dict[str, Any]] = [
         {
-            "field": "default_text_sparse_embedding",
+            "field": "text_sparse_embedding",
             "param": {"drop_ratio_search": radchat_config.search.drop_ratio},
             "data_transform": lambda q: [q],  # type: ignore[assignment]
         },
         {
-            "field": "default_metadata_sparse_embedding",
+            "field": "metadata_sparse_embedding",
             "param": {"drop_ratio_search": radchat_config.search.drop_ratio},
             "data_transform": lambda q: [q],  # type: ignore[assignment]
         },
@@ -304,13 +304,13 @@ def perform_search(
     try:
         collection_info = client.describe_collection(collection_name=collection_name)
         indexes = collection_info.get("indexes", [])
-        # Find index for default_text_embedding field
+        # Find index for text_embedding field
         embedding_index_params: dict[str, Any] = {
             "metric_type": "COSINE",
             "params": {"nprobe": radchat_config.search.nprobe},
         }
         for index in indexes:
-            if index.get("field_name") == "default_text_embedding":
+            if index.get("field_name") == "text_embedding":
                 index_params = index.get("params", {})
                 # Extract metric_type if available
                 if "metric_type" in index_params:
@@ -333,7 +333,7 @@ def perform_search(
             search_requests.append(
                 AnnSearchRequest(
                     data=embeddings,
-                    anns_field="default_text_embedding",
+                    anns_field="text_embedding",
                     param=embedding_index_params,
                     expr=filter_expr,
                     limit=radchat_config.search.search_limit,
@@ -487,7 +487,7 @@ def perform_query(
 def consolidate_documents(documents: list[MilvusDocument]) -> list[MilvusDocument]:
     """Consolidate documents with the same document_id, combining their text and metadata.
 
-    Groups by default_document_id and combines:
+    Groups by document_id and combines:
     - Text chunks in order
     - Unique keywords
     - Unique words
@@ -506,16 +506,16 @@ def consolidate_documents(documents: list[MilvusDocument]) -> list[MilvusDocumen
     # Group by document_id instead of source
     doc_groups = defaultdict(list)
     for doc in documents:
-        doc_groups[doc.default_document_id].append(doc)
+        doc_groups[doc.document_id].append(doc)
 
     consolidated_docs = []
     for doc_id, docs in doc_groups.items():
         # Sort chunks by index to maintain reading order
-        sorted_chunks = sorted(docs, key=lambda d: d.default_chunk_index)
+        sorted_chunks = sorted(docs, key=lambda d: d.chunk_index)
         base_doc = sorted_chunks[0]
 
         # Combine text chunks with separator
-        combined_text = "\n\n---\n\n".join([d.default_text for d in sorted_chunks if d.default_text])
+        combined_text = "\n\n---\n\n".join([d.text for d in sorted_chunks if d.text])
 
         # Combine unique keywords
         combined_keywords = sorted(list(set(kw for d in sorted_chunks for kw in (d.metadata.keywords or []))))
@@ -540,9 +540,9 @@ def consolidate_documents(documents: list[MilvusDocument]) -> list[MilvusDocumen
         consolidated_data = base_doc.model_dump()
         consolidated_data.update(
             {
-                "default_text": combined_text,
+                "text": combined_text,
                 "distance": min_distance,
-                "default_chunk_index": 0,  # Represents the consolidated document
+                "chunk_index": 0,  # Represents the consolidated document
             }
         )
 
@@ -595,12 +595,12 @@ def build_citations(documents: list[MilvusDocument]) -> list[dict[str, Any]]:
 
         citations.append(
             {
-                "source": {"name": doc.default_source, "url": ""},
+                "source": {"name": doc.source, "url": ""},
                 "document": [doc.render(include_text=False)],
                 "metadata": [
                     {
                         "date_accessed": datetime.now().isoformat(),
-                        "source": doc.metadata.title or doc.default_source,
+                        "source": doc.metadata.title or doc.source,
                         "author": author_str,
                         "publication_date": publication_date,
                         "url": "",  # URL not available in document metadata

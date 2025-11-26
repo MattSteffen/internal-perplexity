@@ -5,7 +5,7 @@ from .milvus_benchmarks import MilvusBenchmark
 from .milvus_client import MilvusDB
 
 if TYPE_CHECKING:
-    from ..processing.embeddings import EmbedderConfig
+    from ..llm.embeddings import EmbedderConfig
 
 
 def get_db(

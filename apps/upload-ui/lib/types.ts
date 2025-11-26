@@ -98,9 +98,12 @@ export interface CollectionPermissions {
 }
 
 export interface CollectionMetadataJson {
-  description: string;
-  metadata_schema: unknown;
-  full_prompt: string;
+  description?: string; // Old format - kept for backward compatibility
+  library_context?: string; // New format - preferred field for collection description
+  metadata_schema?: unknown;
+  full_prompt?: string;
+  llm_prompt?: string; // New format field name
+  collection_config_json?: Record<string, unknown>; // New format field
   pipeline_config?: PipelineConfig;
   permissions?: CollectionPermissions;
 }

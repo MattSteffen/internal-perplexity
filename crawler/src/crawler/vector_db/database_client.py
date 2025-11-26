@@ -1,53 +1,56 @@
 import json
 import os
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import matplotlib.pyplot as plt
 from pydantic import BaseModel, Field
 
 from ..llm.embeddings import EmbedderConfig
 
+if TYPE_CHECKING:
+    from ..main import CrawlerConfig
+
 
 class DatabaseDocument(BaseModel):
     """
     Pydantic model defining the interface for document data.
 
-    All system fields use default_ prefix to avoid conflicts with user metadata.
+    System fields use descriptive names for internal fields to avoid conflicts with user metadata.
     This model provides automatic validation and serialization for document chunks.
 
     Attributes:
         id: Database-assigned primary key (default: -1 before insertion)
         metadata: Additional user-defined metadata as key-value pairs
         security_group: List of security groups for RBAC access control
-        default_document_id: Unique identifier for the document chunk (UUID)
-        default_text: The text content of the document chunk
-        default_text_embedding: Dense vector embedding of the text
-        default_chunk_index: Index of this chunk within the document (0-based)
-        default_source: Source identifier (e.g., file path, URL)
-        default_metadata: JSON string representation of metadata
-        default_minio: URL to the original document in MinIO storage
-        default_text_sparse_embedding: Sparse embedding for BM25 full-text search
-        default_metadata_sparse_embedding: Sparse embedding of metadata for BM25 search
-        default_benchmark_questions: List of benchmark questions for testing
+        document_id: Unique identifier for the document chunk (UUID)
+        text: The text content of the document chunk
+        text_embedding: Dense vector embedding of the text
+        chunk_index: Index of this chunk within the document (0-based)
+        source: Source identifier (e.g., file path, URL)
+        str_metadata: JSON string representation of metadata (internal field)
+        minio: URL to the original document in MinIO storage
+        text_sparse_embedding: Sparse embedding for BM25 full-text search (internal field)
+        metadata_sparse_embedding: Sparse embedding of metadata for BM25 search (internal field)
+        benchmark_questions: List of benchmark questions for testing
     """
 
-    # Required attributes - these must exist (using prefixed field names)
-    default_document_id: str = Field(..., description="Unique identifier for the document chunk (UUID format)")
-    default_text: str = Field(..., description="The text content of the document chunk")
-    default_text_embedding: list[float] = Field(..., description="Dense vector embedding of the text content")
-    default_chunk_index: int = Field(..., ge=0, description="Zero-based index of this chunk within the parent document")
-    default_source: str = Field(..., description="Source identifier (file path, URL, etc.)")
+    # Required attributes - these must exist
+    document_id: str = Field(..., description="Unique identifier for the document chunk (UUID format)")
+    text: str = Field(..., description="The text content of the document chunk")
+    text_embedding: list[float] = Field(..., description="Dense vector embedding of the text content")
+    chunk_index: int = Field(..., ge=0, description="Zero-based index of this chunk within the parent document")
+    source: str = Field(..., description="Source identifier (file path, URL, etc.)")
     security_group: list[str] = Field(default_factory=lambda: ["public"], description="List of security groups for RBAC row-level access control")
     metadata: dict[str, Any] = Field(default_factory=dict, description="User-defined metadata as key-value pairs")
 
     # Optional attributes with defaults
     id: int | None = Field(default=-1, description="Database-assigned primary key (auto-generated on insert)")
-    default_metadata: str | None = Field(default="", description="JSON string representation of the metadata field")
-    default_minio: str | None = Field(default="", description="URL to the original document in MinIO object storage")
-    default_text_sparse_embedding: list[float] | None = Field(default_factory=list, description="Sparse vector embedding for BM25 full-text search on text")
-    default_metadata_sparse_embedding: list[float] | None = Field(default_factory=list, description="Sparse vector embedding for BM25 full-text search on metadata")
-    default_benchmark_questions: list[str] | None = Field(default_factory=list, description="List of benchmark questions generated for testing retrieval")
+    str_metadata: str | None = Field(default="", description="JSON string representation of the metadata field")
+    minio: str | None = Field(default="", description="URL to the original document in MinIO object storage")
+    text_sparse_embedding: list[float] | None = Field(default_factory=list, description="Sparse vector embedding for BM25 full-text search on text")
+    metadata_sparse_embedding: list[float] | None = Field(default_factory=list, description="Sparse vector embedding for BM25 full-text search on metadata")
+    benchmark_questions: list[str] | None = Field(default_factory=list, description="List of benchmark questions generated for testing retrieval")
 
     model_config = {
         "extra": "forbid",  # Prevent extra fields to maintain schema integrity
@@ -120,6 +123,94 @@ class DatabaseDocument(BaseModel):
         return self.model_dump_json(indent=4)
 
 
+class CollectionDescription(BaseModel):
+    """
+    Typed model for Milvus collection descriptions.
+
+    This model stores all the metadata needed to restore a crawler configuration
+    from an existing collection, including the crawler config, metadata schema,
+    library context, and LLM prompt.
+
+    Attributes:
+        metadata_schema: User-provided metadata JSON schema
+        library_context: Human-readable description of collection data
+        collection_config_json: Full crawler config dictionary (can be None for older collections)
+        llm_prompt: Generated prompt text with metadata filtering instructions
+    """
+
+    metadata_schema: dict[str, Any] = Field(default_factory=dict, description="User-provided metadata JSON schema")
+    library_context: str = Field(..., description="Human-readable description of collection data")
+    collection_config_json: dict[str, Any] | None = Field(default=None, description="Full crawler config dictionary")
+    llm_prompt: str = Field(..., description="Generated prompt text with metadata filtering instructions")
+
+    model_config = {
+        "validate_assignment": True,
+    }
+
+    def to_json(self) -> str:
+        """
+        Convert to JSON string for storage in Milvus collection description.
+
+        Returns:
+            JSON string representation of the collection description
+        """
+        return self.model_dump_json()
+
+    @classmethod
+    def from_json(cls, description: str) -> "CollectionDescription | None":
+        """
+        Restore CollectionDescription from a JSON string.
+
+        Args:
+            description: JSON string from Milvus collection description
+
+        Returns:
+            CollectionDescription instance, or None if parsing fails
+        """
+        if not description:
+            return None
+
+        try:
+            data = json.loads(description.strip())
+            if isinstance(data, dict):
+                return cls.model_validate(data)
+            return None
+        except (json.JSONDecodeError, ValueError, Exception):
+            return None
+
+    def to_crawler_config(self, database_config: "DatabaseClientConfig") -> "CrawlerConfig":
+        """
+        Create a CrawlerConfig from the stored collection_config_json.
+
+        Args:
+            database_config: Database configuration to use (collection name will be overridden)
+
+        Returns:
+            CrawlerConfig instance restored from collection_config_json
+
+        Raises:
+            ValueError: If collection_config_json is None or invalid
+        """
+        if self.collection_config_json is None:
+            raise ValueError("Collection description does not contain 'collection_config_json'")
+
+        # Import here to avoid circular imports
+        from ..main import CrawlerConfig
+
+        try:
+            config = CrawlerConfig.from_dict(self.collection_config_json)
+        except Exception as e:
+            raise ValueError(f"Failed to create CrawlerConfig from collection config: {str(e)}") from e
+
+        # Override collection name in database config to match the actual collection
+        config.database = config.database.copy_with_overrides(
+            collection=database_config.collection,
+            recreate=False,  # Always set to False when restoring
+        )
+
+        return config
+
+
 class DatabaseClientConfig(BaseModel):
     """
     Base configuration for database clients.
@@ -172,6 +263,18 @@ class DatabaseClientConfig(BaseModel):
             Authentication token in format username:password
         """
         return f"{self.username}:{self.password}"
+
+    def copy_with_overrides(self, **overrides) -> "DatabaseClientConfig":
+        """
+        Create a copy with specified field overrides.
+
+        Args:
+            **overrides: Field values to override in the copy
+
+        Returns:
+            New DatabaseClientConfig instance with overridden fields
+        """
+        return self.model_copy(update=overrides)
 
     @classmethod
     def milvus(
@@ -267,12 +370,12 @@ class DatabaseClient(ABC):
         Expected data format:
         [
             {
-                "default_text": "content text",
-                "default_text_embedding": [0.1, 0.2, ...],
-                "default_chunk_index": 0,
-                "default_source": "filename",
-                "default_document_id": "uuid",
-                "default_minio": "optional_url",
+                "text": "content text",
+                "text_embedding": [0.1, 0.2, ...],
+                "chunk_index": 0,
+                "source": "filename",
+                "document_id": "uuid",
+                "minio": "optional_url",
                 # ... other user-defined fields
             },
             ...

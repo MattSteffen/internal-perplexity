@@ -396,23 +396,23 @@ class Pipe:
         seen_doc_ids = set()
         if __event_emitter__:
             for doc in consolidated_initial_results:
-                if doc.default_document_id not in seen_doc_ids:
-                    seen_doc_ids.add(doc.default_document_id)
+                if doc.document_id not in seen_doc_ids:
+                    seen_doc_ids.add(doc.document_id)
                     try:
                         rendered_doc = doc.render(include_text=False)
                         await __event_emitter__(
                             {
                                 "type": "citation",
                                 "data": {
-                                    "source": {"name": doc.default_source, "url": ""},
+                                    "source": {"name": doc.source, "url": ""},
                                     "document": [rendered_doc],
-                                    "metadata": doc.model_dump(exclude={"default_text", "distance"}),
+                                    "metadata": doc.model_dump(exclude={"text", "distance"}),
                                     "distance": doc.distance,
                                 },
                             }
                         )
                     except Exception as e:
-                        error_msg = f"Failed to render citation for document {doc.default_document_id}: {str(e)}"
+                        error_msg = f"Failed to render citation for document {doc.document_id}: {str(e)}"
                         logging.error(error_msg)
                         # Continue with other documents rather than failing completely
 
@@ -651,8 +651,8 @@ class Pipe:
                         # Emit citations immediately for new documents
                         if __event_emitter__:
                             for doc in consolidated_tool_output:
-                                if doc.default_document_id not in seen_doc_ids:
-                                    seen_doc_ids.add(doc.default_document_id)
+                                if doc.document_id not in seen_doc_ids:
+                                    seen_doc_ids.add(doc.document_id)
                                     try:
                                         rendered_doc = doc.render(include_text=False)
                                         await __event_emitter__(
@@ -660,17 +660,17 @@ class Pipe:
                                                 "type": "citation",
                                                 "data": {
                                                     "source": {
-                                                        "name": doc.default_source,
+                                                        "name": doc.source,
                                                         "url": "",
                                                     },
                                                     "document": [rendered_doc],
-                                                    "metadata": doc.model_dump(exclude={"default_text", "distance"}),
+                                                    "metadata": doc.model_dump(exclude={"text", "distance"}),
                                                     "distance": doc.distance,
                                                 },
                                             }
                                         )
                                     except Exception as e:
-                                        error_msg = f"Failed to render citation for document {doc.default_document_id}: {str(e)}"
+                                        error_msg = f"Failed to render citation for document {doc.document_id}: {str(e)}"
                                         logging.error(error_msg)
                                         # Continue with other documents rather than failing completely
 

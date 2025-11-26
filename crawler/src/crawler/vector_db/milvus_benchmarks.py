@@ -16,10 +16,10 @@ from .database_client import (
 )
 
 OUTPUT_FIELDS = [
-    "default_source",
-    "default_chunk_index",
-    "default_text",
-    "default_metadata",
+    "source",
+    "chunk_index",
+    "text",
+    "str_metadata",
     "title",
     "author",
     "date",
@@ -93,7 +93,7 @@ class MilvusBenchmark(DatabaseBenchmark):
                 search_requests.append(
                     AnnSearchRequest(
                         data=[embedding],
-                        anns_field="default_text_embedding",
+                        anns_field="text_embedding",
                         param={"metric_type": "COSINE", "params": {"nprobe": 10}},
                         expr=filter_str,
                         limit=10,
@@ -106,7 +106,7 @@ class MilvusBenchmark(DatabaseBenchmark):
             search_requests.append(
                 AnnSearchRequest(
                     data=[query],
-                    anns_field="default_text_sparse_embedding",
+                    anns_field="text_sparse_embedding",
                     param={"drop_ratio_search": 0.2},
                     expr=filter_str,
                     limit=10,
@@ -115,7 +115,7 @@ class MilvusBenchmark(DatabaseBenchmark):
             search_requests.append(
                 AnnSearchRequest(
                     data=[query],
-                    anns_field="default_metadata_sparse_embedding",
+                    anns_field="metadata_sparse_embedding",
                     param={"drop_ratio_search": 0.2},
                     expr=filter_str,
                     limit=10,
@@ -159,9 +159,11 @@ class MilvusBenchmark(DatabaseBenchmark):
         top_k_values = list(range(1, 101))
 
         # Load documents from collection
+        # Only get chunk_index == 0 to avoid processing the same document multiple times
         all_docs = self.milvus_client.query(
             collection_name=self.db_config.collection,
-            output_fields=["default_text"],
+            filter="chunk_index == 0",
+            output_fields=["source", "text", "id"],
             limit=10000,
         )
 
@@ -177,10 +179,10 @@ class MilvusBenchmark(DatabaseBenchmark):
 
         with tqdm(total=len(all_docs), desc="Processing documents", unit="doc") as pbar:
             for doc in all_docs:
-                source = doc.get("id")
-                text = doc.get("default_text")
+                source = doc.get("source")
+                text = doc.get("text")
 
-                if not text or len(text.strip()) == 0:
+                if not source or not text or len(text.strip()) == 0:
                     pbar.update(1)
                     continue
 
@@ -190,7 +192,7 @@ class MilvusBenchmark(DatabaseBenchmark):
                         # Query for stored benchmark questions (only for chunk_index 0 to avoid duplicates)
                         stored_questions_result = self.milvus_client.query(
                             collection_name=self.db_config.collection,
-                            filter=f"default_source == '{source}' AND default_chunk_index == 0",
+                            filter=f"source == '{source}' AND chunk_index == 0",
                             output_fields=["benchmark_questions"],
                             limit=1,
                         )
@@ -276,7 +278,7 @@ class MilvusBenchmark(DatabaseBenchmark):
 
                             found_in_results = False
                             for i, res in enumerate(search_results):
-                                if res.get("id") == source:
+                                if res.get("source") == source:
                                     placement = i + 1
                                     distance = res["distance"]
                                     result = BenchmarkResult(

@@ -13,7 +13,7 @@ from .database_client import (
     DatabaseClientConfig,
     DatabaseDocument,
 )
-from .milvus_utils import DEFAULT_SECURITY_GROUP, create_index, create_schema
+from .milvus_utils import DEFAULT_SECURITY_GROUP, create_index, create_schema, extract_collection_description
 
 
 class MilvusDB(DatabaseClient):
@@ -117,7 +117,7 @@ class MilvusDB(DatabaseClient):
             dimension=self.embedding_dimension,
             schema=collection_schema,
             index_params=index,
-            vector_field_name="default_text_embedding",
+            vector_field_name="text_embedding",
             auto_id=True,
         )
 
@@ -138,11 +138,11 @@ class MilvusDB(DatabaseClient):
         try:
             results = self.client.query(
                 collection_name=self.config.collection,
-                filter=f"default_source == '{source}'",
-                output_fields=["default_chunk_index"],
+                filter=f"source == '{source}'",
+                output_fields=["chunk_index"],
                 limit=10000,  # Adjust limit as needed
             )
-            return {result["default_chunk_index"] for result in results}
+            return {result["chunk_index"] for result in results}
 
         except MilvusException as e:
             raise e
@@ -163,8 +163,8 @@ class MilvusDB(DatabaseClient):
         try:
             results = self.client.query(
                 collection_name=self.config.collection,
-                filter=f"default_source == '{source}' AND default_chunk_index == {chunk_index}",
-                output_fields=["default_source"],
+                filter=f"source == '{source}' AND chunk_index == {chunk_index}",
+                output_fields=["source"],
                 limit=1,
             )
             return len(results) > 0
@@ -179,10 +179,10 @@ class MilvusDB(DatabaseClient):
         Insert data into the collection with optimized duplicate detection and progress tracking.
 
         Expected data format matches DatabaseDocument protocol:
-        - default_text: str
-        - default_text_embedding: List[float]
-        - default_chunk_index: int
-        - default_source: str
+        - text: str
+        - text_embedding: List[float]
+        - chunk_index: int
+        - source: str
         - Additional fields accessible via dict-like interface
 
         Args:
@@ -199,7 +199,7 @@ class MilvusDB(DatabaseClient):
         # Group items by source for optimized duplicate detection
         items_by_source: dict[str, list[DatabaseDocument]] = {}
         for item in data:
-            source = item.default_source
+            source = item.source
             if source not in items_by_source:
                 items_by_source[source] = []
             items_by_source[source].append(item)
@@ -219,7 +219,7 @@ class MilvusDB(DatabaseClient):
                     for item in source_items:
                         try:
                             # Validate required fields exist (these should be guaranteed by protocol)
-                            chunk_index = item.default_chunk_index
+                            chunk_index = item.chunk_index
 
                             # Check for duplicates using the cached indexes
                             if chunk_index in existing_indexes:
@@ -229,11 +229,22 @@ class MilvusDB(DatabaseClient):
 
                             # Prepare the data for insertion
                             prepared_item = item.to_dict()
-                            if prepared_item["default_document_id"] is None:
-                                prepared_item["default_document_id"] = str(uuid.uuid4())
+                            if prepared_item["document_id"] is None:
+                                prepared_item["document_id"] = str(uuid.uuid4())
 
-                            # Add metadata as JSON string (include benchmark_questions in all chunks)
-                            prepared_item["default_metadata"] = json.dumps(item.metadata, separators=(",", ":"))
+                            # Add metadata as JSON string
+                            prepared_item["str_metadata"] = json.dumps(item.metadata, separators=(",", ":"))
+
+                            # Serialize benchmark_questions as JSON string (schema expects VARCHAR, not list)
+                            benchmark_questions = prepared_item.get("benchmark_questions")
+                            if benchmark_questions is None:
+                                prepared_item["benchmark_questions"] = "[]"
+                            elif isinstance(benchmark_questions, list):
+                                prepared_item["benchmark_questions"] = json.dumps(benchmark_questions, separators=(",", ":"))
+                            elif not isinstance(benchmark_questions, str):
+                                # If it's not a list or string, convert to empty array string
+                                prepared_item["benchmark_questions"] = "[]"
+                            # If it's already a string, leave it as is
 
                             # Add security group to the item
                             # TODO: Should require a security group to be set not set a default, this should be checked earlier
@@ -242,8 +253,8 @@ class MilvusDB(DatabaseClient):
 
                             # Remove function output fields - these are computed by Milvus functions
                             # and should NOT be provided in insert data
-                            prepared_item.pop("default_text_sparse_embedding", None)
-                            prepared_item.pop("default_metadata_sparse_embedding", None)
+                            prepared_item.pop("text_sparse_embedding", None)
+                            prepared_item.pop("metadata_sparse_embedding", None)
 
                             # Remove the id field - it's auto-generated by Milvus
                             prepared_item.pop("id", None)
@@ -315,29 +326,8 @@ class MilvusDB(DatabaseClient):
                 return None
 
             # Get collection schema which contains the description
-            # describe_collection returns a dict with 'schema' key
             collection_info = self.client.describe_collection(collection_name)
-
-            # Handle dict response
-            if isinstance(collection_info, dict):
-                schema = collection_info.get("schema")
-                if schema and isinstance(schema, dict):
-                    return schema.get("description")
-                # Try direct description key
-                if "description" in collection_info:
-                    return collection_info["description"]
-
-            # Handle object response (if it's a CollectionSchema object)
-            if hasattr(collection_info, "schema"):
-                schema = collection_info.schema
-                if hasattr(schema, "description"):
-                    return schema.description
-
-            # Try direct description attribute
-            if hasattr(collection_info, "description"):
-                return collection_info.description
-
-            return None
+            return extract_collection_description(collection_info)
         except MilvusException:
             return None
         except Exception:

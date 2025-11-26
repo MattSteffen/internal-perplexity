@@ -1,13 +1,13 @@
 """
-General schema for all datasets (all system fields use default_ prefix):
-- default_document_id: The id of the document (not milvus unique id)
-- default_chunk_index: The index of the chunk in the document
-- default_text: The text chunk of the document
-- default_text_embedding: The embedding of the text chunk
-- default_text_sparse_embedding: The full-text-search embedding of the chunk
-- default_metadata: The metadata of the document
-- default_metadata_sparse_embedding: The full-text-search embedding of the metadata
-- default_minio: The source of the document, the url to the original document in minio
+General schema for all datasets (system fields use descriptive names for internal fields):
+- document_id: The id of the document (not milvus unique id)
+- chunk_index: The index of the chunk in the document
+- text: The text chunk of the document
+- text_embedding: The embedding of the text chunk
+- text_sparse_embedding: The full-text-search embedding of the chunk (internal field)
+- str_metadata: The metadata of the document as JSON string (internal field)
+- metadata_sparse_embedding: The full-text-search embedding of the metadata (internal field)
+- minio: The source of the document, the url to the original document in minio
 
 Extra schema designed by users:
 - title: The title of the document
@@ -17,7 +17,7 @@ Extra schema designed by users:
 - unique_words: The unique words of the document
 - etc.
 
-User metadata can now contain any keys without conflict since system fields are prefixed.
+User metadata can now contain any keys without conflict since system fields use descriptive names for internal fields.
 """
 
 import json
@@ -31,6 +31,8 @@ from pymilvus import (
     FunctionType,
     MilvusClient,
 )
+
+from .database_client import CollectionDescription
 
 # Constants
 MAX_DOC_LENGTH = 65535  # Max length for VARCHAR enforced by Milvus
@@ -57,49 +59,49 @@ def _create_base_schema(embedding_size) -> CollectionSchema:
         description="Auto-generated unique record ID",
     )
     field_schema_document_id = FieldSchema(
-        name="default_document_id",
+        name="document_id",
         dtype=DataType.VARCHAR,  # a uuid
         max_length=64,
         description="The uuid of the document",
     )
     field_schema_minio = FieldSchema(
-        name="default_minio",
+        name="minio",
         dtype=DataType.VARCHAR,
         max_length=256,
         description="The source url of the document in minio",
     )
     field_schema_chunk_index = FieldSchema(
-        name="default_chunk_index",
+        name="chunk_index",
         dtype=DataType.INT64,
         description="The index of the chunk in the document",
     )
     field_schema_text = FieldSchema(
-        name="default_text",
+        name="text",
         dtype=DataType.VARCHAR,
         enable_analyzer=True,
         max_length=MAX_DOC_LENGTH,
         description="The text of the document",
     )
     field_schema_text_embedding = FieldSchema(
-        name="default_text_embedding",
+        name="text_embedding",
         dtype=DataType.FLOAT_VECTOR,
         dim=embedding_size,
         description="The embedding of the text",
     )
     field_schema_text_sparse_embedding = FieldSchema(
-        name="default_text_sparse_embedding",
+        name="text_sparse_embedding",
         dtype=DataType.SPARSE_FLOAT_VECTOR,
         description="The full-text-search embedding of the text",
     )
-    field_schema_default_metadata = FieldSchema(
-        name="default_metadata",
+    field_schema_metadata_json = FieldSchema(
+        name="str_metadata",
         dtype=DataType.VARCHAR,
         max_length=MAX_DOC_LENGTH,
         enable_analyzer=True,
         description="The metadata of the document as a JSON string",
     )
     field_schema_metadata_sparse_embedding = FieldSchema(
-        name="default_metadata_sparse_embedding",
+        name="metadata_sparse_embedding",
         dtype=DataType.SPARSE_FLOAT_VECTOR,
         description="The full-text-search embedding of the metadata",
     )
@@ -131,14 +133,14 @@ def _create_base_schema(embedding_size) -> CollectionSchema:
     # functions to build the full-text-search indexes
     function_full_text_search = Function(
         name="full_text_search_on_chunks",
-        input_field_names=["default_text"],
-        output_field_names=["default_text_sparse_embedding"],
+        input_field_names=["text"],
+        output_field_names=["text_sparse_embedding"],
         function_type=FunctionType.BM25,
     )
     function_full_text_search_metadata = Function(
         name="full_text_search_on_metadata",
-        input_field_names=["default_metadata"],
-        output_field_names=["default_metadata_sparse_embedding"],
+        input_field_names=["str_metadata"],
+        output_field_names=["metadata_sparse_embedding"],
         function_type=FunctionType.BM25,
     )
     fields = [
@@ -146,7 +148,7 @@ def _create_base_schema(embedding_size) -> CollectionSchema:
         field_schema_document_id,
         field_schema_minio,
         field_schema_chunk_index,
-        field_schema_default_metadata,
+        field_schema_metadata_json,
         field_schema_text,
         field_schema_text_embedding,
         field_schema_text_sparse_embedding,
@@ -182,14 +184,14 @@ def create_index(client: MilvusClient):
     index_params = client.prepare_index_params()
 
     index_params.add_index(
-        field_name="default_text_embedding",
+        field_name="text_embedding",
         index_name="text_embedding_index",
         index_type="AUTOINDEX",
         metric_type="COSINE",
     )
 
     index_params.add_index(
-        field_name="default_text_sparse_embedding",
+        field_name="text_sparse_embedding",
         index_name="text_sparse_embedding_index",
         index_type="SPARSE_INVERTED_INDEX",
         metric_type="BM25",
@@ -197,7 +199,7 @@ def create_index(client: MilvusClient):
     )
 
     index_params.add_index(
-        field_name="default_metadata_sparse_embedding",
+        field_name="metadata_sparse_embedding",
         index_name="metadata_sparse_embedding_index",
         index_type="SPARSE_INVERTED_INDEX",
         metric_type="BM25",
@@ -213,9 +215,41 @@ def create_index(client: MilvusClient):
     return index_params
 
 
-def parse_collection_config(description: str) -> dict[str, Any] | None:
+def extract_collection_description(collection_info: Any) -> str | None:
     """
-    Parse the collection config JSON from a collection description.
+    Extract description string from Milvus collection_info response.
+
+    Handles both dict and object responses from Milvus describe_collection().
+
+    Args:
+        collection_info: Response from Milvus describe_collection() call
+
+    Returns:
+        Collection description string, or None if not found
+    """
+    # Handle dict response
+    if isinstance(collection_info, dict):
+        schema = collection_info.get("schema")
+        if schema and isinstance(schema, dict):
+            return schema.get("description")
+        if "description" in collection_info:
+            return collection_info["description"]
+
+    # Handle object response
+    if hasattr(collection_info, "schema"):
+        schema = collection_info.schema
+        if hasattr(schema, "description"):
+            return schema.description
+
+    if hasattr(collection_info, "description"):
+        return collection_info.description
+
+    return None
+
+
+def parse_collection_config(description: str) -> CollectionDescription | None:
+    """
+    Parse the collection description from a JSON string.
 
     The description should be pure JSON that can be loaded directly with json.loads.
     Expected keys: metadata_schema, library_context, collection_config_json, llm_prompt
@@ -224,21 +258,9 @@ def parse_collection_config(description: str) -> dict[str, Any] | None:
         description: Collection description string (should be pure JSON)
 
     Returns:
-        Dictionary containing the collection_config_json, or None if not found/invalid
+        CollectionDescription instance, or None if not found/invalid
     """
-    if not description:
-        return None
-
-    try:
-        # Try to parse as pure JSON
-        data = json.loads(description.strip())
-
-        # Validate that it has the expected structure and extract collection_config_json
-        if isinstance(data, dict) and "collection_config_json" in data:
-            return data.get("collection_config_json")
-        return None
-    except (json.JSONDecodeError, ValueError):
-        return None
+    return CollectionDescription.from_json(description)
 
 
 def create_description(
@@ -394,13 +416,12 @@ def create_description(
     # Build the llm_prompt from all the parts
     llm_prompt = "\n".join(parts)
 
-    # Build the description dictionary
-    description_dict = {
-        "metadata_schema": user_metadata_json_schema,
-        "library_context": library_context,
-        "collection_config_json": collection_config_json,
-        "llm_prompt": llm_prompt,
-    }
+    # Create CollectionDescription and return as JSON string
+    description = CollectionDescription(
+        metadata_schema=user_metadata_json_schema,
+        library_context=library_context,
+        collection_config_json=collection_config_json,
+        llm_prompt=llm_prompt,
+    )
 
-    # Return as JSON string
-    return json.dumps(description_dict)
+    return description.to_json()

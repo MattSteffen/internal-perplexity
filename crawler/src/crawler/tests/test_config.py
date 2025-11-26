@@ -137,9 +137,9 @@ def test_sanitize_metadata():
     metadata = {
         "title": "Test Document",
         "author": "Test Author",
-        "default_text": "This should be removed",  # Reserved key
-        "default_chunk_index": 5,  # Reserved key
-        "default_source": "test.pdf",  # Reserved key
+        "text": "This should be removed",  # Reserved key
+        "chunk_index": 5,  # Reserved key
+        "source": "test.pdf",  # Reserved key
         "custom_field": "should remain",
     }
 
@@ -147,9 +147,9 @@ def test_sanitize_metadata():
     assert "title" in sanitized
     assert "author" in sanitized
     assert "custom_field" in sanitized
-    assert "default_text" not in sanitized
-    assert "default_chunk_index" not in sanitized
-    assert "default_source" not in sanitized
+    assert "text" not in sanitized
+    assert "chunk_index" not in sanitized
+    assert "source" not in sanitized
     print("✓ Basic sanitization works")
 
     # Test with None input
@@ -169,11 +169,11 @@ def test_sanitize_metadata():
     logger = Mock()
     metadata_with_reserved = {
         "title": "Test",
-        "default_document_id": "should_be_removed",
+        "document_id": "should_be_removed",
     }
     sanitized = sanitize_metadata(metadata_with_reserved, logger=logger)
     assert "title" in sanitized
-    assert "default_document_id" not in sanitized
+    assert "document_id" not in sanitized
     print("✓ Logger integration works")
 
 
@@ -251,24 +251,27 @@ def test_milvus_duplicate_filtering():
     # Create test data with duplicates
     test_data = [
         DatabaseDocument(
-            default_text="Chunk 1",
-            default_text_embedding=[0.1] * 384,
-            default_chunk_index=0,
-            default_source="doc1.pdf",
+            text="Chunk 1",
+            text_embedding=[0.1] * 384,
+            chunk_index=0,
+            source="doc1.pdf",
+            document_id="test-doc-1",
             metadata={"title": "Test"},
         ),
         DatabaseDocument(
-            default_text="Chunk 2",
-            default_text_embedding=[0.2] * 384,
-            default_chunk_index=1,
-            default_source="doc1.pdf",
+            text="Chunk 2",
+            text_embedding=[0.2] * 384,
+            chunk_index=1,
+            source="doc1.pdf",
+            document_id="test-doc-1",
             metadata={"title": "Test"},
         ),
         DatabaseDocument(
-            default_text="Chunk 1 duplicate",
-            default_text_embedding=[0.1] * 384,
-            default_chunk_index=0,  # Duplicate chunk_index for same source
-            default_source="doc1.pdf",
+            text="Chunk 1 duplicate",
+            text_embedding=[0.1] * 384,
+            chunk_index=0,  # Duplicate chunk_index for same source
+            source="doc1.pdf",
+            document_id="test-doc-1",
             metadata={"title": "Test"},
         ),
     ]

@@ -110,7 +110,7 @@ def create_arxiv_config():
 
     # Database configuration
     database = DatabaseClientConfig.milvus(
-        collection="arxiv3",
+        collection="arxiv4",
         host="localhost",
         port=19530,
         username="matt",
@@ -196,18 +196,18 @@ def search_louvain_clustering():
             entity_data = entity if isinstance(entity, dict) else {}
 
         # Get source and other fields (using new prefixed field names)
-        source = entity_data.get("default_source") or result.get("default_id", "N/A")
+        source = entity_data.get("source") or result.get("default_id", "N/A")
         print(f"   📄 Source: {source}")
 
         # Try to get text from entity data
-        text_content = entity_data.get("default_text")
+        text_content = entity_data.get("text")
         if text_content:
             print(f"   📝 Text Preview: {text_content[:200]}...")
         else:
             print("   📝 Text Preview: [Text content not available]")
 
         # Try to display metadata if available
-        metadata_str = entity_data.get("default_metadata", "{}")
+        metadata_str = entity_data.get("str_metadata", "{}")
         if (
             isinstance(metadata_str, str)
             and metadata_str != "{}"

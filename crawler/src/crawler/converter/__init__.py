@@ -8,12 +8,10 @@ progress tracking, and rich result objects.
 
 # Core types and interfaces (no external dependencies)
 from .base import (
-    Converter,
     Capabilities,
     ConversionStats,
+    Converter,
     ProgressEvent,
-    ConverterConfig,
-    create_converter,
 )
 
 # Factory
@@ -32,3 +30,22 @@ __all__ = [
     # Factory
     "create_converter",
 ]
+
+
+def create_converter(config: "ConverterConfig") -> "Converter":
+    """
+    Create a converter instance based on configuration.
+
+    Args:
+        config: PyMuPDF4LLMConfig object specifying the converter parameters
+
+    Returns:
+        PyMuPDF4LLMConverter instance
+    """
+    from .pymupdf4llm import PyMuPDF4LLMConverter
+
+    return PyMuPDF4LLMConverter(config)
+
+
+# ConverterConfig is just an alias for PyMuPDF4LLMConfig
+ConverterConfig = PyMuPDF4LLMConfig

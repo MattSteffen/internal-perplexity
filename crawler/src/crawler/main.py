@@ -1,6 +1,4 @@
-import json
 import os
-import re
 import time
 from pathlib import Path
 from typing import Any
@@ -22,12 +20,14 @@ from .extractor.extractor import (
 from .llm.embeddings import Embedder, EmbedderConfig, get_embedder
 from .llm.llm import LLM, LLMConfig, get_llm
 from .vector_db import (
+    CollectionDescription,
     DatabaseClient,
     DatabaseClientConfig,
     DatabaseDocument,
     get_db,
     get_db_benchmark,
 )
+from .vector_db.milvus_utils import extract_collection_description
 
 # # Reserved keys that should not appear in metadata to avoid conflicts with database schema
 # TODO: Change the prefix to be `_` instead of `default_`
@@ -181,194 +181,55 @@ class CrawlerConfig(BaseModel):
             ...     "database": {"provider": "milvus", "collection": "docs", ...},
             ... })
         """
-        # Extract nested configs and convert them to Pydantic models
-        embeddings_dict = config_dict.get("embeddings", {})
-        embeddings = EmbedderConfig(**embeddings_dict)
+        # Create a copy to avoid mutating the input
+        processed_dict = config_dict.copy()
 
-        llm_dict = config_dict.get("llm", {})
-        llm = LLMConfig(**llm_dict)
+        # Handle backward compatibility: map "utils" dict to top-level fields
+        if "utils" in processed_dict:
+            utils = processed_dict.pop("utils")
+            if isinstance(utils, dict):
+                # Map utils keys to top-level fields if not already present
+                if "temp_dir" not in processed_dict and "temp_dir" in utils:
+                    processed_dict["temp_dir"] = utils["temp_dir"]
+                if "benchmark" not in processed_dict and "benchmark" in utils:
+                    processed_dict["benchmark"] = utils["benchmark"]
 
-        vision_llm_dict = config_dict.get("vision_llm", {})
-        vision_llm = LLMConfig(**vision_llm_dict)
+        # Handle extractor's nested llm config if present (needs special handling)
+        if "extractor" in processed_dict and isinstance(processed_dict["extractor"], dict):
+            extractor_dict = processed_dict["extractor"]
+            if "llm" in extractor_dict and isinstance(extractor_dict["llm"], dict):
+                # Convert nested llm dict to LLMConfig instance
+                extractor_dict = extractor_dict.copy()
+                extractor_dict["llm"] = LLMConfig(**extractor_dict["llm"])
+                processed_dict["extractor"] = extractor_dict
 
-        database_dict = config_dict.get("database", {})
-        database = DatabaseClientConfig(**database_dict)
-
-        # Handle converter config
-        converter_dict = config_dict.get("converter")
-        if not converter_dict:
-            raise ValueError("converter configuration is required")
-        converter = ConverterConfig(**converter_dict)
-
-        # Handle extractor config
-        extractor_dict = config_dict.get("extractor")
-        if not extractor_dict:
-            raise ValueError("extractor configuration is required")
-        # If extractor has its own llm config, convert it
-        if "llm" in extractor_dict and isinstance(extractor_dict["llm"], dict):
-            extractor_dict["llm"] = LLMConfig(**extractor_dict["llm"])
-        extractor = MetadataExtractorConfig(**extractor_dict)
-
-        # Handle chunking config
-        chunking_dict = config_dict.get("chunking")
-        if not chunking_dict:
-            raise ValueError("chunking configuration is required")
-        chunking = ChunkingConfig(**chunking_dict)
-
-        # Extract utility parameters
-        utils = config_dict.get("utils", {})
-        temp_dir = utils.get("temp_dir", "tmp/")
-        benchmark = utils.get("benchmark", False)
-
-        # Extract other top-level parameters
-        metadata_schema = config_dict.get("metadata_schema", {})
-        generate_benchmark_questions = config_dict.get("generate_benchmark_questions", False)
-        num_benchmark_questions = config_dict.get("num_benchmark_questions", 3)
-        security_groups = config_dict.get("security_groups", None)
-        return cls(
-            embeddings=embeddings,
-            llm=llm,
-            vision_llm=vision_llm,
-            database=database,
-            converter=converter,
-            extractor=extractor,
-            chunking=chunking,
-            metadata_schema=metadata_schema,
-            temp_dir=temp_dir,
-            benchmark=benchmark,
-            generate_benchmark_questions=generate_benchmark_questions,
-            num_benchmark_questions=num_benchmark_questions,
-            security_groups=security_groups,
-        )
+        # Use Pydantic's model_validate to handle nested configs automatically
+        # This will validate and convert nested dicts to their respective Pydantic models
+        try:
+            return cls.model_validate(processed_dict)
+        except Exception as e:
+            # Provide more context for validation errors
+            raise ValueError(f"Failed to create CrawlerConfig from dictionary: {str(e)}") from e
 
     @classmethod
-    def from_collection(
+    def from_collection_description(
         cls,
-        text: str,
+        description: CollectionDescription,
         database_config: DatabaseClientConfig,
     ) -> "CrawlerConfig":
-        """Create a CrawlerConfig from a collection by parsing natural language.
-
-        Parses natural language like "add <doc> to <collection X>" to extract
-        the collection name, then loads the config from that collection's description.
+        """Create a CrawlerConfig from a CollectionDescription.
 
         Args:
-            text: Natural language text containing collection name (e.g., "add doc.pdf to collection my_collection")
-            database_config: Database configuration for connecting to Milvus
+            description: CollectionDescription instance containing the config
+            database_config: Database configuration (collection name will be used)
 
         Returns:
-            CrawlerConfig instance loaded from the collection description
+            CrawlerConfig instance restored from the collection description
 
         Raises:
-            ValueError: If collection name cannot be extracted or collection not found
-            RuntimeError: If connection to Milvus fails or description is invalid
-
-        Example:
-            >>> db_config = DatabaseClientConfig.milvus(collection="temp", host="localhost")
-            >>> config = CrawlerConfig.from_collection("add doc.pdf to collection my_collection", db_config)
+            ValueError: If collection_config_json is None or invalid
         """
-        # Parse collection name from natural language
-        # Try various patterns: "to collection X", "collection X", "to X", etc.
-        collection_name = None
-
-        # Pattern 1: "to collection <name>" or "to <name>"
-        match = re.search(r"to\s+(?:collection\s+)?([a-zA-Z0-9_]+)", text, re.IGNORECASE)
-        if match:
-            collection_name = match.group(1)
-
-        # Pattern 2: "collection <name>"
-        if not collection_name:
-            match = re.search(r"collection\s+([a-zA-Z0-9_]+)", text, re.IGNORECASE)
-            if match:
-                collection_name = match.group(1)
-
-        # Pattern 3: Just look for a word that might be a collection name
-        # (fallback - less reliable)
-        if not collection_name:
-            # Try to find a word that looks like a collection name
-            words = re.findall(r"\b([a-zA-Z][a-zA-Z0-9_]*)\b", text)
-            # Filter out common words
-            common_words = {"add", "to", "the", "a", "an", "this", "that", "doc", "document", "file"}
-            candidates = [w for w in words if w.lower() not in common_words]
-            if candidates:
-                collection_name = candidates[-1]  # Take the last candidate
-
-        if not collection_name:
-            raise ValueError(f"Could not extract collection name from text: {text}")
-
-        # Connect to Milvus
-        try:
-            client = MilvusClient(uri=database_config.uri, token=database_config.token)
-        except Exception as e:
-            raise RuntimeError(f"Failed to connect to Milvus: {str(e)}") from e
-
-        # Check if collection exists
-        try:
-            collections = client.list_collections()
-            if collection_name not in collections:
-                raise ValueError(f"Collection '{collection_name}' not found. Available collections: {collections}")
-        except Exception as e:
-            raise RuntimeError(f"Failed to list collections: {str(e)}") from e
-
-        # Get collection description
-        try:
-            collection_info = client.describe_collection(collection_name)
-        except Exception as e:
-            raise RuntimeError(f"Failed to describe collection '{collection_name}': {str(e)}") from e
-
-        # Extract description string
-        description_str = None
-        if isinstance(collection_info, dict):
-            schema = collection_info.get("schema")
-            if schema and isinstance(schema, dict):
-                description_str = schema.get("description")
-            elif "description" in collection_info:
-                description_str = collection_info["description"]
-        elif hasattr(collection_info, "schema"):
-            schema = collection_info.schema
-            if hasattr(schema, "description"):
-                description_str = schema.description
-        elif hasattr(collection_info, "description"):
-            description_str = collection_info.description
-
-        if not description_str:
-            raise ValueError(f"Collection '{collection_name}' does not have a description")
-
-        # Parse description JSON
-        try:
-            description_dict = json.loads(description_str) if isinstance(description_str, str) else description_str
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Failed to parse collection description as JSON: {str(e)}") from e
-
-        # Extract collection_config_json
-        if not isinstance(description_dict, dict):
-            raise ValueError(f"Collection description is not a dictionary: {type(description_dict)}")
-
-        collection_config_dict = description_dict.get("collection_config_json")
-        if not collection_config_dict:
-            raise ValueError("Collection description does not contain 'collection_config_json'")
-
-        # Create CrawlerConfig from the config dictionary
-        try:
-            config = cls.from_dict(collection_config_dict)
-        except Exception as e:
-            raise ValueError(f"Failed to create CrawlerConfig from collection config: {str(e)}") from e
-
-        # Override collection name in database config
-        original_db_config = config.database
-        config.database = DatabaseClientConfig(
-            provider=original_db_config.provider,
-            collection=collection_name,
-            host=original_db_config.host,
-            port=original_db_config.port,
-            username=original_db_config.username,
-            password=original_db_config.password,
-            partition=original_db_config.partition,
-            recreate=False,
-            collection_description=original_db_config.collection_description,
-        )
-
-        return config
+        return description.to_crawler_config(database_config)
 
 
 class Crawler:
@@ -394,18 +255,88 @@ class Crawler:
 
         self._initialize_defaults()
 
+    def _restore_config_from_collection(self, database_config: DatabaseClientConfig) -> CrawlerConfig | None:
+        """
+        Restore CrawlerConfig from an existing collection if it exists.
+
+        Args:
+            database_config: Database configuration to check
+
+        Returns:
+            Restored CrawlerConfig if collection exists and has valid config, None otherwise
+        """
+        # Only restore for Milvus collections
+        if database_config.provider != "milvus":
+            return None
+
+        # Skip if recreate is True (we want to overwrite)
+        if database_config.recreate:
+            return None
+
+        try:
+            # Connect to Milvus to check if collection exists
+            client = MilvusClient(uri=database_config.uri, token=database_config.token)
+            if not client.has_collection(database_config.collection):
+                return None
+
+            # Get collection description
+            collection_info = client.describe_collection(database_config.collection)
+            description_str = extract_collection_description(collection_info)
+
+            if not description_str:
+                return None
+
+            # Parse and restore config from collection
+            description_obj = CollectionDescription.from_json(description_str)
+            if not description_obj or not description_obj.collection_config_json:
+                return None
+
+            restored_config = CrawlerConfig.from_collection_description(description_obj, database_config)
+
+            # Validate that restored config matches current config
+            # Compare key fields that should match (excluding database config)
+            current_dict = self.config.model_dump(exclude={"database"})
+            restored_dict = restored_config.model_dump(exclude={"database"})
+
+            # Check if configs match (allowing for some differences in database config)
+            if current_dict != restored_dict:
+                # Create a detailed error message
+                differences = []
+                for key in set(current_dict.keys()) | set(restored_dict.keys()):
+                    if current_dict.get(key) != restored_dict.get(key):
+                        differences.append(f"  - {key}: current={current_dict.get(key)}, restored={restored_dict.get(key)}")
+                raise ValueError(
+                    f"Restored config from collection '{database_config.collection}' does not match provided config. "
+                    f"Differences:\n" + "\n".join(differences) + "\n"
+                    "Set recreate=True to overwrite the existing collection, or update your config to match."
+                )
+
+            # Configs match, return restored config
+            return restored_config
+
+        except Exception as e:
+            # If restoration fails, log but return None to allow continuation with original config
+            # This allows the system to work even if description parsing fails
+            import warnings
+
+            warnings.warn(
+                f"Failed to restore config from collection '{database_config.collection}': {str(e)}. " f"Using provided config instead.",
+                UserWarning,
+            )
+            return None
+
     def _initialize_defaults(self) -> None:
-        # initialize defaults if provided as none
-        if self.llm is None:
-            self.llm = get_llm(self.config.llm)
-
-        if self.embedder is None:
-            self.embedder = get_embedder(self.config.embeddings)
-
-        if self.extractor is None:
-            self.extractor = MetadataExtractor(config=self.config.extractor, llm=self.llm)
-
+        """Initialize default components if not provided, and restore config from collection if applicable."""
+        # Restore config from collection if it exists and recreate=False
         if self.vector_db is None:
+            restored_config = self._restore_config_from_collection(self.config.database)
+            if restored_config is not None:
+                self.config = restored_config
+
+            # Initialize embedder first (needed for vector_db dimension)
+            if self.embedder is None:
+                self.embedder = get_embedder(self.config.embeddings)
+
             # Pass the crawler config as a dict to be stored in collection description
             self.vector_db = get_db(
                 self.config.database,
@@ -417,9 +348,23 @@ class Crawler:
             if self.config.benchmark:
                 self.benchmarker = get_db_benchmark(self.config.database, self.config.embeddings)
 
+        # Initialize LLM (needed for extractor)
+        if self.llm is None:
+            self.llm = get_llm(self.config.llm)
+
+        # Initialize embedder if not already done
+        if self.embedder is None:
+            self.embedder = get_embedder(self.config.embeddings)
+
+        # Initialize extractor (requires LLM)
+        if self.extractor is None:
+            self.extractor = MetadataExtractor(config=self.config.extractor, llm=self.llm)
+
+        # Initialize converter
         if self.converter is None:
             self.converter = create_converter(self.config.converter)
 
+        # Initialize chunker
         if self.chunker is None:
             self.chunker = Chunker(self.config.chunking)
 

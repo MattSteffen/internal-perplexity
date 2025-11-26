@@ -1,11 +1,14 @@
 # TODO
 
-- **TODAY**:
-  - [x] Make crawler pip installable.
-    - [x] add really good documentation so that it can be used as a library and easily integrated into the server via llm.
-    - [x] remove all docling stuff.
-    - [x] remove all the default configs
-    - [ ] good logging set in the initial config for the crawler.
+- **Tasks**:
+  - [x] Make the colection description a typed item, so I know exactly what is in it and how to parse it.
+    - [x] Enable loading config from this item
+    - [ ] test and confirm this works as expected.
+  - [ ] Make the type of document from a search result a typed item, so I know exactly what is in it and how to parse it.
+    - [ ] Change the prefix to be `_` instead of `default_` in the document class.
+      - [ ] Prefix can't be `_`
+    - [ ] Import that document in the oai backend to serve as search results
+  - [ ] Good logs
   - Simplify:
     - [ ] Server api
       - [ ] Easy to add documents to existing collections
@@ -13,10 +16,6 @@
     - [ ] Crawler api
       - [ ] Easy to create custom crawlers for all sorts of different file types and metadata schemas.
         - [ ] This includes establishing pre-processed documents.
-  - [ ] Remove auth from backend
-  - [ ] Setup fake auth from upload-ui for testing
-    - [ ] Hardcode username and password for testing both in milvus and on UI.
-    - [ ] Make a search bar to do quick searches on milvus.
 - [ ] Update RAG pipeline for BD docs too.
 - [ ] Load real data into milvus
 - [ ] Design local-minified version

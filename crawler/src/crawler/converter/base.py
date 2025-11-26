@@ -15,8 +15,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from .pymupdf4llm import PyMuPDF4LLMConfig
-
 
 class ConversionStats(BaseModel):
     """Statistics about a conversion operation."""
@@ -87,22 +85,3 @@ class Converter(abc.ABC):
             document: Document instance to convert (modified in place)
         """
         raise NotImplementedError
-
-
-# ConverterConfig is just an alias for PyMuPDF4LLMConfig since we only support one converter
-ConverterConfig = PyMuPDF4LLMConfig
-
-
-def create_converter(config: ConverterConfig) -> Converter:
-    """
-    Create a converter instance based on configuration.
-
-    Args:
-        config: PyMuPDF4LLMConfig object specifying the converter parameters
-
-    Returns:
-        PyMuPDF4LLMConverter instance
-    """
-    from .pymupdf4llm import PyMuPDF4LLMConverter
-
-    return PyMuPDF4LLMConverter(config)

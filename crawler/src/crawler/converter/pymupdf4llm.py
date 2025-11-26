@@ -29,8 +29,7 @@ from pydantic import BaseModel, Field
 
 from ..document import Document
 from ..llm.llm import LLMConfig
-from .base import Converter
-from .types import ConversionStats
+from .base import ConversionStats, Converter
 
 # ----------------------------- VLM Interfaces ---------------------------------
 

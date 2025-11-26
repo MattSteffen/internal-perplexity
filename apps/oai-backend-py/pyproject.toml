@@ -18,10 +18,9 @@ dependencies = [
     "black>=25.9.0",
     "pytest>=8.4.2",
     "pytest-cov>=7.0.0",
-    "markitdown>=0.0.2",
     "pymupdf4llm>=0.1.9",
     "matplotlib>=3.10.7",
-    "crawler @ file:///Users/mattsteffen/projects/llm/internal-perplexity/crawler",
+    "crawler",
 ]
 
 [project.optional-dependencies]
@@ -69,3 +68,6 @@ environments = [
   "sys_platform == 'darwin'",
   "sys_platform == 'linux'"
 ]
+
+[tool.uv.sources]
+crawler = { path = "../../crawler", editable = true }
