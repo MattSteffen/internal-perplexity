@@ -1,8 +1,7 @@
 """Collections endpoint handler."""
 
 import logging
-from json import dumps, loads
-from typing import Any, Literal
+from typing import Any
 
 from fastapi import HTTPException, status
 from pydantic import BaseModel, Field
@@ -14,47 +13,31 @@ logger = logging.getLogger(__name__)
 # Import CollectionDescription for parsing collection descriptions
 try:
     from crawler.vector_db import CollectionDescription
-    from crawler.vector_db.milvus_utils import extract_collection_description
 except ImportError:
-    # Fallback if crawler package is not available
-    CollectionDescription = None
-    extract_collection_description = None
+    raise ImportError("crawler package not available")
 
 
-# TODO: This needs to have a sepcific format for the frontend to display it correctly.
-# TODO: This also needs to have the parsing of the description field to be json formatted for the frontend to display it correctly.
-class CollectionMetadata(BaseModel):
-    """Collection metadata model.
+class CollectionInfo(BaseModel):
+    """Collection info model."""
 
-    Wraps Milvus collection information in a type-safe way.
-    """
-
-    # Allow any additional fields from Milvus
-    model_config = {"extra": "allow"}
-
-    def __init__(self, **data: Any) -> None:
-        """Initialize collection metadata from Milvus data."""
-        super().__init__(**data)
+    description: str
+    metadata_schema: dict[str, Any]
+    pipeline_name: str
+    num_documents: int
+    required_roles: list[str]
 
 
 class CollectionsResponse(BaseModel):
     """Response model for collections listing endpoint."""
 
-    collections: list[str]
-    collection_metadata: dict[str, CollectionMetadata]
-
-
-class Role(BaseModel):
-    """Role model with name and privileges."""
-
-    role: str
-    privileges: list[str]
+    collection_names: list[str]
+    collections: dict[str, CollectionInfo]
 
 
 class RolesResponse(BaseModel):
     """Response model for roles listing endpoint."""
 
-    roles: list[Role]
+    roles: list[str]
 
 
 class User(BaseModel):
@@ -79,10 +62,7 @@ class CreateCollectionRequest(BaseModel):
     custom_config: dict[str, Any] | None = Field(None, description="Full CrawlerConfig dict for custom pipeline")
     config_overrides: dict[str, Any] | None = Field(None, description="Configuration overrides for predefined pipeline")
     description: str | None = Field(None, description="Human-readable description of the collection")
-    default_permissions: Literal["admin_only", "public"] = Field(
-        default="admin_only",
-        description="Default permission level: admin_only or public (all authenticated users)",
-    )
+    roles: list[str] = Field(..., description="List of roles to grant read access to the collection", default_factory=lambda: ["admin"])
     metadata_schema: dict[str, Any] | None = Field(None, description="Optional JSON schema override for metadata")
 
 
@@ -91,8 +71,7 @@ class CreateCollectionResponse(BaseModel):
 
     collection_name: str
     message: str
-    pipeline_name: str | None = None
-    permissions: dict[str, Any]
+    roles: list[str]
 
 
 async def list_collections(token: str | None = None) -> CollectionsResponse:
@@ -109,89 +88,48 @@ async def list_collections(token: str | None = None) -> CollectionsResponse:
         collections = client.list_collections()
 
         # Build response with collection names and metadata
-        collection_metadata: dict[str, CollectionMetadata] = {}
+        collection_descriptions: dict[str, CollectionInfo] = {}
 
         for collection_name in collections:
             try:
+                collection_info: CollectionInfo = CollectionInfo(
+                    description="",
+                    metadata_schema={},
+                    pipeline_name="",
+                    num_documents=0,
+                    required_roles=[],
+                )
                 # Get collection description/statistics
                 # MilvusClient.describe_collection returns collection info dict
-                collection_info = client.describe_collection(collection_name)
-                # Convert protobuf objects to serializable Python types
-                safe_dict = loads(dumps(collection_info, default=str))
+                collection_info_dict = client.describe_collection(collection_name)
+                collection_info.num_documents = client.get_collection_stats(collection_name)["row_count"]  # TODO: This is not num_documents, but is num_chunks, fix later
 
                 # Extract and parse collection description to get library_context and metadata_schema
-                library_context: str | None = None
-                collection_desc: CollectionDescription | None = None
-                if CollectionDescription and extract_collection_description:
-                    try:
-                        description_str = extract_collection_description(collection_info)
-                        if description_str:
-                            collection_desc = CollectionDescription.from_json(description_str)
-                            if collection_desc:
-                                library_context = collection_desc.library_context
-                    except Exception as e:
-                        logger.debug(f"Failed to parse collection description for {collection_name}: {str(e)}")
-                        # Fallback: try to extract description from safe_dict
-                        if isinstance(safe_dict, dict):
-                            schema = safe_dict.get("schema", {})
-                            if isinstance(schema, dict):
-                                description_str = schema.get("description")
-                            else:
-                                description_str = safe_dict.get("description")
-                            if description_str and isinstance(description_str, str):
-                                try:
-                                    collection_desc = CollectionDescription.from_json(description_str)
-                                    if collection_desc:
-                                        library_context = collection_desc.library_context
-                                except Exception:
-                                    # If parsing fails, use the raw description as fallback
-                                    library_context = description_str
-                        else:
-                            library_context = str(safe_dict) if safe_dict else None
+                try:
+                    collection_desc = CollectionDescription.from_json(collection_info_dict["description"])
+                    collection_info.pipeline_name = collection_desc.pipeline_name
+                    collection_info.metadata_schema = collection_desc.metadata_schema
+                    collection_info.description = collection_desc.description
+                    # Get the roles that are required to access the collection
+                    # Each role is granted a privilege group, if that group is in the collection_security_groups, then the role can access the collection
+                    all_roles = client.list_roles()
+                    for r in all_roles:
+                        role_desc = client.describe_role(r)
+                        for privilege in role_desc["privileges"]:
+                            if privilege in collection_desc.collection_security_groups:
+                                collection_info.required_roles.append(r)
+                except Exception as e:
+                    raise ValueError(f"Failed to parse collection description for {collection_name}: {str(e)}") from e
 
-                # Ensure safe_dict is a dict and includes the name
-                if isinstance(safe_dict, dict):
-                    # Add collection name if not present
-                    if "name" not in safe_dict:
-                        safe_dict["name"] = collection_name
-                    # Add parsed CollectionDescription fields to metadata for frontend access
-                    if collection_desc:
-                        # Store the full CollectionDescription JSON in the description field
-                        # This allows the frontend to parse it and extract metadata_schema, pipeline_config, etc.
-                        safe_dict["description"] = collection_desc.to_json()
-                        # Also add individual fields for easier access (frontend can use these directly)
-                        safe_dict["library_context"] = collection_desc.library_context
-                        safe_dict["metadata_schema"] = collection_desc.metadata_schema
-                        if collection_desc.collection_config_json:
-                            # Extract pipeline_config and permissions from collection_config_json if present
-                            config_json = collection_desc.collection_config_json
-                            if "pipeline_config" in config_json:
-                                safe_dict["pipeline_config"] = config_json["pipeline_config"]
-                            if "permissions" in config_json:
-                                safe_dict["permissions"] = config_json["permissions"]
-                    elif library_context is not None:
-                        # Fallback: if we have library_context but no parsed CollectionDescription,
-                        # use library_context as description
-                        safe_dict["description"] = library_context
-                    collection_metadata[collection_name] = CollectionMetadata(**safe_dict)
-                else:
-                    # If it's not a dict, wrap it
-                    collection_metadata[collection_name] = CollectionMetadata(
-                        name=collection_name,
-                        description=library_context or str(safe_dict) if safe_dict else None,
-                    )
+                collection_descriptions[collection_name] = collection_info
 
             except Exception as e:
                 # If we can't get metadata for a collection, include minimal info
                 logger.warning(f"Failed to retrieve metadata for collection '{collection_name}': {str(e)}")
-                collection_metadata[collection_name] = CollectionMetadata(
-                    name=collection_name,
-                    error=f"Failed to retrieve metadata: {str(e)}",
-                )
 
         return CollectionsResponse(
-            collections=collections,
-            collection_metadata=collection_metadata,
+            collection_names=collections,
+            collections=collection_descriptions,
         )
 
     except Exception as e:
@@ -213,27 +151,8 @@ async def list_roles(token: str | None = None) -> RolesResponse:
         client = get_milvus_client(token)
 
         # List all roles
-        role_names = client.list_roles()
-
-        # Get details for each role
-        roles: list[Role] = []
-        for role_name in role_names:
-            try:
-                role_info = client.describe_role(role_name)
-                # role_info is {'role': role-name, 'privileges': []}
-                privileges = role_info.get("privileges", [])
-                # Ensure privileges is a list of strings
-                if isinstance(privileges, list):
-                    privileges_list = [str(p) for p in privileges]
-                else:
-                    privileges_list = []
-                roles.append(Role(role=role_name, privileges=privileges_list))
-            except Exception as e:
-                # If we can't get details for a role, include minimal info
-                logger.warning(f"Failed to describe role '{role_name}': {str(e)}")
-                roles.append(Role(role=role_name, privileges=[]))
-
-        return RolesResponse(roles=roles)
+        role_names: list[str] = client.list_roles()
+        return RolesResponse(roles=role_names)
 
     except Exception as e:
         raise HTTPException(
@@ -313,9 +232,17 @@ async def create_collection(
     """
     from crawler import CrawlerConfig
     from crawler.vector_db import DatabaseClientConfig
-    from crawler.vector_db.milvus_utils import create_schema
+
     from src.endpoints.document_pipelines import ConfigOverrides, _override_config
     from src.endpoints.pipeline_registry import get_registry
+
+    # get the user name and password from the token
+    user_name, password = token.split(":")
+    if not user_name or not password:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+        )
 
     try:
         client = get_milvus_client(token)
@@ -349,9 +276,8 @@ async def create_collection(
             )
 
         # Build CrawlerConfig
+        # TODO: Distinguish between pipeline and collection config, the source of the config.
         config: CrawlerConfig
-        pipeline_name: str | None = None
-
         if request.pipeline_name:
             # Validate pipeline exists
             registry = get_registry()
@@ -363,7 +289,6 @@ async def create_collection(
 
             # Get base pipeline config
             base_config = registry.get_config(request.pipeline_name)
-            pipeline_name = request.pipeline_name
 
             # Apply config overrides if provided
             if request.config_overrides:
@@ -381,6 +306,8 @@ async def create_collection(
                 )
             try:
                 config = CrawlerConfig.from_dict(request.custom_config)
+                if request.default_permissions:
+                    config.security_groups = [request.default_permissions]
             except Exception as e:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -394,8 +321,8 @@ async def create_collection(
             collection=request.collection_name,
             host=original_db_config.host,
             port=original_db_config.port,
-            username=original_db_config.username,
-            password=original_db_config.password,
+            username=user_name,
+            password=password,
             partition=original_db_config.partition,
             recreate=False,  # Don't recreate on API creation
             collection_description=request.description or original_db_config.collection_description,
@@ -403,21 +330,8 @@ async def create_collection(
         config.database = db_config
 
         # Override metadata schema if provided
-        metadata_schema = request.metadata_schema or config.metadata_schema
-
-        # Build pipeline config for storage in collection_config_json
-        pipeline_config: dict[str, Any] = {}
-        if pipeline_name:
-            pipeline_config["pipeline_name"] = pipeline_name
-            if request.config_overrides:
-                pipeline_config["overrides"] = request.config_overrides
-        else:
-            pipeline_config["full_config"] = config.model_dump()
-
-        # Build permissions info
-        permissions: dict[str, Any] = {
-            "default": request.default_permissions,
-        }
+        if request.metadata_schema:
+            config.metadata_schema = request.metadata_schema
 
         # Get embedding dimension
         from crawler.llm.embeddings import get_embedder
@@ -425,55 +339,20 @@ async def create_collection(
         embedder = get_embedder(config.embeddings)
         embedding_dimension = embedder.get_dimension()
 
-        # Build library context from description
-        library_context = request.description or config.database.collection_description or f"Collection: {request.collection_name}"
+        from crawler.vector_db.database_utils import get_db
 
-        # Build collection_config_json with pipeline_config and permissions for storage
-        collection_config_json: dict[str, Any] = {
-            **config.model_dump(),
-            "pipeline_config": pipeline_config,
-            "permissions": permissions,
-        }
+        get_db(config.database, embedding_dimension, config)
 
-        # Create collection schema with description
-        collection_schema = create_schema(
-            embedding_dimension,
-            user_metadata_json_schema=metadata_schema,
-            library_context=library_context,
-            collection_config_json=collection_config_json,
-        )
-
-        # Create the collection
-        from crawler.vector_db.milvus_utils import create_index
-
-        index_params = create_index(client)
-        client.create_collection(
-            collection_name=request.collection_name,
-            dimension=embedding_dimension,
-            schema=collection_schema,
-            index_params=index_params,
-            vector_field_name="text_embedding",
-            auto_id=True,
-        )
-
-        # Create partition if specified
-        if config.database.partition:
-            client.create_partition(request.collection_name, config.database.partition)
-
-        # Set up collection-level RBAC if needed
-        # For now, we only handle default_permissions (admin_only vs public)
-        # Document-level permissions will be handled when uploading documents
-        if request.default_permissions == "public":
-            # Note: In a full implementation, you might want to grant CollectionRead
-            # and CollectionQuery privileges to a "public" role here
-            # For now, we'll just store the permission setting in the description
-            logger.info(f"Collection '{request.collection_name}' set to public access")
+        # Grant privileges to the collection
+        # TODO: The privilege granted should be a specific one imported from crawler.
+        for role in request.roles:
+            # TODO: Should use admin client to grant privileges.
+            client.grant_privilege_v2(role, "ClusterReadOnly", config.database.collection_name)
 
         return CreateCollectionResponse(
             collection_name=request.collection_name,
             message="Collection created successfully",
-            pipeline_name=pipeline_name,
-            permissions=permissions,
+            roles=request.roles,
         )
 
     except HTTPException:

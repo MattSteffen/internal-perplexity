@@ -4,7 +4,6 @@ from typing import Any
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer
-from jose import JWTError, jwt
 
 security = HTTPBearer()
 
@@ -22,7 +21,7 @@ def extract_username_from_token(token: str) -> str:
         ValueError: If token format is invalid.
     """
     if ":" not in token:
-        raise ValueError(f"Invalid token format: expected 'username:password', got token without ':'")
+        raise ValueError("Invalid token format: expected 'username:password', got token without ':'")
     username = token.split(":", 1)[0]
     if not username:
         raise ValueError("Invalid token format: username portion is empty")
@@ -49,7 +48,7 @@ def verify_token(credentials: Any = Depends(security)) -> dict[str, Any]:
 
     token = credentials.credentials
     print(f"[AUTH] Token received from frontend: {token}")
-    
+
     # Extract username from token (format: username:password)
     try:
         username = extract_username_from_token(token)
@@ -58,7 +57,7 @@ def verify_token(credentials: Any = Depends(security)) -> dict[str, Any]:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid token format: {str(e)}",
         ) from e
-    
+
     # For now, return token-based user info
     # TODO: In production, implement proper JWT verification using JWKS
     # and merge JWT claims with username extraction

@@ -165,14 +165,13 @@ def connect_milvus(
         CollectionNotFoundError: If the collection does not exist.
         Exception: If connection or loading fails.
     """
-    from src.auth_utils import extract_username_from_token
-    
+
     # If no token provided, use config defaults (backward compatibility)
     if token is None:
         username = radchat_config.milvus.username
         password = radchat_config.milvus.password
         token = f"{username}:{password}"
-    
+
     collection_name = collection_name or radchat_config.milvus.collection_name
     uri = f"http://{radchat_config.milvus.host}:{radchat_config.milvus.port}"
     try:
@@ -257,9 +256,9 @@ def perform_search(
         List of matching MilvusDocument objects.
     """
     from src.auth_utils import extract_username_from_token
-    
+
     collection_name = collection_name or radchat_config.milvus.collection_name
-    
+
     # Extract username from token
     if token:
         try:
@@ -423,9 +422,9 @@ def perform_query(
         List of matching MilvusDocument objects.
     """
     from src.auth_utils import extract_username_from_token
-    
+
     collection_name = collection_name or radchat_config.milvus.collection_name
-    
+
     # Extract username from token
     if token:
         try:
@@ -689,7 +688,7 @@ class MilvusSearchTool:
         filters = arguments.get("filters", [])
         collection_name = arguments.get("collection_name") or self._collection_name
         partition_name = arguments.get("partition_name")
-        
+
         # Get token from metadata if provided, otherwise use instance token
         metadata = arguments.get("_metadata", {})
         token = metadata.get("milvus_token") if isinstance(metadata, dict) else self._token

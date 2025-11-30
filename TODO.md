@@ -1,23 +1,17 @@
 # TODO
 
 - **Tasks**:
-  - [x] Make the colection description a typed item, so I know exactly what is in it and how to parse it.
-    - [x] Enable loading config from this item
-    - [ ] test and confirm this works as expected.
-  - [ ] Make the type of document from a search result a typed item, so I know exactly what is in it and how to parse it.
-    - [ ] Change the prefix to be `_` instead of `default_` in the document class.
-      - [ ] Prefix can't be `_`
-    - [ ] Import that document in the oai backend to serve as search results
+  - [ ] Document Pipelines:
+    - [ ] Should have an implementation of crawler for each pipeline, so you can call pipeline.crawl(document) to process the document.
+    - [ ] Default pipeline
+  - [ ] Make sure collection description is set correctly by backend and crawler (including the front end sending the right data)
+    - [ ] Front end shows pipeline and security groups, make sure that is set properly in crawler and backend.
+  - [ ] Can't upload docs right now?
   - [ ] Good logs
-  - Simplify:
-    - [ ] Server api
-      - [ ] Easy to add documents to existing collections
-      - [ ] Easy to create new collections
-    - [ ] Crawler api
-      - [ ] Easy to create custom crawlers for all sorts of different file types and metadata schemas.
-        - [ ] This includes establishing pre-processed documents.
 - [ ] Update RAG pipeline for BD docs too.
 - [ ] Load real data into milvus
+
+- **Future**:
 - [ ] Design local-minified version
   - [ ] single binary (ish) that runs, indexes the directories you tell it, then you can chat with it.
   - [ ] files and indexes stored .rrccp

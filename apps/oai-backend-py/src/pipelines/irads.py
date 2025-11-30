@@ -115,6 +115,16 @@ metadata_schema = {
 }
 
 
+def create_default_config() -> CrawlerConfig:
+    """Create type-safe configuration for default document processing."""
+    return CrawlerConfig(
+        embeddings=EmbedderConfig.ollama(model="all-minilm:v2", base_url="http://localhost:11434"),
+        llm=LLMConfig.ollama(model_name="gpt-oss:20b", base_url="http://localhost:11434"),
+        vision_llm=LLMConfig.ollama(model_name="granite3.2-vision:2b", base_url="http://localhost:11434"),
+        database=DatabaseClientConfig.milvus(collection="temp", host="localhost", port=19530, username="root", password="Milvus"),
+    )
+
+
 def create_irad_config() -> CrawlerConfig:
     """Create type-safe configuration for IRADS document processing.
 
@@ -176,4 +186,3 @@ def create_irad_config() -> CrawlerConfig:
     )
 
     return config
-

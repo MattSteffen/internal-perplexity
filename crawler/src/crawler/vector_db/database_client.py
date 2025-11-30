@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from ..llm.embeddings import EmbedderConfig
 
 if TYPE_CHECKING:
-    from ..main import CrawlerConfig
+    from ..config import CrawlerConfig
 
 
 class DatabaseDocument(BaseModel):
@@ -28,28 +28,27 @@ class DatabaseDocument(BaseModel):
         text_embedding: Dense vector embedding of the text
         chunk_index: Index of this chunk within the document (0-based)
         source: Source identifier (e.g., file path, URL)
-        str_metadata: JSON string representation of metadata (internal field)
         minio: URL to the original document in MinIO storage
         text_sparse_embedding: Sparse embedding for BM25 full-text search (internal field)
         metadata_sparse_embedding: Sparse embedding of metadata for BM25 search (internal field)
         benchmark_questions: List of benchmark questions for testing
     """
+    id: int | None = Field(default=-1, description="Database-assigned primary key (auto-generated on insert)")
 
     # Required attributes - these must exist
     document_id: str = Field(..., description="Unique identifier for the document chunk (UUID format)")
     text: str = Field(..., description="The text content of the document chunk")
-    text_embedding: list[float] = Field(..., description="Dense vector embedding of the text content")
     chunk_index: int = Field(..., ge=0, description="Zero-based index of this chunk within the parent document")
     source: str = Field(..., description="Source identifier (file path, URL, etc.)")
     security_group: list[str] = Field(default_factory=lambda: ["public"], description="List of security groups for RBAC row-level access control")
     metadata: dict[str, Any] = Field(default_factory=dict, description="User-defined metadata as key-value pairs")
 
-    # Optional attributes with defaults
-    id: int | None = Field(default=-1, description="Database-assigned primary key (auto-generated on insert)")
-    str_metadata: str | None = Field(default="", description="JSON string representation of the metadata field")
-    minio: str | None = Field(default="", description="URL to the original document in MinIO object storage")
+    # Computed fields - these are computed by the embedder or by the vector db on insert
+    text_embedding: list[float] = Field(..., description="Dense vector embedding of the text content")
     text_sparse_embedding: list[float] | None = Field(default_factory=list, description="Sparse vector embedding for BM25 full-text search on text")
     metadata_sparse_embedding: list[float] | None = Field(default_factory=list, description="Sparse vector embedding for BM25 full-text search on metadata")
+    
+    # Optional fields - these are optional and can be set by the user
     benchmark_questions: list[str] | None = Field(default_factory=list, description="List of benchmark questions generated for testing retrieval")
 
     model_config = {
@@ -132,20 +131,51 @@ class CollectionDescription(BaseModel):
     library context, and LLM prompt.
 
     Attributes:
-        metadata_schema: User-provided metadata JSON schema
-        library_context: Human-readable description of collection data
-        collection_config_json: Full crawler config dictionary (can be None for older collections)
+        collection_config: Full crawler config dictionary
         llm_prompt: Generated prompt text with metadata filtering instructions
+        pipeline_name: Name of the pipeline that created the collection
+        collection_security_groups: List of security groups that are required to access the collection
+        metadata_schema: User-provided metadata JSON schema
+        description: Human-readable description of collection data
     """
-
-    metadata_schema: dict[str, Any] = Field(default_factory=dict, description="User-provided metadata JSON schema")
-    library_context: str = Field(..., description="Human-readable description of collection data")
-    collection_config_json: dict[str, Any] | None = Field(default=None, description="Full crawler config dictionary")
+    collection_config: "CrawlerConfig" = Field(..., description="Full crawler config object")
     llm_prompt: str = Field(..., description="Generated prompt text with metadata filtering instructions")
 
     model_config = {
         "validate_assignment": True,
     }
+
+    @property
+    def pipeline_name(self) -> str:
+        """
+        Get the name of the pipeline that created the collection.
+        Computed from collection_config.name.
+        """
+        return self.collection_config.name
+    
+    @property
+    def collection_security_groups(self) -> list[str]:
+        """
+        Get the security groups that are required to access the collection.
+        Computed from collection_config.security_groups.
+        """
+        return self.collection_config.security_groups
+        
+    @property
+    def metadata_schema(self) -> dict[str, Any]:
+        """
+        Get the metadata schema that is used to validate the metadata.
+        Computed from collection_config.metadata_schema.
+        """
+        return self.collection_config.metadata_schema
+    
+    @property
+    def description(self) -> str:
+        """
+        Get the human-readable description of the collection.
+        Computed from collection_config.database.collection_description.
+        """
+        return self.collection_config.database.collection_description or ""
 
     def to_json(self) -> str:
         """
@@ -173,6 +203,14 @@ class CollectionDescription(BaseModel):
         try:
             data = json.loads(description.strip())
             if isinstance(data, dict):
+                # Handle backward compatibility: if collection_config_json exists, convert it
+                if "collection_config_json" in data and "collection_config" not in data:
+                    from ..config import CrawlerConfig
+                    data["collection_config"] = CrawlerConfig.from_dict(data.pop("collection_config_json"))
+                # Ensure collection_config is a CrawlerConfig object
+                if "collection_config" in data and isinstance(data["collection_config"], dict):
+                    from ..config import CrawlerConfig
+                    data["collection_config"] = CrawlerConfig.from_dict(data["collection_config"])
                 return cls.model_validate(data)
             return None
         except (json.JSONDecodeError, ValueError, Exception):
@@ -180,28 +218,18 @@ class CollectionDescription(BaseModel):
 
     def to_crawler_config(self, database_config: "DatabaseClientConfig") -> "CrawlerConfig":
         """
-        Create a CrawlerConfig from the stored collection_config_json.
+        Create a CrawlerConfig from the stored collection_config.
 
         Args:
             database_config: Database configuration to use (collection name will be overridden)
 
         Returns:
-            CrawlerConfig instance restored from collection_config_json
+            CrawlerConfig instance restored from collection_config
 
         Raises:
-            ValueError: If collection_config_json is None or invalid
+            ValueError: If collection_config is None or invalid
         """
-        if self.collection_config_json is None:
-            raise ValueError("Collection description does not contain 'collection_config_json'")
-
-        # Import here to avoid circular imports
-        from ..main import CrawlerConfig
-
-        try:
-            config = CrawlerConfig.from_dict(self.collection_config_json)
-        except Exception as e:
-            raise ValueError(f"Failed to create CrawlerConfig from collection config: {str(e)}") from e
-
+        config = self.collection_config.model_copy()
         # Override collection name in database config to match the actual collection
         config.database = config.database.copy_with_overrides(
             collection=database_config.collection,

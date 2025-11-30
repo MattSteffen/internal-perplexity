@@ -47,7 +47,7 @@ Core abstractions and data models for the storage layer. Contains:
 
 ### `database_utils.py`
 Factory functions for creating database and benchmark instances based on provider:
-- `get_db(config: DatabaseClientConfig, dimension: int, metadata: dict, library_context: str) -> DatabaseClient` - Returns appropriate DatabaseClient implementation
+- `get_db(config: DatabaseClientConfig, dimension: int, metadata: dict, description: str) -> DatabaseClient` - Returns appropriate DatabaseClient implementation
 - `get_db_benchmark(db_config: DatabaseClientConfig, embed_config: EmbedderConfig) -> DatabaseBenchmark` - Returns appropriate DatabaseBenchmark implementation
 - Currently supports "milvus" provider, raises ValueError for unsupported providers
 
@@ -57,7 +57,7 @@ Concrete implementation of DatabaseClient for Milvus vector database:
 **Class: MilvusDB**
 - Implements the DatabaseClient interface for Milvus
 - Uses MilvusClient from pymilvus library
-- Constructor: `__init__(config: DatabaseClientConfig, embedding_dimension: int, metadata_schema: dict, library_context: str)`
+- Constructor: `__init__(config: DatabaseClientConfig, embedding_dimension: int, metadata_schema: dict, description: str)`
   - Automatically creates collection on initialization if it doesn't exist
   - Tests connection on initialization
 - Key features:
@@ -79,7 +79,7 @@ Concrete implementation of DatabaseClient for Milvus vector database:
 Schema and index definitions for Milvus collections:
 
 **Functions:**
-- `create_schema(embedding_size: int, user_metadata_json_schema: dict, library_context: str) -> CollectionSchema` - Creates Milvus collection schema
+- `create_schema(embedding_size: int, user_metadata_json_schema: dict, description: str) -> CollectionSchema` - Creates Milvus collection schema
   - Defines base fields: `id`, `default_document_id`, `default_minio`, `default_chunk_index`, `default_text`, `default_text_embedding`
   - Adds sparse embeddings for BM25 full-text search (`default_text_sparse_embedding`, `default_metadata_sparse_embedding`)
   - Includes metadata fields and security group for RBAC

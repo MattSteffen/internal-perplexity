@@ -43,9 +43,7 @@ async def _execute_tool_calls(
             # Parse the arguments JSON
             arguments = json.loads(tool_call.function.arguments)
             # Execute the tool with user metadata if available
-            result = await tool_registry.execute_tool(
-                tool_name, arguments, metadata=user_metadata
-            )
+            result = await tool_registry.execute_tool(tool_name, arguments, metadata=user_metadata)
             # Add tool message to conversation
             tool_messages.append(
                 {

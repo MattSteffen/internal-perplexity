@@ -138,4 +138,3 @@ def create_arxiv_math_config() -> CrawlerConfig:
     )
 
     return config
-

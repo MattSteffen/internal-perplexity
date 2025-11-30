@@ -16,15 +16,15 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
-# Import types from converter for stats
-from ..converter import ConversionStats
-
 # Type alias for bounding box
 BBox = tuple[float, float, float, float]
+
+if TYPE_CHECKING:
+    from ..vector_db import DatabaseDocument
 
 
 class Document(BaseModel):
@@ -63,9 +63,6 @@ class Document(BaseModel):
     # Fields populated by converter
     content: bytes | None = Field(default=None, description="Raw binary content (set by converter)")
     markdown: str | None = Field(default=None, description="Markdown representation (set by converter)")
-    source_name: str | None = Field(default=None, description="Source name from converter (e.g., filename)")
-    stats: ConversionStats = Field(default_factory=ConversionStats, description="Conversion statistics (set by converter)")
-    warnings: list[str] = Field(default_factory=list, description="Conversion warnings (set by converter)")
 
     # Fields populated by extractor
     metadata: dict[str, Any] | None = Field(default=None, description="Extracted metadata (set by extractor)")
@@ -84,7 +81,6 @@ class Document(BaseModel):
         default_factory=lambda: ["public"],
         description="Access control groups for RBAC",
     )
-    minio_url: str | None = Field(default=None, description="Optional URL to document in object storage")
 
     model_config = {
         "arbitrary_types_allowed": True,  # Allow bytes type
@@ -134,7 +130,7 @@ class Document(BaseModel):
         """Check if document is ready for vector DB storage."""
         return self.is_converted() and self.is_extracted() and self.is_chunked() and self.text_embeddings is not None and len(self.text_embeddings) == len(self.chunks)
 
-    def to_database_entities(self) -> list[dict[str, Any]]:
+    def to_database_documents(self) -> list[DatabaseDocument]:
         """
         Convert document to database entities for insertion.
 
@@ -157,36 +153,60 @@ class Document(BaseModel):
         if len(self.chunks) != len(self.text_embeddings):
             raise ValueError(f"Mismatch between chunks ({len(self.chunks)}) and embeddings ({len(self.text_embeddings)})")
 
-        entities = []
-        metadata_json = json.dumps(self.metadata or {})
+        documents = []
 
         for i, (chunk, embedding) in enumerate(zip(self.chunks, self.text_embeddings)):
-            entity: dict[str, Any] = {
-                "document_id": self.document_id,
-                "text": chunk,
-                "text_embedding": embedding,
-                "chunk_index": i,
-                "source": self.source,
-                "str_metadata": metadata_json,
-                "minio": self.minio_url or "",
-                "security_group": self.security_group,
-                "metadata": self.metadata or {},
-            }
-
-            # Add sparse embeddings if available
-            if self.sparse_text_embeddings and i < len(self.sparse_text_embeddings):
-                entity["text_sparse_embedding"] = self.sparse_text_embeddings[i]
-
-            if self.sparse_metadata_embeddings:
-                entity["metadata_sparse_embedding"] = self.sparse_metadata_embeddings
+            document = DatabaseDocument(
+                document_id=self.document_id,
+                text=chunk,
+                text_embedding=embedding,
+                chunk_index=i,
+                source=self.source,
+                metadata=self.metadata or {},
+                security_group=self.security_group,
+            )
 
             # Add benchmark questions if available (only to first chunk)
             if self.benchmark_questions and i == 0:
-                entity["benchmark_questions"] = self.benchmark_questions
+                document.benchmark_questions = self.benchmark_questions
 
-            entities.append(entity)
+            # Sparse embeddings are calculated on insert
+            documents.append(document)
 
-        return entities
+        return documents
+
+    def from_database_documents(self, documents: list[DatabaseDocument], include_embeddings: bool = True) -> Document:
+        """
+        Convert database documents to a document.
+
+        Args:
+            documents: List of database documents
+            include_embeddings: Whether to include embeddings in the document
+        Returns:
+            Document instance
+        """
+        documents.sort(key=lambda x: x.chunk_index)
+        chunks = [document.text for document in documents]
+        if include_embeddings:
+            text_embeddings = [document.text_embedding for document in documents]
+            sparse_text_embeddings = [document.text_sparse_embedding for document in documents]
+            sparse_metadata_embeddings = [document.metadata_sparse_embedding for document in documents]
+        else:
+            text_embeddings = None
+            sparse_text_embeddings = None
+            sparse_metadata_embeddings = None
+
+        return Document(
+            document_id=documents[0].document_id,
+            source=documents[0].source,
+            chunks=chunks,
+            metadata=documents[0].metadata,
+            benchmark_questions=documents[0].benchmark_questions,
+            security_group=documents[0].security_group,
+            text_embeddings=text_embeddings,
+            sparse_text_embeddings=sparse_text_embeddings,
+            sparse_metadata_embeddings=sparse_metadata_embeddings,
+        )
 
     def validate(self) -> None:
         """
@@ -235,15 +255,10 @@ class Document(BaseModel):
             "document_id": self.document_id,
             "source": self.source,
             "markdown": self.markdown,
-            "source_name": self.source_name,
             "metadata": self.metadata,
             "benchmark_questions": self.benchmark_questions,
             "chunks": self.chunks,
             "security_group": self.security_group,
-            "minio_url": self.minio_url,
-            "warnings": self.warnings,
-            # Note: images, tables, stats, and embeddings are not saved to JSON
-            # as they can be large. They should be regenerated if needed.
         }
 
         # Handle binary content by base64 encoding
@@ -274,13 +289,10 @@ class Document(BaseModel):
         self.document_id = data.get("document_id", self.document_id)
         self.source = data.get("source", self.source)
         self.markdown = data.get("markdown")
-        self.source_name = data.get("source_name")
         self.metadata = data.get("metadata")
         self.benchmark_questions = data.get("benchmark_questions")
         self.chunks = data.get("chunks")
         self.security_group = data.get("security_group", ["public"])
-        self.minio_url = data.get("minio_url")
-        self.warnings = data.get("warnings", [])
 
         # Handle binary content by base64 decoding
         content_str = data.get("content")
@@ -318,11 +330,8 @@ class Document(BaseModel):
             source=data.get("source"),
             content=content,
             markdown=data.get("markdown"),
-            source_name=data.get("source_name"),
             metadata=data.get("metadata"),
             benchmark_questions=data.get("benchmark_questions"),
             chunks=data.get("chunks"),
             security_group=data.get("security_group", ["public"]),
-            minio_url=data.get("minio_url"),
-            warnings=data.get("warnings", []),
         )

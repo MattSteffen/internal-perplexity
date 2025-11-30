@@ -1,6 +1,6 @@
 import json
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pymilvus import (
     MilvusClient,
@@ -15,6 +15,9 @@ from .database_client import (
 )
 from .milvus_utils import DEFAULT_SECURITY_GROUP, create_index, create_schema, extract_collection_description
 
+if TYPE_CHECKING:
+    from ..config import CrawlerConfig
+
 
 class MilvusDB(DatabaseClient):
     """
@@ -28,9 +31,7 @@ class MilvusDB(DatabaseClient):
         self,
         config: DatabaseClientConfig,
         embedding_dimension: int,
-        metadata_schema: dict[str, Any],
-        library_context: str,
-        collection_config_json: dict[str, Any] | None = None,
+        crawler_config: "CrawlerConfig",
     ):
         """
         Initialize the Milvus database client.
@@ -38,16 +39,12 @@ class MilvusDB(DatabaseClient):
         Args:
             config: DatabaesClientConfig instance with connection parameters
             embedding_dimension: Vector embedding dimensionality
-            metadata_schema: JSON schema defining user metadata fields
-            library_context: Library context for the database client
-            collection_config_json: Optional dictionary containing collection configuration
+            crawler_config: CrawlerConfig containing collection configuration
         """
 
         self.config = config
         self.embedding_dimension = embedding_dimension
-        self.metadata_schema = metadata_schema if metadata_schema is not None else {}
-        self.library_context = library_context
-        self.collection_config_json = collection_config_json
+        self.crawler_config = crawler_config
         # Initialize Milvus client
         try:
             self.client = MilvusClient(uri=self.config.uri, token=self.config.token)
@@ -106,9 +103,7 @@ class MilvusDB(DatabaseClient):
         """
         collection_schema = create_schema(
             self.embedding_dimension,
-            self.metadata_schema,
-            self.library_context,
-            self.collection_config_json,
+            self.crawler_config,
         )
         index = create_index(self.client)
 

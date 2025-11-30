@@ -6,14 +6,14 @@ from json import dumps, loads
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, File, Form, HTTPException, UploadFile, status
-from pydantic import BaseModel
-
-from src.auth_utils import verify_token
 from crawler import Crawler, CrawlerConfig
 from crawler.llm.embeddings import EmbedderConfig
 from crawler.llm.llm import LLMConfig
 from crawler.vector_db import DatabaseClientConfig
+from fastapi import Depends, File, Form, HTTPException, UploadFile, status
+from pydantic import BaseModel
+
+from src.auth_utils import verify_token
 from src.endpoints.pipeline_registry import get_registry
 
 
@@ -126,13 +126,9 @@ async def process_document(
     import uuid
     from pathlib import Path
 
-    from crawler import CrawlerConfig
     from crawler.converter import create_converter
-    from crawler.converter.types import DocumentInput
     from crawler.document import Document
-    from crawler.llm.embeddings import EmbedderConfig
-    from crawler.llm.llm import LLMConfig
-    from crawler.vector_db import DatabaseClientConfig
+
     from src.endpoints.pipeline_registry import get_registry
 
     temp_file_path: Path | None = None
@@ -150,22 +146,7 @@ async def process_document(
         else:
             # Use default config for processing
             registry = get_registry()
-            if registry.has_pipeline("irads"):
-                config = registry.get_config("irads")
-            else:
-                # Fallback to minimal config
-                config = CrawlerConfig(
-                    embeddings=EmbedderConfig.ollama(model="all-minilm:v2"),
-                    llm=LLMConfig.ollama(model_name="llama3.2:3b"),
-                    vision_llm=LLMConfig.ollama(model_name="llava:latest"),
-                    database=DatabaseClientConfig(
-                        provider="milvus",
-                        collection="temp",
-                        host="localhost",
-                        port=19530,
-                    ),
-                    metadata_schema={},
-                )
+            config = registry.get_config("default")
 
         # Save uploaded file to temporary location
         file_ext = Path(file.filename or "document").suffix
@@ -185,8 +166,7 @@ async def process_document(
 
         # Convert to markdown
         converter = create_converter(config.converter)
-        doc_input = DocumentInput.from_document(document)
-        converted = converter.convert(doc_input)
+        converted = converter.convert(document)
         document.markdown = converted.markdown
 
         # Extract metadata
@@ -244,6 +224,7 @@ def load_config_from_collection(
     """
 
     from crawler import CrawlerConfig
+
     from src.milvus_client import get_milvus_client
 
     client = get_milvus_client(milvus_token)
@@ -541,9 +522,12 @@ async def upload_document_to_collection(
 def _initialize_pipelines() -> None:
     """Register all predefined pipelines in the registry."""
     from src.pipelines.arxiv_math import create_arxiv_math_config
-    from src.pipelines.irads import create_irad_config
+    from src.pipelines.irads import create_default_config, create_irad_config
 
     registry = get_registry()
+
+    # Register default pipeline
+    registry.register("default", create_default_config)
 
     # Register irads pipeline
     registry.register("irads", create_irad_config)

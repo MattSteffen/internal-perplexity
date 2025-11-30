@@ -38,12 +38,12 @@ def get_milvus_client(token: str | None = None) -> MilvusClient:
         MilvusClient instance authenticated with the provided token.
     """
     global _milvus_clients
-    
+
     # Use token as cache key (None for no token)
     cache_key = token
-    
+
     # Create new client if not cached for this token
     if cache_key not in _milvus_clients:
         _milvus_clients[cache_key] = MilvusClient(uri=_milvus_settings.uri, token=token)
-    
+
     return _milvus_clients[cache_key]

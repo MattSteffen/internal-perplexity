@@ -26,7 +26,8 @@ from .llm.llm import (
     LLMConfig,
     get_llm,
 )
-from .main import Crawler, CrawlerConfig, sanitize_metadata
+from .config import CrawlerConfig
+from .main import Crawler, sanitize_metadata
 from .vector_db import (
     DatabaseClient,
     DatabaseClientConfig,

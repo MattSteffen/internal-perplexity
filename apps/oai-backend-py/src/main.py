@@ -45,7 +45,7 @@ async def chat_completions(
     user: dict[str, any] | None = Depends(get_optional_token),
 ) -> StreamingResponse | ChatCompletion:
     """OpenAI-compatible chat completions endpoint.
-    
+
     curl -X POST http://localhost:8000/v1/chat/completions \
       -H "Content-Type: application/json" \
       -H "Authorization: Bearer $TOKEN" \

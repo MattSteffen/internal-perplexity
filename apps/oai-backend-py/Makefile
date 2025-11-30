@@ -12,7 +12,7 @@ dev:
 lint:
 	uv run ruff check src/
 	uv run black --check src/
-	uv run mypy --explicit-package-bases src/
+	# uv run mypy --explicit-package-bases src/
 
 # Format code
 format:

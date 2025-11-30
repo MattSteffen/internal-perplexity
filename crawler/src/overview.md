@@ -263,7 +263,7 @@ from crawler.vector_db import DatabaseClientConfig
 from crawler.converter import PyMuPDF4LLMConfig
 from crawler.extractor import MetadataExtractorConfig
 from crawler.chunker import ChunkingConfig
-from crawler.main import CrawlerConfig
+from crawler.config import CrawlerConfig
 
 # Create collection configuration
 embeddings = EmbedderConfig.ollama(model="all-minilm:v2")
@@ -297,7 +297,7 @@ crawler_config = CrawlerConfig.create(
 
 collection_config = CollectionConfig(
     metadata_schema=extractor.json_schema,
-    library_context="Research papers on machine learning",
+    description="Research papers on machine learning",
     crawler_config=crawler_config,
     llm_system_prompt="This collection contains AI research papers. Use metadata filtering to retrieve documents by title, author, and keywords."
 )

@@ -190,7 +190,7 @@ class MetadataExtractor:
 
     def _build_metadata_prompt(self, schema: dict[str, Any], context: str, document_text: str) -> str:
         schema_json = json.dumps(schema, ensure_ascii=False, indent=2)
-        return EXTRACT_METADATA_PROMPT.replace("{{json_schema}}", schema_json).replace("{{document_library_context}}", context or "").replace("{{document_text}}", document_text)
+        return EXTRACT_METADATA_PROMPT.replace("{{json_schema}}", schema_json).replace("{{document_description}}", context or "").replace("{{document_text}}", document_text)
 
     def _coerce_to_dict(self, result: Any) -> dict[str, Any]:
         if isinstance(result, dict):
@@ -287,7 +287,7 @@ JSON Schema:
 
 Document Library Context (do not echo; use only for disambiguation):
 <context>
-{{document_library_context}}
+{{document_description}}
 </context>
 
 Document:

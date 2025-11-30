@@ -254,7 +254,7 @@ database = DatabaseClientConfig.milvus(
 extractor = ExtractorConfig.multi_schema(
     schemas=[schema1, schema2],
     llm=llm,
-    document_library_context="Custom context"
+    document_description="Custom context"
 )
 
 # Converter

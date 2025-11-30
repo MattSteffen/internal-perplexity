@@ -21,7 +21,7 @@ User metadata can now contain any keys without conflict since system fields use 
 """
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pymilvus import (
     CollectionSchema,
@@ -31,6 +31,9 @@ from pymilvus import (
     FunctionType,
     MilvusClient,
 )
+
+if TYPE_CHECKING:
+    from ..config import CrawlerConfig
 
 from .database_client import CollectionDescription
 
@@ -163,12 +166,10 @@ def _create_base_schema(embedding_size) -> CollectionSchema:
 
 def create_schema(
     embedding_size: int,
-    user_metadata_json_schema: dict[str, any] = None,
-    library_context: str = None,
-    collection_config_json: dict[str, Any] | None = None,
+    crawler_config: "CrawlerConfig",
 ) -> CollectionSchema:
     fields, functions = _create_base_schema(embedding_size)
-    description = create_description(fields, user_metadata_json_schema, library_context, collection_config_json)
+    description = create_description(fields, crawler_config)
     schema = CollectionSchema(
         fields=fields,
         functions=functions,
@@ -252,7 +253,7 @@ def parse_collection_config(description: str) -> CollectionDescription | None:
     Parse the collection description from a JSON string.
 
     The description should be pure JSON that can be loaded directly with json.loads.
-    Expected keys: metadata_schema, library_context, collection_config_json, llm_prompt
+    Expected keys: metadata_schema, description, collection_config_json, llm_prompt
 
     Args:
         description: Collection description string (should be pure JSON)
@@ -265,24 +266,22 @@ def parse_collection_config(description: str) -> CollectionDescription | None:
 
 def create_description(
     fields: list["FieldSchema"],
-    user_metadata_json_schema: dict[str, Any],
-    library_context: str,
-    collection_config_json: dict[str, Any] | None = None,
+    crawler_config: "CrawlerConfig",
 ) -> str:
     """
     Build a description for a Milvus collection.
 
     Returns a JSON string containing a dictionary with:
     - metadata_schema: The user-provided metadata schema (dict)
-    - library_context: The user-provided description of the collection data (string)
-    - collection_config_json: The crawler config (dict, or None if not provided)
+    - description: The user-provided description of the collection data (string)
+    - collection_config: The crawler config (CrawlerConfig)
     - llm_prompt: The human-readable prompt text with metadata filtering instructions
 
     Inputs:
       - fields: List[FieldSchema] from pymilvus
       - user_metadata_json_schema: JSON Schema for the user-supplied metadata blob
-      - library_context: Human-readable description of what documents live here
-      - collection_config_json: Optional dictionary containing collection configuration
+      - description: Human-readable description of what documents live here
+      - collection_config: CrawlerConfig containing collection configuration
 
     Output:
       - JSON string containing a dictionary with the four keys above
@@ -305,12 +304,13 @@ def create_description(
         return schema.get("properties", {}) if isinstance(schema, dict) else {}
 
     is_json_metadata = _is_json_metadata_field(fields)
-    props = _schema_props(user_metadata_json_schema)
+    props = _schema_props(crawler_config.metadata_schema)
 
     parts: list[str] = []
 
     # 1) Purpose/context
-    parts.append(f"Collection purpose and library context:\n{library_context}")
+    user_description = crawler_config.database.collection_description or ""
+    parts.append(f"Collection purpose and library context:\n{user_description}")
     parts.append("")
 
     # 2) System-defined fields
@@ -321,7 +321,7 @@ def create_description(
 
     # 3) User-defined JSON metadata schema
     parts.append("User-defined metadata schema for the collection (JSON):")
-    parts.append(json.dumps(user_metadata_json_schema, indent=2))
+    parts.append(json.dumps(crawler_config.metadata_schema, indent=2))
     parts.append("Note: The user metadata is stored as a JSON object in the 'metadata' field.")
     if not is_json_metadata:
         parts.append("WARNING: The 'metadata' field does not appear to be a Milvus JSON field. " "JSON-path filtering requires a JSON field type.")
@@ -418,10 +418,8 @@ def create_description(
 
     # Create CollectionDescription and return as JSON string
     description = CollectionDescription(
-        metadata_schema=user_metadata_json_schema,
-        library_context=library_context,
-        collection_config_json=collection_config_json,
+        collection_config=crawler_config,
         llm_prompt=llm_prompt,
     )
 
-    return description.to_json()
+    return json.dumps(description.model_dump())
