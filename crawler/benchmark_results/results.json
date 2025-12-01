@@ -2,11 +2,11 @@
     "results_by_doc": {
         "/Users/mattsteffen/projects/llm/internal-perplexity/data/arxiv/2408.12236v1.pdf": [
             {
-                "query": "[1,2] **, Cheng Zeng** [3] **, Jinchao Zhang** [2*] **, Jie Zhou** [2] **, Lei Zou** [1*] 1 Wangxuan Institute of Computer Technology, Peking University 2 Pattern Recognition Center, WeChat",
+                "query": "Patient** **Yanzeng Li** [1,2] **, Cheng Zeng** [3] **, Jinchao Zhang** [2*] **, Jie Zhou** [2] **, Lei Zou** [1*] 1 Wangxuan Institute of Computer Technology, Peking University 2 Pattern",
                 "expected_source": "/Users/mattsteffen/projects/llm/internal-perplexity/data/arxiv/2408.12236v1.pdf",
                 "placement_order": 1,
-                "distance": 0.028795819729566574,
-                "time_to_search": 0.07938408851623535,
+                "distance": 0.029128044843673706,
+                "time_to_search": 0.06087994575500488,
                 "found": true
             }
         ]
@@ -15,7 +15,7 @@
         "1": 1
     },
     "distance_distribution": [
-        0.028795819729566574
+        0.029128044843673706
     ],
     "percent_in_top_k": {
         "1": 100.0,
@@ -120,6 +120,6 @@
         "100": 100.0
     },
     "search_time_distribution": [
-        0.07938408851623535
+        0.06087994575500488
     ]
 }

@@ -1,4 +1,5 @@
 import copy
+import logging
 import random
 import time
 from typing import Any
@@ -6,6 +7,8 @@ from typing import Any
 import ollama
 from pymilvus import AnnSearchRequest, MilvusClient, RRFRanker
 from tqdm import tqdm
+
+logger = logging.getLogger(__name__)
 
 from ..llm.embeddings import EmbedderConfig
 from .database_client import (
@@ -160,12 +163,14 @@ class MilvusBenchmark(DatabaseBenchmark):
 
         # Load documents from collection
         # Only get chunk_index == 0 to avoid processing the same document multiple times
+        logger.info(f"Loading documents from collection '{self.db_config.collection}' with filter 'chunk_index == 0'")
         all_docs = self.milvus_client.query(
             collection_name=self.db_config.collection,
             filter="chunk_index == 0",
             output_fields=["source", "text", "id"],
             limit=10000,
         )
+        logger.info(f"Loaded {len(all_docs)} documents from collection")
 
         # Generate queries from documents
 
@@ -175,19 +180,35 @@ class MilvusBenchmark(DatabaseBenchmark):
             "docs_with_queries": 0,
             "total_queries_generated": 0,
             "stored_questions_used": 0,
+            "docs_skipped_no_source": 0,
+            "docs_skipped_no_text": 0,
+            "docs_skipped_text_too_short": 0,
         }
 
+        logger.info(f"Starting query generation with generate_queries={generate_queries}")
         with tqdm(total=len(all_docs), desc="Processing documents", unit="doc") as pbar:
-            for doc in all_docs:
+            for doc_idx, doc in enumerate(all_docs):
                 source = doc.get("source")
                 text = doc.get("text")
 
-                if not source or not text or len(text.strip()) == 0:
+                if not source:
+                    logger.debug(f"Document {doc_idx}: Skipping - no source field")
+                    query_generation_stats["docs_skipped_no_source"] += 1
+                    pbar.update(1)
+                    continue
+                
+                if not text or len(text.strip()) == 0:
+                    logger.debug(f"Document {doc_idx} (source={source}): Skipping - no text or empty text")
+                    query_generation_stats["docs_skipped_no_text"] += 1
                     pbar.update(1)
                     continue
 
+                logger.debug(f"Processing document {doc_idx}: source={source}, text_length={len(text)}")
+
                 # Try to use stored benchmark questions first (when generate_queries=False)
+                stored_questions_found = False
                 if not generate_queries:
+                    logger.debug(f"Checking for stored questions for source: {source}")
                     try:
                         # Query for stored benchmark questions (only for chunk_index 0 to avoid duplicates)
                         stored_questions_result = self.milvus_client.query(
@@ -196,50 +217,80 @@ class MilvusBenchmark(DatabaseBenchmark):
                             output_fields=["benchmark_questions"],
                             limit=1,
                         )
+                        logger.debug(f"Stored questions query returned {len(stored_questions_result) if stored_questions_result else 0} results")
 
                         if stored_questions_result and stored_questions_result[0].get("benchmark_questions"):
                             import json
 
                             try:
                                 stored_questions = json.loads(stored_questions_result[0]["benchmark_questions"])
+                                logger.debug(f"Parsed stored questions: {type(stored_questions)}, length={len(stored_questions) if isinstance(stored_questions, list) else 'N/A'}")
                                 if isinstance(stored_questions, list) and len(stored_questions) > 0:
                                     queries_by_doc[source] = stored_questions
                                     query_generation_stats["docs_with_queries"] += 1
                                     query_generation_stats["stored_questions_used"] += len(stored_questions)
                                     pbar.set_postfix_str(f"Stored questions: {query_generation_stats['stored_questions_used']}")
-                                    pbar.update(1)
-                                    continue  # Skip to next document
-                            except (json.JSONDecodeError, KeyError):
-                                continue
+                                    stored_questions_found = True
+                                    logger.debug(f"Using {len(stored_questions)} stored questions for source: {source}")
+                            except (json.JSONDecodeError, KeyError) as e:
+                                logger.debug(f"Failed to parse stored questions for {source}: {e}")
+                                # Fall through to generate queries from text
+                        else:
+                            logger.debug(f"No stored questions found for source: {source}")
                     except Exception as e:
-                        print(f"Error getting stored questions for {source}: {e}")
-                        continue
-                # Fall back to generating queries from text
-                words = text.split()
-                if len(words) > 30:
-                    # Generate multiple queries per document for better statistics
-                    num_queries = min(3, max(1, len(words) // 100))  # 1-3 queries based on document length
+                        logger.warning(f"Error getting stored questions for {source}: {e}")
+                        # Fall through to generate queries from text
+                
+                # Fall back to generating queries from text if stored questions weren't found
+                if not stored_questions_found:
+                    logger.debug(f"Generating queries from text for source: {source}")
+                    words = text.split()
+                    logger.debug(f"Document has {len(words)} words")
+                    if len(words) > 30:
+                        # Generate multiple queries per document for better statistics
+                        num_queries = min(3, max(1, len(words) // 100))  # 1-3 queries based on document length
+                        logger.debug(f"Will generate {num_queries} queries for this document")
 
-                    for _ in range(num_queries):
-                        start_index = random.randint(0, len(words) - 30)
-                        query = " ".join(words[start_index : start_index + 30])
+                        for query_idx in range(num_queries):
+                            start_index = random.randint(0, len(words) - 30)
+                            query = " ".join(words[start_index : start_index + 30])
 
-                        if source not in queries_by_doc:
-                            queries_by_doc[source] = []
-                        queries_by_doc[source].append(query)
-                        query_generation_stats["total_queries_generated"] += 1
+                            if source not in queries_by_doc:
+                                queries_by_doc[source] = []
+                            queries_by_doc[source].append(query)
+                            query_generation_stats["total_queries_generated"] += 1
+                            logger.debug(f"Generated query {query_idx + 1}/{num_queries}: {query[:50]}...")
 
-                    query_generation_stats["docs_with_queries"] += 1
-                    pbar.set_postfix_str(f"Generated queries: {query_generation_stats['total_queries_generated']}")
+                        query_generation_stats["docs_with_queries"] += 1
+                        pbar.set_postfix_str(f"Generated queries: {query_generation_stats['total_queries_generated']}")
+                        logger.debug(f"Successfully generated {num_queries} queries for source: {source}")
+                    else:
+                        logger.debug(f"Skipping document - text too short ({len(words)} words, need >30)")
+                        query_generation_stats["docs_skipped_text_too_short"] += 1
 
                 pbar.update(1)
 
         # Log query generation statistics
+        logger.info("Query generation statistics:")
+        logger.info(f"  Total documents processed: {query_generation_stats['total_docs']}")
+        logger.info(f"  Documents with queries: {query_generation_stats['docs_with_queries']}")
+        logger.info(f"  Total queries generated: {query_generation_stats['total_queries_generated']}")
+        logger.info(f"  Stored questions used: {query_generation_stats['stored_questions_used']}")
+        logger.info(f"  Documents skipped (no source): {query_generation_stats['docs_skipped_no_source']}")
+        logger.info(f"  Documents skipped (no text): {query_generation_stats['docs_skipped_no_text']}")
+        logger.info(f"  Documents skipped (text too short): {query_generation_stats['docs_skipped_text_too_short']}")
+        logger.info(f"  Total queries_by_doc keys: {len(queries_by_doc)}")
+        if queries_by_doc:
+            total_queries = sum(len(queries) for queries in queries_by_doc.values())
+            logger.info(f"  Total queries in queries_by_doc: {total_queries}")
+            logger.info(f"  Sample sources with queries: {list(queries_by_doc.keys())[:5]}")
 
         # TODO: Implement LLM-based query generation
         # if generate_queries:
 
         if not queries_by_doc:
+            logger.error("No queries could be generated from documents!")
+            logger.error(f"Query generation stats: {query_generation_stats}")
             raise ValueError("No queries could be generated from documents")
 
         # Run benchmark searches

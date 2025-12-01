@@ -177,9 +177,7 @@ class Crawler:
             self.vector_db = get_db(
                 self.config.database,
                 self.embedder.get_dimension(),
-                self.config.metadata_schema,
-                self.config.extractor.context,
-                collection_config=self.config,
+                self.config,
             )
             if self.config.benchmark:
                 self.benchmarker = get_db_benchmark(self.config.database, self.config.embeddings)
@@ -373,7 +371,7 @@ class Crawler:
 
                 # Create database entities from document
                 try:
-                    entities = document.to_database_entities()
+                    entities = document.to_database_documents()
                 except ValueError:
                     stats["failed_files"] += 1
                     pbar.update(1)
@@ -382,9 +380,7 @@ class Crawler:
                 # Store in database
                 if entities:
                     try:
-                        # Convert entities to DatabaseDocument objects for insertion
-                        db_docs = [DatabaseDocument(**entity) for entity in entities]
-                        self.vector_db.insert_data(db_docs)
+                        self.vector_db.insert_data(entities)
                         stats["total_chunks"] += len(entities)
                     except Exception:
                         stats["failed_files"] += 1

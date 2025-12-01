@@ -79,9 +79,13 @@ class CrawlerConfig(BaseModel):
         generate_benchmark_questions: bool = False,
         num_benchmark_questions: int = 3,
         security_groups: list[str] | None = None,
+        name: str | None = None,
     ) -> "CrawlerConfig":
         """Create a CrawlerConfig with type-safe parameters."""
+        # Use collection name as default if name not provided
+        config_name = name or database.collection
         return cls(
+            name=config_name,
             embeddings=embeddings,
             llm=llm,
             vision_llm=vision_llm,

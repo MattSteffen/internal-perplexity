@@ -9,17 +9,17 @@ progress tracking, and rich result objects.
 # Core types and interfaces (no external dependencies)
 from .base import (
     Converter,
+    create_converter,
 )
 
 # Factory
-from .pymupdf4llm import PyMuPDF4LLMConfig
+from .pymupdf4llm import ConverterConfig
 
 __all__ = [
     # Core interface
     "Converter",
     # Configs
     "ConverterConfig",
-    "PyMuPDF4LLMConfig",
     # Factory
     "create_converter",
 ]

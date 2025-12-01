@@ -6,7 +6,7 @@ This module provides a unified Document class that flows through the processing 
 2. Extractor: populates metadata and benchmark_questions from markdown
 3. Chunker: populates chunks from markdown
 4. Embeddings: populates text_embeddings and sparse embeddings for chunks
-5. Vector DB: uses to_database_entities() to create entities for storage
+5. Vector DB: uses to_database_documents() to create database documents for storage
 
 Each processing stage modifies the Document in place, allowing for a clean
 data flow through the entire pipeline.
@@ -36,7 +36,7 @@ class Document(BaseModel):
     - Extractor: Sets metadata and benchmark_questions
     - Chunker: Sets chunks
     - Embedder: Sets text_embeddings, sparse_text_embeddings, sparse_metadata_embeddings
-    - Vector DB: Uses to_database_entities() to create storage entities
+    - Vector DB: Uses to_database_documents() to create database documents for storage
 
     Attributes:
         document_id: Unique identifier for the document (UUID)
@@ -144,6 +144,7 @@ class Document(BaseModel):
         Raises:
             ValueError: If document is not ready for storage (missing chunks or embeddings)
         """
+        from ..vector_db import DatabaseDocument
         if not self.is_ready_for_storage():
             raise ValueError("Document is not ready for storage. Must have chunks and embeddings.")
 

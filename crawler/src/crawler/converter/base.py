@@ -10,8 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..document import Document
-    from .pymupdf4llm import PyMuPDF4LLMConfig
-
+    from .pymupdf4llm import ConverterConfig
 
 
 def create_converter(config: "ConverterConfig") -> "Converter":
@@ -19,18 +18,19 @@ def create_converter(config: "ConverterConfig") -> "Converter":
     Create a converter instance based on configuration.
 
     Args:
-        config: PyMuPDF4LLMConfig object specifying the converter parameters
+        config: ConverterConfig object specifying the converter parameters
 
     Returns:
-        PyMuPDF4LLMConverter instance
+        Converter instance
     """
+    # Import here to avoid circular dependencies
     from .pymupdf4llm import PyMuPDF4LLMConverter
+    
+    if config.type == "pymupdf4llm":
+        return PyMuPDF4LLMConverter(config)
+    
+    raise ValueError(f"Unknown converter type: {config.type}")
 
-    return PyMuPDF4LLMConverter(config)
-
-
-# ConverterConfig is just an alias for PyMuPDF4LLMConfig
-ConverterConfig = PyMuPDF4LLMConfig
 
 
 class Converter(ABC):

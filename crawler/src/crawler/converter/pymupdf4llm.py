@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field
 
 from ..document import Document
 from ..llm.llm import LLMConfig
-from .base import ConversionStats, Converter
+from .base import Converter
 
 # ----------------------------- VLM Interfaces ---------------------------------
 
@@ -100,7 +100,7 @@ class DummyVLM(VLMInterface):
 # --------------------------------- Config -------------------------------------
 
 
-class PyMuPDF4LLMConfig(BaseModel):
+class ConverterConfig(BaseModel):
     """Configuration for PyMuPDF4LLM converter."""
 
     type: Literal["pymupdf4llm"] = "pymupdf4llm"
@@ -237,7 +237,7 @@ def _replace_images_with_descriptions(markdown: str, desc_map: dict[str, str]) -
 class PyMuPDF4LLMConverter(Converter):
     """Converter using pymupdf4llm and a VLM to replace images with descriptions."""
 
-    def __init__(self, config: PyMuPDF4LLMConfig):
+    def __init__(self, config: ConverterConfig):
         super().__init__(config)
         self.config = config
         self.vlm = self._create_vlm()
@@ -325,12 +325,12 @@ class PyMuPDF4LLMConverter(Converter):
 
             # 8) Populate document fields in place
             document.markdown = md_text
-            document.stats = ConversionStats(
-                total_pages=len(pdf_doc),
-                processed_pages=len(pdf_doc),
-                total_time_sec=total_time,
-                images_described=len(desc_map),
-            )
+            # document.stats = ConversionStats(
+            #     total_pages=len(pdf_doc),
+            #     processed_pages=len(pdf_doc),
+            #     total_time_sec=total_time,
+            #     images_described=len(desc_map),
+            # )
             document.warnings = warnings
 
             # Set source_name if not already set

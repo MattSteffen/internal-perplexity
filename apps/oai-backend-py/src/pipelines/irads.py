@@ -2,7 +2,7 @@ from typing import Any, cast
 
 from crawler import CrawlerConfig
 from crawler.chunker import ChunkingConfig
-from crawler.converter import PyMuPDF4LLMConfig
+from crawler.converter import ConverterConfig
 from crawler.extractor import MetadataExtractorConfig
 from crawler.llm.embeddings import EmbedderConfig
 from crawler.llm.llm import LLMConfig
@@ -158,7 +158,7 @@ def create_irad_config() -> CrawlerConfig:
     extractor = MetadataExtractorConfig(json_schema=metadata_schema, context=irad_library_description)
 
     # PyMuPDF4LLM converter configuration with image processing
-    converter = PyMuPDF4LLMConfig(
+    converter = ConverterConfig(
         type="pymupdf4llm",
         vlm_config=vision_llm,
         image_prompt="Describe this image in detail for a technical document.",

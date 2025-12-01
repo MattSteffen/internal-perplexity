@@ -37,6 +37,15 @@ if TYPE_CHECKING:
 
 from .database_client import CollectionDescription
 
+# Rebuild CollectionDescription to resolve forward references to CrawlerConfig
+# This must be done after CrawlerConfig is fully defined
+try:
+    from ..config import CrawlerConfig
+    CollectionDescription.model_rebuild()
+except Exception:
+    # If CrawlerConfig is not yet imported, model_rebuild will be called later
+    pass
+
 # Constants
 MAX_DOC_LENGTH = 65535  # Max length for VARCHAR enforced by Milvus
 DEFAULT_VARCHAR_MAX_LENGTH = 20480
@@ -67,11 +76,11 @@ def _create_base_schema(embedding_size) -> CollectionSchema:
         max_length=64,
         description="The uuid of the document",
     )
-    field_schema_minio = FieldSchema(
-        name="minio",
+    field_schema_source = FieldSchema(
+        name="source",
         dtype=DataType.VARCHAR,
         max_length=256,
-        description="The source url of the document in minio",
+        description="The source of the document",
     )
     field_schema_chunk_index = FieldSchema(
         name="chunk_index",
@@ -149,7 +158,7 @@ def _create_base_schema(embedding_size) -> CollectionSchema:
     fields = [
         field_schema_primary_id,
         field_schema_document_id,
-        field_schema_minio,
+        field_schema_source,
         field_schema_chunk_index,
         field_schema_metadata_json,
         field_schema_text,
@@ -415,6 +424,11 @@ def create_description(
 
     # Build the llm_prompt from all the parts
     llm_prompt = "\n".join(parts)
+
+    # Ensure CollectionDescription model is rebuilt to resolve forward references
+    # Import CrawlerConfig to ensure it's fully defined before rebuilding
+    from ..config import CrawlerConfig
+    CollectionDescription.model_rebuild()
 
     # Create CollectionDescription and return as JSON string
     description = CollectionDescription(

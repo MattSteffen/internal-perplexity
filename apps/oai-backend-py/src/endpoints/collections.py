@@ -128,7 +128,7 @@ async def list_collections(token: str | None = None) -> CollectionsResponse:
                 logger.warning(f"Failed to retrieve metadata for collection '{collection_name}': {str(e)}")
 
         return CollectionsResponse(
-            collection_names=collections,
+            collection_names=list(collection_descriptions.keys()),
             collections=collection_descriptions,
         )
 

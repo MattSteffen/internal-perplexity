@@ -5,7 +5,7 @@ from crawler.extractor import (
 )
 from crawler.llm.embeddings import EmbedderConfig
 from crawler.llm.llm import LLMConfig
-from crawler.converter import PyMuPDF4LLMConfig
+from crawler.converter import ConverterConfig
 from crawler.chunker import ChunkingConfig
 from crawler.vector_db import DatabaseClientConfig, MilvusBenchmark
 
@@ -116,6 +116,7 @@ def create_arxiv_config():
         username="matt",
         password="steffen",
         recreate=True,
+        collection_description="A sequence of papers on topics related to clustering.",
     )
 
     # Main LLM for metadata extraction (using tools mode)
@@ -134,7 +135,7 @@ def create_arxiv_config():
     )
 
     # PyMuPDF4LLM converter configuration with image processing
-    converter = PyMuPDF4LLMConfig(
+    converter = ConverterConfig(
         type="pymupdf4llm",
         vlm_config=vision_llm,
         image_prompt="Describe this image in detail for a technical document.",
@@ -262,6 +263,14 @@ arxiv_dir_path = "/Users/mattsteffen/projects/llm/internal-perplexity/data/arxiv
 
 def main():
     """Main function to run the ArXiv document processing pipeline."""
+    import logging
+    
+    # Configure logging to see what's happening
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    
     print("🚀 Starting ArXiv document processing with type-safe configuration...")
 
     # Create configuration using the new type-safe approach

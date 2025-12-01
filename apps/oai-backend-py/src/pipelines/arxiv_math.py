@@ -2,7 +2,7 @@
 
 from crawler import CrawlerConfig
 from crawler.chunker import ChunkingConfig
-from crawler.converter import PyMuPDF4LLMConfig
+from crawler.converter import ConverterConfig
 from crawler.extractor import MetadataExtractorConfig
 from crawler.llm.embeddings import EmbedderConfig
 from crawler.llm.llm import LLMConfig
@@ -109,7 +109,7 @@ def create_arxiv_math_config() -> CrawlerConfig:
     extractor = MetadataExtractorConfig(json_schema=arxiv_math_schema, context=arxiv_math_library_description)
 
     # PyMuPDF4LLM converter configuration with image processing
-    converter = PyMuPDF4LLMConfig(
+    converter = ConverterConfig(
         type="pymupdf4llm",
         vlm_config=vision_llm,
         image_prompt="Describe this mathematical diagram, figure, or graph in detail, including all mathematical notation, labels, and relationships shown.",
