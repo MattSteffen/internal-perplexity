@@ -9,7 +9,7 @@ from openai.types.chat import ChatCompletion
 from src.auth import init_oauth
 from src.auth_utils import get_optional_token, verify_token
 from src.config import settings
-from src.endpoints import auth, chat, collections, document_pipelines, embeddings, models, tools
+from src.endpoints import auth, chat, collections, document_pipelines, embeddings, models, search, tools
 
 app = FastAPI(
     title="OpenAI-Compatible Backend",
@@ -216,6 +216,26 @@ async def upload_document_endpoint(
         config_overrides=config_overrides,
         user=user,
     )
+
+
+@app.post("/v1/search")
+async def search_endpoint(
+    request: search.SearchRequest,
+    user: dict = Depends(verify_token),
+) -> search.SearchResponse:
+    """Search a Milvus collection with hybrid search.
+
+    curl -X POST http://localhost:8000/v1/search \
+      -H "Authorization: Bearer $TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "collection": "my_collection",
+        "text": "query text",
+        "filters": ["title == \"example\""],
+        "limit": 100
+      }'
+    """
+    return await search.search(request, user)
 
 
 @app.post("/v1/tools")

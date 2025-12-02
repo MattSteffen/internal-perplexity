@@ -21,7 +21,7 @@ irad_library_description = (
 )
 
 
-schema1 = {
+metadata_schema = {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Document Core Properties",
     "description": "Schema defining the fundamental metadata and unique terminology of a document.",
@@ -71,15 +71,6 @@ schema1 = {
             },
             "minItems": 0,
         },
-    },
-}
-schema2 = {
-    "$schema": "http://json-schema.org/draft-07/schema#",
-    "title": "Document Summary Points",
-    "description": "Schema defining distinct summary aspects of a document.",
-    "type": "object",
-    "required": ["summary_item_1"],
-    "properties": {
         "summary_item_1": {
             "type": "string",
             "maxLength": 15000,
@@ -102,16 +93,6 @@ schema2 = {
             ),
         },
     },
-}
-# Combine schemas
-schema1_required = cast(list[str], schema1.get("required", []) or [])
-schema2_required = cast(list[str], schema2.get("required", []) or [])
-schema1_props = cast(dict[str, Any], schema1.get("properties", {}) or {})
-schema2_props = cast(dict[str, Any], schema2.get("properties", {}) or {})
-metadata_schema = {
-    "type": "object",
-    "required": schema1_required + schema2_required,
-    "properties": {**schema1_props, **schema2_props},
 }
 
 

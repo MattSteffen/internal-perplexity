@@ -431,20 +431,6 @@ class DatabaseClient(ABC):
         """
         pass
 
-    @abstractmethod
-    def get_collection_description(self, collection_name: str) -> str | None:
-        """
-        Retrieve the collection description from the database.
-
-        Args:
-            collection_name: Name of the collection
-
-        Returns:
-            Collection description string, or None if collection doesn't exist or has no description
-        """
-        pass
-
-
 class BenchmarkResult(BaseModel):
     """
     Results for a single query in a benchmark run.

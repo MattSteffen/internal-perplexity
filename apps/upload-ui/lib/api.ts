@@ -3,12 +3,16 @@
 import type {
   Collection,
   CollectionsApiResponse,
+  CollectionsResponse,
+  CollectionInfo,
   ProcessedDocument,
   Role,
   User,
   CollectionMetadataJson,
   PipelineConfig,
   CollectionPermissions,
+  SearchRequest,
+  SearchResponse,
 } from "./types";
 
 const API_BASE_URL =
@@ -34,44 +38,20 @@ function getAuthToken(): string {
  * curl -X GET http://localhost:8000/v1/collections \
  *   -H "Authorization: Bearer matt:steffen"
  * 
- * Example API response:
+ * Example API response (NEW FORMAT):
  * {
- *   "collections": ["my_collection", "arxiv2"],
- *   "collection_metadata": {
+ *   "collection_names": ["my_collection", "arxiv2"],
+ *   "collections": {
  *     "my_collection": {
- *       "collection_name": "my_collection",
- *       "auto_id": false,
- *       "num_shards": 1,
- *       "description": "",
- *       "fields": [
- *         {
- *           "field_id": 100,
- *           "name": "id",
- *           "description": "",
- *           "type": 5,
- *           "params": {},
- *           "is_primary": true
- *         },
- *         {
- *           "field_id": 103,
- *           "name": "dense",
- *           "description": "",
- *           "type": 101,
- *           "params": { "dim": 5 }
- *         }
- *       ],
- *       "functions": [],
- *       "collection_id": 457696725674011330,
- *       "consistency_level": 2,
- *       "num_partitions": 1,
- *       "enable_dynamic_field": true,
- *       "created_timestamp": 457787511882645509,
- *       "update_timestamp": 457787511882645509
+ *       "description": "Human readable description",
+ *       "metadata_schema": {...},
+ *       "pipeline_name": "irads",
+ *       "num_documents": 100,
+ *       "required_roles": ["admin"]
  *     }
  *   }
  * }
  */
-// TODO: Should parse certain things from the description and display those.
 export async function fetchCollections(): Promise<Collection[]> {
   const response = await fetch(`${API_BASE_URL}/v1/collections`, {
     method: "GET",
@@ -94,218 +74,51 @@ export async function fetchCollections(): Promise<Collection[]> {
     throw new Error(errorMessage);
   }
 
-  const data: CollectionsApiResponse = await response.json();
+  const data: CollectionsResponse = await response.json();
 
   // Transform API response to Collection[] format
-  if (!data.collections || !Array.isArray(data.collections)) {
+  if (!data.collection_names || !Array.isArray(data.collection_names)) {
     console.warn("Unexpected collections response format:", data);
     return [];
   }
 
-  return data.collections.map((collectionName) => {
-    const metadata = data.collection_metadata?.[collectionName];
+  return data.collection_names.map((collectionName) => {
+    const collectionInfo: CollectionInfo | undefined = data.collections?.[collectionName];
 
-    // Helper function to safely convert Milvus timestamp to ISO string
-    // Milvus timestamps are typically in milliseconds since epoch, but can be very large
-    // and may exceed JavaScript's MAX_SAFE_INTEGER. We need to convert them properly.
-    const convertTimestamp = (timestamp: number | undefined): string | undefined => {
-      if (!timestamp) {
-        return undefined;
-      }
-
-      try {
-        let milliseconds: number;
-        const maxSafeTimestamp = Number.MAX_SAFE_INTEGER;
-
-        // If timestamp exceeds safe integer range, it's likely in nanoseconds or microseconds
-        if (timestamp > maxSafeTimestamp) {
-          // Try converting from nanoseconds (divide by 1,000,000)
-          const nanosecondsToMs = timestamp / 1_000_000;
-          // Try converting from microseconds (divide by 1,000)
-          const microsecondsToMs = timestamp / 1_000;
-
-          // Check which conversion gives a reasonable timestamp (between 1970 and 2100)
-          const minReasonableMs = 0; // Jan 1, 1970
-          const maxReasonableMs = 4102444800000; // Jan 1, 2100
-
-          if (
-            nanosecondsToMs >= minReasonableMs &&
-            nanosecondsToMs <= maxReasonableMs &&
-            nanosecondsToMs <= maxSafeTimestamp
-          ) {
-            milliseconds = nanosecondsToMs;
-          } else if (
-            microsecondsToMs >= minReasonableMs &&
-            microsecondsToMs <= maxReasonableMs &&
-            microsecondsToMs <= maxSafeTimestamp
-          ) {
-            milliseconds = microsecondsToMs;
-          } else {
-            // For Milvus hybrid timestamps, extract the physical timestamp part
-            // Milvus hybrid timestamp format: (physical_timestamp << 18) | logical_timestamp
-            // We can extract physical timestamp by right-shifting by 18 bits
-            const physicalTimestamp = Math.floor(timestamp / (1 << 18));
-            const physicalMs = physicalTimestamp / 1_000_000; // Convert to milliseconds
-
-            if (
-              physicalMs >= minReasonableMs &&
-              physicalMs <= maxReasonableMs &&
-              physicalMs <= maxSafeTimestamp
-            ) {
-              milliseconds = physicalMs;
-            } else {
-              console.warn(
-                `Cannot convert timestamp ${timestamp} to a reasonable date value`,
-              );
-              return undefined;
-            }
-          }
-        } else {
-          // Timestamp is within safe range, use as-is (assuming it's already in milliseconds)
-          milliseconds = timestamp;
-        }
-
-        const date = new Date(milliseconds);
-        if (isNaN(date.getTime())) {
-          console.warn(
-            `Invalid date after conversion: timestamp ${timestamp} -> ${milliseconds} ms`,
-          );
-          return undefined;
-        }
-
-        const isoString = date.toISOString();
-        return isoString;
-      } catch (error) {
-        console.error(`Error converting timestamp ${timestamp}:`, error);
-        return undefined;
-      }
-    };
-
-    // Parse description from JSON string if it exists
-    // The API now returns library_context as the description field directly,
-    // but we also support parsing the full CollectionDescription JSON format
-    let parsedDescription: string | undefined;
-    let pipelineConfig: PipelineConfig | undefined;
-    let permissions: CollectionPermissions | undefined;
-    let metadataSchema: unknown | undefined;
-
-    // Check if metadata_schema is already extracted by the backend (new format)
-    if (metadata && "metadata_schema" in metadata && metadata.metadata_schema) {
-      if (typeof metadata.metadata_schema === "string") {
-        try {
-          const parsed = JSON.parse(metadata.metadata_schema);
-          // Only use if it's a non-empty object
-          if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && Object.keys(parsed).length > 0) {
-            metadataSchema = parsed;
-          }
-        } catch {
-          // Ignore parse errors
-        }
-      } else if (
-        typeof metadata.metadata_schema === "object" &&
-        !Array.isArray(metadata.metadata_schema) &&
-        Object.keys(metadata.metadata_schema).length > 0
-      ) {
-        metadataSchema = metadata.metadata_schema;
-      }
+    // Extract fields from CollectionInfo (new format)
+    if (!collectionInfo) {
+      // Fallback: return minimal collection info if CollectionInfo is missing
+      return {
+        name: collectionName,
+        description: undefined,
+        metadata_schema: undefined,
+        pipeline_name: undefined,
+        num_documents: 0,
+        required_roles: [],
+      };
     }
 
-    // Check if pipeline_config and permissions are already extracted by the backend
-    if (metadata && "pipeline_config" in metadata && metadata.pipeline_config) {
-      pipelineConfig = metadata.pipeline_config as PipelineConfig;
-    }
-    if (metadata && "permissions" in metadata && metadata.permissions) {
-      permissions = metadata.permissions as CollectionPermissions;
-    }
-
-    // Parse description field (may contain full CollectionDescription JSON or just library_context string)
-    if (metadata?.description && typeof metadata.description === "string") {
-      try {
-        const parsed: CollectionMetadataJson & {
-          library_context?: string;
-          collection_config_json?: {
-            pipeline_config?: PipelineConfig;
-            permissions?: CollectionPermissions;
-          };
-        } = JSON.parse(metadata.description);
-        // New format: look for library_context first
-        if (parsed.library_context) {
-          parsedDescription = parsed.library_context;
-        } else if (parsed.description) {
-          // Old format: fallback to description field
-          parsedDescription = parsed.description;
-        }
-        // If we still don't have a description, use the original string as fallback
-        if (!parsedDescription) {
-          parsedDescription = metadata.description;
-        }
-        // Extract pipeline_config and permissions from parsed JSON if not already extracted
-        if (!pipelineConfig) {
-          pipelineConfig =
-            parsed.pipeline_config || parsed.collection_config_json?.pipeline_config;
-        }
-        if (!permissions) {
-          permissions =
-            parsed.permissions || parsed.collection_config_json?.permissions;
-        }
-        // Extract metadata_schema from parsed JSON if not already extracted
-        if (!metadataSchema && parsed.metadata_schema) {
-          if (typeof parsed.metadata_schema === "string") {
-            try {
-              const parsedSchema = JSON.parse(parsed.metadata_schema);
-              // Only use if it's a non-empty object
-              if (
-                parsedSchema &&
-                typeof parsedSchema === "object" &&
-                !Array.isArray(parsedSchema) &&
-                Object.keys(parsedSchema).length > 0
-              ) {
-                metadataSchema = parsedSchema;
-              }
-            } catch {
-              // Ignore parse errors
-            }
-          } else if (
-            typeof parsed.metadata_schema === "object" &&
-            !Array.isArray(parsed.metadata_schema) &&
-            Object.keys(parsed.metadata_schema).length > 0
-          ) {
-            metadataSchema = parsed.metadata_schema;
-          }
-        }
-      } catch (error) {
-        // If parsing fails, check if library_context is available as a separate field
-        if (metadata && "library_context" in metadata && metadata.library_context) {
-          parsedDescription = metadata.library_context as string;
-        } else {
-          // Fallback: use description as-is (might be plain library_context string)
-          parsedDescription = metadata.description;
-        }
-      }
-    } else if (metadata && "library_context" in metadata && metadata.library_context) {
-      // Direct access to library_context field (new backend format)
-      parsedDescription = metadata.library_context as string;
-    }
-
-    // Create enhanced metadata object with parsed schema
-    const enhancedMetadata = metadata
-      ? {
-        ...metadata,
-        parsed_metadata_schema: metadataSchema,
-      }
+    // Build pipeline_config from pipeline_name
+    const pipelineConfig: PipelineConfig | undefined = collectionInfo.pipeline_name
+      ? { pipeline_name: collectionInfo.pipeline_name }
       : undefined;
 
     return {
       name: collectionName,
-      description: parsedDescription,
-      metadata: enhancedMetadata,
+      description: collectionInfo.description || undefined,
+      metadata_schema: collectionInfo.metadata_schema,
+      pipeline_name: collectionInfo.pipeline_name,
+      num_documents: collectionInfo.num_documents,
+      required_roles: collectionInfo.required_roles,
+      pipeline_config: pipelineConfig,
       // Note: security_rules are not part of the API response
       // They may be added later or come from a different source
       security_rules: undefined,
-      pipeline_config: pipelineConfig,
-      permissions: permissions,
-      created_at: convertTimestamp(metadata?.created_timestamp),
-      updated_at: convertTimestamp(metadata?.update_timestamp),
+      // Note: permissions and created_at/updated_at are not in the new format
+      // These may need to be added to the backend if needed
+      permissions: undefined,
+      created_at: undefined,
+      updated_at: undefined,
     };
   });
 }
@@ -501,6 +314,51 @@ export async function createCollection(
 
   if (!response.ok) {
     let errorMessage = `Failed to create collection: ${response.statusText}`;
+    try {
+      const errorData = await response.json();
+      if (errorData.detail || errorData.message) {
+        errorMessage = errorData.detail || errorData.message;
+      }
+    } catch {
+      // Ignore JSON parse errors, use default message
+    }
+    throw new Error(errorMessage);
+  }
+
+  return response.json();
+}
+
+/**
+ * Search a Milvus collection with hybrid search
+ * curl -X POST http://localhost:8000/v1/search \
+ *   -H "Authorization: Bearer $TOKEN" \
+ *   -H "Content-Type: application/json" \
+ *   -d '{
+ *     "collection": "my_collection",
+ *     "text": "query text",
+ *     "filters": ["title == \"example\""],
+ *     "limit": 100
+ *   }'
+ */
+export async function searchCollection(
+  request: SearchRequest,
+): Promise<SearchResponse> {
+  const response = await fetch(`${API_BASE_URL}/v1/search`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${getAuthToken()}`,
+    },
+    body: JSON.stringify({
+      collection: request.collection,
+      text: request.text,
+      filters: request.filters || [],
+      limit: request.limit || 100,
+    }),
+  });
+
+  if (!response.ok) {
+    let errorMessage = `Failed to search collection: ${response.statusText}`;
     try {
       const errorData = await response.json();
       if (errorData.detail || errorData.message) {

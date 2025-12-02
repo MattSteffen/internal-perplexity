@@ -1,11 +1,13 @@
 """Collections endpoint handler."""
 
+import json
 import logging
 from typing import Any
 
 from fastapi import HTTPException, status
 from pydantic import BaseModel, Field
 
+from src.auth_utils import extract_username_from_token
 from src.milvus_client import get_milvus_client
 
 logger = logging.getLogger(__name__)
@@ -24,6 +26,8 @@ class CollectionInfo(BaseModel):
     metadata_schema: dict[str, Any]
     pipeline_name: str
     num_documents: int
+    num_chunks: int
+    num_partitions: int
     required_roles: list[str]
 
 
@@ -97,12 +101,24 @@ async def list_collections(token: str | None = None) -> CollectionsResponse:
                     metadata_schema={},
                     pipeline_name="",
                     num_documents=0,
+                    num_chunks=0,
+                    num_partitions=0,
                     required_roles=[],
                 )
                 # Get collection description/statistics
                 # MilvusClient.describe_collection returns collection info dict
                 collection_info_dict = client.describe_collection(collection_name)
-                collection_info.num_documents = client.get_collection_stats(collection_name)["row_count"]  # TODO: This is not num_documents, but is num_chunks, fix later
+                # Get num_chunks from row_count
+                collection_info.num_chunks = client.get_collection_stats(collection_name).get("row_count", 0)
+                # Get num_partitions by listing partitions
+                try:
+                    partitions = client.list_partitions(collection_name=collection_name)
+                    print("Partitions ->", partitions)
+                    collection_info.num_partitions = len(partitions) if partitions else 0
+                except Exception as e:
+                    logger.warning(f"Failed to get partitions for collection '{collection_name}': {str(e)}")
+                    collection_info.num_partitions = 0
+
 
                 # Extract and parse collection description to get library_context and metadata_schema
                 try:
@@ -112,23 +128,66 @@ async def list_collections(token: str | None = None) -> CollectionsResponse:
                     collection_info.description = collection_desc.description
                     # Get the roles that are required to access the collection
                     # Each role is granted a privilege group, if that group is in the collection_security_groups, then the role can access the collection
-                    all_roles = client.list_roles()
-                    for r in all_roles:
-                        role_desc = client.describe_role(r)
-                        for privilege in role_desc["privileges"]:
-                            if privilege in collection_desc.collection_security_groups:
-                                collection_info.required_roles.append(r)
                 except Exception as e:
                     raise ValueError(f"Failed to parse collection description for {collection_name}: {str(e)}") from e
+                try:
+                    all_roles = client.list_roles()
+                    print("All roles ->", all_roles)
+                    for r in all_roles:
+                        role_desc = client.describe_role(r)
+                        print("Role description ->", r, role_desc)
+                        for privilege in role_desc.get("privileges", []):
+                            if isinstance(privilege, str) and privilege in collection_desc.collection_security_groups:
+                                    collection_info.required_roles.append(r)
+                except Exception as e:
+                    raise ValueError(f"Failed to list roles for {collection_name}: {str(e)}") from e
+
+                # Get num_documents using search function
+                # Use search with empty text, no filters, and limit 10000 to get all documents
+                try:
+                    from src.endpoints.search import SearchRequest, search as search_function
+
+                    # Extract username from token for user dict
+                    username = ""
+                    if token:
+                        try:
+                            username = extract_username_from_token(token)
+                        except ValueError:
+                            logger.warning(f"Failed to extract username from token for collection '{collection_name}'")
+                            username = ""
+
+                    user_dict = {
+                        "username": username,
+                        "milvus_token": token or "",
+                    }
+
+                    # Create search request with empty text, no filters, limit 10000
+                    search_request = SearchRequest(
+                        collection=collection_name,
+                        text="",
+                        filters=[],
+                        limit=10000,
+                    )
+
+                    # Call search function to get all documents
+                    search_response = await search_function(search_request, user_dict)
+                    collection_info.num_documents = search_response.total
+
+                except Exception as e:
+                    # If search fails, log warning but don't fail the entire collection listing
+                    logger.warning(f"Failed to get document count for collection '{collection_name}': {str(e)}")
+                    # num_documents remains 0
 
                 collection_descriptions[collection_name] = collection_info
 
             except Exception as e:
                 # If we can't get metadata for a collection, include minimal info
                 logger.warning(f"Failed to retrieve metadata for collection '{collection_name}': {str(e)}")
+        
+        print("Collection descriptions ->", collection_descriptions)
 
         return CollectionsResponse(
-            collection_names=list(collection_descriptions.keys()),
+            collection_names=list[str](collection_descriptions.keys()),
             collections=collection_descriptions,
         )
 
@@ -277,6 +336,7 @@ async def create_collection(
 
         # Build CrawlerConfig
         # TODO: Distinguish between pipeline and collection config, the source of the config.
+        # print("Getting pipeline config for ->", request.pipeline_name, "--")
         config: CrawlerConfig
         if request.pipeline_name:
             # Validate pipeline exists
@@ -289,6 +349,7 @@ async def create_collection(
 
             # Get base pipeline config
             base_config = registry.get_config(request.pipeline_name)
+            # print("Base config ->", json.dumps(base_config.model_dump(), indent=4))
 
             # Apply config overrides if provided
             if request.config_overrides:
@@ -296,7 +357,6 @@ async def create_collection(
                 config = _override_config(base_config, overrides)
             else:
                 config = base_config
-
         else:
             # Custom config provided
             if request.custom_config is None:
@@ -315,6 +375,7 @@ async def create_collection(
                 ) from e
 
         # Override collection name in database config
+        config.name = request.collection_name
         original_db_config = config.database
         db_config = DatabaseClientConfig(
             provider=original_db_config.provider,
@@ -335,19 +396,17 @@ async def create_collection(
 
         # Get embedding dimension
         from crawler.llm.embeddings import get_embedder
-
         embedder = get_embedder(config.embeddings)
         embedding_dimension = embedder.get_dimension()
 
         from crawler.vector_db.database_utils import get_db
-
         get_db(config.database, embedding_dimension, config)
 
         # Grant privileges to the collection
         # TODO: The privilege granted should be a specific one imported from crawler.
-        for role in request.roles:
-            # TODO: Should use admin client to grant privileges.
-            client.grant_privilege_v2(role, "ClusterReadOnly", config.database.collection_name)
+        # for role in request.roles:
+        #     # TODO: Should use admin client to grant privileges.
+        #     client.grant_privilege_v2(role, "ClusterReadOnly", config.database.collection)
 
         return CreateCollectionResponse(
             collection_name=request.collection_name,

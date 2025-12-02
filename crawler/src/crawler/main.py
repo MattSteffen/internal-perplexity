@@ -117,35 +117,9 @@ class Crawler:
 
             # Get collection description
             collection_info = client.describe_collection(database_config.collection)
-            description_str = extract_collection_description(collection_info)
-
-            if not description_str:
+            restored_config = extract_collection_description(collection_info.get("description", ""))
+            if not restored_config:
                 return None
-
-            # Parse and restore config from collection
-            description_obj = CollectionDescription.from_json(description_str)
-            if not description_obj or not description_obj.collection_config:
-                return None
-
-            restored_config = CrawlerConfig.from_collection_description(description_obj, database_config)
-
-            # Validate that restored config matches current config
-            # Compare key fields that should match (excluding database config)
-            current_dict = self.config.model_dump(exclude={"database"})
-            restored_dict = restored_config.model_dump(exclude={"database"})
-
-            # Check if configs match (allowing for some differences in database config)
-            if current_dict != restored_dict:
-                # Create a detailed error message
-                differences = []
-                for key in set(current_dict.keys()) | set(restored_dict.keys()):
-                    if current_dict.get(key) != restored_dict.get(key):
-                        differences.append(f"  - {key}: current={current_dict.get(key)}, restored={restored_dict.get(key)}")
-                raise ValueError(
-                    f"Restored config from collection '{database_config.collection}' does not match provided config. "
-                    f"Differences:\n" + "\n".join(differences) + "\n"
-                    "Set recreate=True to overwrite the existing collection, or update your config to match."
-                )
 
             # Configs match, return restored config
             return restored_config

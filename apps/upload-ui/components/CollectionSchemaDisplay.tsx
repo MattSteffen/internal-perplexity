@@ -13,8 +13,8 @@ export function CollectionSchemaDisplay({
     return null;
   }
 
-  // Get metadata schema from collection metadata (already parsed in API)
-  const metadataSchema = (collection.metadata as { parsed_metadata_schema?: Record<string, unknown> } | undefined)?.parsed_metadata_schema as Record<string, unknown> | undefined;
+  // Get metadata schema from collection (new format has it directly on collection)
+  const metadataSchema = collection.metadata_schema as Record<string, unknown> | undefined;
 
   // Extract security rules if available
   const securityRules = collection.security_rules || [];

@@ -207,9 +207,29 @@ export function CollectionsList({
                     </p>
                   )}
                   <div className="mt-2 flex flex-wrap gap-2">
-                    {collection.pipeline_config?.pipeline_name && (
+                    {collection.pipeline_name && (
                       <span className="rounded-full bg-blue-100 px-2 py-1 text-xs text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
-                        Pipeline: {collection.pipeline_config.pipeline_name}
+                        Pipeline: {collection.pipeline_name}
+                      </span>
+                    )}
+                    {collection.num_documents !== undefined && (
+                      <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-800 dark:bg-gray-900/30 dark:text-gray-300">
+                        {collection.num_documents} {collection.num_documents === 1 ? "document" : "documents"}
+                      </span>
+                    )}
+                    {collection.num_chunks !== undefined && (
+                      <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-800 dark:bg-slate-900/30 dark:text-slate-300">
+                        {collection.num_chunks} {collection.num_chunks === 1 ? "chunk" : "chunks"}
+                      </span>
+                    )}
+                    {collection.num_partitions !== undefined && (
+                      <span className="rounded-full bg-indigo-100 px-2 py-1 text-xs text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300">
+                        {collection.num_partitions} {collection.num_partitions === 1 ? "partition" : "partitions"}
+                      </span>
+                    )}
+                    {collection.required_roles && collection.required_roles.length > 0 && (
+                      <span className="rounded-full bg-purple-100 px-2 py-1 text-xs text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">
+                        Roles: {collection.required_roles.join(", ")}
                       </span>
                     )}
                     {collection.permissions && (

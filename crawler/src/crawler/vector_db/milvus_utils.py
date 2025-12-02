@@ -225,52 +225,25 @@ def create_index(client: MilvusClient):
     return index_params
 
 
-def extract_collection_description(collection_info: Any) -> str | None:
+def extract_collection_description(description: str) -> CollectionDescription | None:
     """
-    Extract description string from Milvus collection_info response.
+    Extract and parse CollectionDescription from Milvus collection description.
 
-    Handles both dict and object responses from Milvus describe_collection().
+    MilvusClient.describe_collection() returns a dict with a "description" key
+    at the top level containing the collection description JSON string.
 
     Args:
-        collection_info: Response from Milvus describe_collection() call
+        description: Collection description JSON string (from Milvus describe_collection().get("description"))
 
     Returns:
-        Collection description string, or None if not found
+        CollectionDescription instance, or None if parsing fails
     """
-    # Handle dict response
-    if isinstance(collection_info, dict):
-        schema = collection_info.get("schema")
-        if schema and isinstance(schema, dict):
-            return schema.get("description")
-        if "description" in collection_info:
-            return collection_info["description"]
-
-    # Handle object response
-    if hasattr(collection_info, "schema"):
-        schema = collection_info.schema
-        if hasattr(schema, "description"):
-            return schema.description
-
-    if hasattr(collection_info, "description"):
-        return collection_info.description
-
-    return None
-
-
-def parse_collection_config(description: str) -> CollectionDescription | None:
-    """
-    Parse the collection description from a JSON string.
-
-    The description should be pure JSON that can be loaded directly with json.loads.
-    Expected keys: metadata_schema, description, collection_config_json, llm_prompt
-
-    Args:
-        description: Collection description string (should be pure JSON)
-
-    Returns:
-        CollectionDescription instance, or None if not found/invalid
-    """
-    return CollectionDescription.from_json(description)
+    if not description:
+        return None
+    try:
+        return CollectionDescription.from_json(description)
+    except Exception as e:
+        raise ValueError(f"Failed to parse collection description: {str(e)}") from e
 
 
 def create_description(

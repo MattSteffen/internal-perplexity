@@ -11,8 +11,8 @@ import { CollectionSchemaDisplay } from "@/components/CollectionSchemaDisplay";
 import { CreateCollectionModal } from "@/components/CreateCollectionModal";
 import { LoginModal } from "@/components/LoginModal";
 import { Button } from "@/components/ui/button";
-import { fetchCollections, processDocument, uploadDocument, createCollection } from "@/lib/api";
-import type { Collection, DocumentMetadata } from "@/lib/types";
+import { fetchCollections, processDocument, uploadDocument, createCollection, searchCollection } from "@/lib/api";
+import type { Collection, Document, DocumentMetadata } from "@/lib/types";
 import type { CreateCollectionData } from "@/components/CreateCollectionModal";
 
 export default function Home() {
@@ -55,6 +55,10 @@ export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const firstFileReadyRef = useRef(false);
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [searchResults, setSearchResults] = useState<Document[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   useEffect(() => {
     // Check for saved credentials in localStorage
@@ -504,6 +508,60 @@ export default function Home() {
     }
   };
 
+  const handleSearch = async () => {
+    if (!selectedCollection || !searchQuery.trim()) {
+      return;
+    }
+
+    try {
+      setIsSearching(true);
+      setSearchError(null);
+      const response = await searchCollection({
+        collection: selectedCollection,
+        text: searchQuery.trim(),
+        filters: [],
+        limit: 100,
+      });
+      setSearchResults(response.results);
+    } catch (err) {
+      setSearchError(
+        err instanceof Error ? err.message : "Failed to search collection",
+      );
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleSearchKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      handleSearch();
+    }
+  };
+
+  const formatAuthors = (author: string | string[] | null | undefined): string => {
+    if (!author) return "";
+    if (Array.isArray(author)) {
+      return author.join(", ");
+    }
+    return author;
+  };
+
+  const formatSubtitle = (result: Document): string => {
+    const parts: string[] = [];
+    const metadata = result.metadata;
+    if (metadata) {
+      const authors = formatAuthors(metadata.author);
+      if (authors) {
+        parts.push(authors);
+      }
+      if (metadata.date) {
+        parts.push(metadata.date);
+      }
+    }
+    return parts.join(" • ");
+  };
+
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-black">
       <LoginModal
@@ -723,15 +781,78 @@ export default function Home() {
             </div>
 
             <div>
-              <h2 className="mb-4 text-xl font-semibold text-zinc-900 dark:text-zinc-100">Search for Documents in {selectedCollection || "a Collection"}</h2>
-              <div className="flex items-center gap-2">
+              <h2 className="mb-4 text-xl font-semibold text-zinc-900 dark:text-zinc-100">
+                Search for Documents in {selectedCollection || "a Collection"}
+              </h2>
+              <div className="flex items-center gap-2 mb-4">
                 <input
                   type="text"
                   placeholder="Search documents..."
-                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyPress={handleSearchKeyPress}
+                  disabled={!selectedCollection || isSearching}
+                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400 disabled:opacity-50 disabled:cursor-not-allowed"
                 />
-                <Button variant="outline">Search</Button>
+                <Button
+                  variant="outline"
+                  onClick={handleSearch}
+                  disabled={!selectedCollection || !searchQuery.trim() || isSearching}
+                >
+                  {isSearching ? "Searching..." : "Search"}
+                </Button>
               </div>
+              {searchError && (
+                <div className="mb-4 rounded-lg border border-red-300 bg-red-50 p-3 dark:border-red-800 dark:bg-red-950/30">
+                  <p className="text-sm text-red-800 dark:text-red-300">{searchError}</p>
+                </div>
+              )}
+              {searchResults.length > 0 && (
+                <div className="space-y-3">
+                  <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                    Found {searchResults.length} result{searchResults.length !== 1 ? "s" : ""}
+                  </p>
+                  <div className="space-y-2 max-h-[600px] overflow-y-auto">
+                    {searchResults.map((result, index) => {
+                      const title = result.metadata?.title || result.source || "Untitled Document";
+                      const chunks = result.chunks || [];
+                      const firstChunk = chunks.length > 0 ? chunks[0] : null;
+                      const allChunksText = chunks.join(" ");
+
+                      return (
+                        <div
+                          key={`${result.document_id}-${index}`}
+                          className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900 hover:shadow-md transition-shadow"
+                        >
+                          <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-1">
+                            {title}
+                          </h3>
+                          {formatSubtitle(result) && (
+                            <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-2">
+                              {formatSubtitle(result)}
+                            </p>
+                          )}
+                          {firstChunk && (
+                            <p className="text-sm text-zinc-700 dark:text-zinc-300 line-clamp-2">
+                              {firstChunk}
+                            </p>
+                          )}
+                          {chunks.length > 1 && (
+                            <p className="text-xs text-zinc-500 dark:text-zinc-500 mt-2">
+                              {chunks.length} chunks • {allChunksText.length} characters
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {!selectedCollection && (
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                  Please select a collection to search
+                </p>
+              )}
             </div>
           </div>
 

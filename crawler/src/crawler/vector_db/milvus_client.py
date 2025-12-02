@@ -305,25 +305,3 @@ class MilvusDB(DatabaseClient):
             raise e
         except Exception as e:
             raise e
-
-    def get_collection_description(self, collection_name: str) -> str | None:
-        """
-        Retrieve the collection description from Milvus.
-
-        Args:
-            collection_name: Name of the collection
-
-        Returns:
-            Collection description string, or None if collection doesn't exist or has no description
-        """
-        try:
-            if not self.client.has_collection(collection_name):
-                return None
-
-            # Get collection schema which contains the description
-            collection_info = self.client.describe_collection(collection_name)
-            return extract_collection_description(collection_info)
-        except MilvusException:
-            return None
-        except Exception:
-            return None

@@ -40,9 +40,20 @@ export interface CollectionMetadata {
   update_timestamp?: number;
 }
 
-export interface CollectionsApiResponse {
-  collections: string[];
-  collection_metadata: Record<string, CollectionMetadata>;
+// New API response format matching backend CollectionsResponse
+export interface CollectionInfo {
+  description: string;
+  metadata_schema: Record<string, unknown>;
+  pipeline_name: string;
+  num_documents: number;
+  num_chunks: number;
+  num_partitions: number;
+  required_roles: string[];
+}
+
+export interface CollectionsResponse {
+  collection_names: string[];
+  collections: Record<string, CollectionInfo>;
 }
 
 export interface Collection {
@@ -54,6 +65,13 @@ export interface Collection {
   updated_at?: string;
   pipeline_config?: PipelineConfig;
   permissions?: CollectionPermissions;
+  // New fields from CollectionInfo
+  metadata_schema?: Record<string, unknown>;
+  pipeline_name?: string;
+  num_documents?: number;
+  num_chunks?: number;
+  num_partitions?: number;
+  required_roles?: string[];
 }
 
 export interface DocumentMetadata {
@@ -106,5 +124,47 @@ export interface CollectionMetadataJson {
   collection_config_json?: Record<string, unknown>; // New format field
   pipeline_config?: PipelineConfig;
   permissions?: CollectionPermissions;
+}
+
+// Document interface matching Python Document model from crawler
+export interface Document {
+  document_id: string;
+  source: string;
+  content?: string | null; // Base64 encoded bytes in JSON
+  markdown?: string | null;
+  metadata?: DocumentMetadata | null;
+  benchmark_questions?: string[] | null;
+  chunks?: string[] | null;
+  text_embeddings?: number[][] | null;
+  sparse_text_embeddings?: number[][] | null;
+  sparse_metadata_embeddings?: number[] | null;
+  security_group?: string[];
+}
+
+// Legacy SearchResult interface - kept for backward compatibility
+// but no longer used in SearchResponse
+export interface SearchResult {
+  source?: string | null;
+  chunk_index?: number | null;
+  text?: string | null;
+  str_metadata?: string | null;
+  title?: string | null;
+  author?: string | string[] | null;
+  date?: string | null;
+  keywords?: string[] | null;
+  unique_words?: string[] | null;
+  distance?: number | null;
+}
+
+export interface SearchResponse {
+  results: Document[];
+  total: number;
+}
+
+export interface SearchRequest {
+  collection: string;
+  text: string;
+  filters?: string[];
+  limit?: number;
 }
 
