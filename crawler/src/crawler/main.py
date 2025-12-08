@@ -1,9 +1,7 @@
 import os
 import time
 from pathlib import Path
-from typing import Any
 
-from pymilvus import MilvusClient
 from tqdm import tqdm
 
 from .chunker import Chunker, ChunkingConfig
@@ -19,14 +17,12 @@ from .extractor.extractor import (
 from .llm.embeddings import Embedder, EmbedderConfig, get_embedder
 from .llm.llm import LLM, LLMConfig, get_llm
 from .vector_db import (
-    CollectionDescription,
     DatabaseClient,
     DatabaseClientConfig,
-    DatabaseDocument,
     get_db,
     get_db_benchmark,
 )
-from .vector_db.milvus_utils import extract_collection_description
+from .vector_db.milvus_client import MilvusDB
 from .config import CrawlerConfig
 
 
@@ -101,27 +97,28 @@ class Crawler:
         Returns:
             Restored CrawlerConfig if collection exists and has valid config, None otherwise
         """
+        print("Restoring config from collection...")
+        print("TYPE OF DATABASE CONFIG ->", type(database_config))
+        print("DATABASE CONFIG ->", database_config)
         # Only restore for Milvus collections
         if database_config.provider != "milvus":
             return None
+        print("Got provider")
 
         # Skip if recreate is True (we want to overwrite)
         if database_config.recreate:
             return None
 
         try:
-            # Connect to Milvus to check if collection exists
-            client = MilvusClient(uri=database_config.uri, token=database_config.token)
-            if not client.has_collection(database_config.collection):
+            # Get collection description using the database client's static method
+            collection_description = MilvusDB.get_collection_description(database_config)
+            if not collection_description:
                 return None
 
-            # Get collection description
-            collection_info = client.describe_collection(database_config.collection)
-            restored_config = extract_collection_description(collection_info.get("description", ""))
-            if not restored_config:
-                return None
-
-            # Configs match, return restored config
+            # Convert CollectionDescription to CrawlerConfig using the canonical method
+            restored_config = CrawlerConfig.from_collection_description(
+                collection_description, database_config
+            )
             return restored_config
 
         except Exception as e:
@@ -137,12 +134,14 @@ class Crawler:
 
     def _initialize_defaults(self) -> None:
         """Initialize default components if not provided, and restore config from collection if applicable."""
-        # Restore config from collection if it exists and recreate=False
+        # Restore config from collection if it exists and recreate=False, then merge with provided config
         if self.vector_db is None:
-            restored_config = self._restore_config_from_collection(self.config.database)
-            if restored_config is not None:
-                self.config = restored_config
-
+            # TODO: This is not working, so we're not using it for now.
+            # restored_config = self._restore_config_from_collection(self.config.database)
+            # if restored_config is not None:
+            #     # Merge: provided config overrides stored config
+            #     self.config = restored_config.merge_with(self.config)
+            #     print("Merged config ->", self.config.database)
             # Initialize embedder first (needed for vector_db dimension)
             if self.embedder is None:
                 self.embedder = get_embedder(self.config.embeddings)
@@ -153,6 +152,7 @@ class Crawler:
                 self.embedder.get_dimension(),
                 self.config,
             )
+            print("Vector db ->", self.vector_db)
             if self.config.benchmark:
                 self.benchmarker = get_db_benchmark(self.config.database, self.config.embeddings)
 
@@ -220,17 +220,9 @@ class Crawler:
         else:
             return []
 
-    def _format_bytes(self, bytes_value: int) -> str:
-        """Format bytes into human readable format."""
-        for unit in ["B", "KB", "MB", "GB"]:
-            if bytes_value < 1024.0:
-                return f"{bytes_value:.1f} {unit}"
-            bytes_value /= 1024.0
-        return f"{bytes_value:.1f}B"
-
     def _cache_document(self, temp_filepath: Path | None, document: Document) -> None:
         """Cache document to temporary file if temp_filepath is provided."""
-        if temp_filepath:
+        if temp_filepath and self.config.use_cache:
             try:
                 document.save(str(temp_filepath))
             except Exception:
@@ -240,14 +232,12 @@ class Crawler:
         """
         Crawl the given path(s) and process the documents.
         """
-        # crawl_start_time = time.time()
-
         filepaths = self._get_filepaths(path)
 
         if not filepaths:
             return
 
-        temp_dir = Path(self.config.temp_dir)
+        temp_dir = Path(self.config.temp_dir) if self.config.temp_dir else None
         if temp_dir:
             temp_dir.mkdir(parents=True, exist_ok=True)
 
@@ -276,16 +266,12 @@ class Crawler:
 
                 pbar.set_postfix_str(f"Current: {os.path.basename(filepath)}")
 
-                # Check for duplicates
-                if self.vector_db.check_duplicate(filepath, 0):
-                    stats["skipped_files"] += 1
-                    pbar.update(1)
-                    continue
-
+                # Create document
                 document = Document.create(
                     source=filepath,
                     security_group=self.config.security_groups,
                 )
+                print(f"Created document {document.source}...")
 
                 # Check for cached processing results
                 temp_filepath = None
@@ -298,85 +284,340 @@ class Crawler:
                         except Exception:
                             pass
 
-                # Convert document if not cached
-                if not document.is_converted():
-                    try:
-                        self.converter.convert(document)
-                        self._cache_document(temp_filepath, document)
-                    except Exception:
-                        stats["failed_files"] += 1
-                        pbar.update(1)
-                        continue
+                # Process document through pipeline
+                success, num_chunks = self.crawl_document(document, temp_filepath)
 
-                # Extract metadata
-                if not document.is_extracted():
-                    try:
-                        extraction_result: MetadataExtractionResult = self.extractor.run(document)
-                        document.metadata = extraction_result.metadata
-                        document.benchmark_questions = extraction_result.benchmark_questions
-                        # Sanitize metadata before creating database document
-                        document.metadata = (
-                            sanitize_metadata(
-                                document.metadata or {},
-                                self.config.metadata_schema,
-                            )
-                            or {}
-                        )
-                        self._cache_document(temp_filepath, document)
-                    except Exception:
-                        stats["failed_files"] += 1
-                        pbar.update(1)
-                        continue
-
-                # Chunk the text
-                if not document.is_chunked():
-                    document.chunks = self.chunker.chunk_text(document)
-                    self._cache_document(temp_filepath, document)
-
-                # Generate embeddings for chunks
-                if not document.text_embeddings:
-                    try:
-                        document.text_embeddings = self.embedder.embed_batch(document.chunks)
-                        self._cache_document(temp_filepath, document)
-                    except Exception:
-                        stats["failed_files"] += 1
-                        pbar.update(1)
-                        continue
-
-                # Create database entities from document
-                try:
-                    entities = document.to_database_documents()
-                except ValueError:
-                    stats["failed_files"] += 1
-                    pbar.update(1)
-                    continue
-
-                # Store in database
-                if entities:
-                    try:
-                        self.vector_db.insert_data(entities)
-                        stats["total_chunks"] += len(entities)
-                    except Exception:
-                        stats["failed_files"] += 1
-                        pbar.update(1)
-                        continue
+                if success:
+                    stats["total_chunks"] += num_chunks
+                    file_time = time.time() - file_start_time
+                    stats["processed_files"] += 1
+                    stats["total_processing_time"] += file_time
                 else:
-                    stats["failed_files"] += 1
-                    pbar.update(1)
-                    continue
-
-                # Log file completion
-                file_time = time.time() - file_start_time
-                stats["processed_files"] += 1
-                stats["total_processing_time"] += file_time
+                    # Check if it was skipped (duplicate) or failed
+                    if self.vector_db.check_duplicate(filepath, 0):
+                        stats["skipped_files"] += 1
+                    else:
+                        stats["failed_files"] += 1
 
                 pbar.update(1)
 
-        # Final statistics calculation
-        # total_time = time.time() - crawl_start_time
+    def crawl_document(self, document: Document, temp_filepath: Path | None = None) -> tuple[bool, int]:
+        """
+        Process a single document through the full pipeline: check duplicates, convert,
+        extract, chunk, embed, and insert into the database.
+
+        Args:
+            document: Document instance to process
+            temp_filepath: Optional path to cache document after each processing step
+
+        Returns:
+            tuple[bool, int]: (success, num_chunks) where success is True if document was
+                successfully inserted, and num_chunks is the number of chunks inserted (0 if failed)
+        """
+        print(f"Checking for duplicates {document.source}...")
+        # Check for duplicates
+        if self.vector_db.check_duplicate(document.source, 0):
+            return (False, 0)
+
+        # Convert document if not already converted
+        if not document.is_converted():
+            try:
+                self.converter.convert(document)
+                print(f"Converted document {document.markdown[:100]}...")
+                self._cache_document(temp_filepath, document)
+            except Exception as e:
+                print(f"Failed to convert document {document.source}: {e}")
+                return (False, 0)
+
+        # Extract metadata if not already extracted
+        if not document.is_extracted():
+            try:
+                extraction_result: MetadataExtractionResult = self.extractor.run(document)
+                document.metadata = extraction_result.metadata
+                document.benchmark_questions = extraction_result.benchmark_questions
+                # Sanitize metadata before creating database document
+                document.metadata = (
+                    sanitize_metadata(
+                        document.metadata or {},
+                        self.config.metadata_schema,
+                    )
+                    or {}
+                )
+                print(f"Extracted metadata {list(document.metadata.keys())[:10]}...")
+                self._cache_document(temp_filepath, document)
+            except Exception as e:
+                print(f"Failed to extract metadata {document.source}: {e}")
+                return (False, 0)
+
+        # Chunk the text if not already chunked
+        if not document.is_chunked():
+            document.chunks = self.chunker.chunk_text(document)
+            print(f"Chunked document {len(document.chunks)} chunks...")
+            self._cache_document(temp_filepath, document)
+
+        # Generate embeddings for chunks if not already embedded
+        if not document.text_embeddings:
+            try:
+                document.text_embeddings = self.embedder.embed_batch(document.chunks)
+                self._cache_document(temp_filepath, document)
+            except Exception as e:
+                print(f"Failed to chunk document {document.source}: {e}")
+                return (False, 0)
+
+        # Create database entities from document
+        try:
+            entities = document.to_database_documents()
+            print(f"Created {len(entities)} database entities...")
+        except ValueError as e:
+            print(f"Failed to create database entities {document.source}: {e}")
+            return (False, 0)
+
+        # Store in database
+        if entities:
+            try:
+                self.vector_db.insert_data(entities)
+                print(f"Inserted {len(entities)} database entities...")
+                return (True, len(entities))
+            except Exception as e:
+                print(f"Failed to insert database entities {document.source}: {e}")
+                return (False, 0)
+
+        return (False, 0)
+
+    def with_llm(self, llm: LLMConfig | LLM) -> "Crawler":
+        """
+        Override the LLM configuration or instance and return a new Crawler instance.
+        
+        Args:
+            llm: Either an LLMConfig object or an LLM instance
+            
+        Returns:
+            New Crawler instance with updated LLM
+        """
+        if isinstance(llm, LLMConfig):
+            # Config provided - update config and recreate instance
+            new_config = self.config.model_copy(update={"llm": llm})
+            return Crawler(
+                config=new_config,
+                converter=self.converter,
+                extractor=None,  # Will be recreated with new LLM
+                vector_db=self.vector_db,
+                embedder=self.embedder,
+                llm=None,  # Will be recreated with new config
+                chunker=self.chunker,
+            )
+        elif isinstance(llm, LLM):
+            # Instance provided - use directly, extract config if possible
+            # Try to get config from instance, otherwise keep existing config
+            llm_config = getattr(llm, "config", None) if hasattr(llm, "config") else self.config.llm
+            new_config = self.config.model_copy(update={"llm": llm_config})
+            return Crawler(
+                config=new_config,
+                converter=self.converter,
+                extractor=None,  # Will be recreated with new LLM
+                vector_db=self.vector_db,
+                embedder=self.embedder,
+                llm=llm,  # Use provided instance directly
+                chunker=self.chunker,
+            )
+        else:
+            raise TypeError(f"Expected LLMConfig or LLM instance, got {type(llm)}")
+
+    def with_embedder(self, embedder: EmbedderConfig | Embedder) -> "Crawler":
+        """
+        Override the embedder configuration or instance and return a new Crawler instance.
+        
+        Args:
+            embedder: Either an EmbedderConfig object or an Embedder instance
+            
+        Returns:
+            New Crawler instance with updated embedder
+        """
+        if isinstance(embedder, EmbedderConfig):
+            # Config provided - update config and recreate instance
+            new_config = self.config.model_copy(update={"embeddings": embedder})
+            return Crawler(
+                config=new_config,
+                converter=self.converter,
+                extractor=self.extractor,
+                vector_db=None,  # Will be recreated with new embedder dimension
+                embedder=None,  # Will be recreated with new config
+                llm=self.llm,
+                chunker=self.chunker,
+            )
+        elif isinstance(embedder, Embedder):
+            # Instance provided - use directly, extract config if possible
+            embedder_config = getattr(embedder, "config", None) if hasattr(embedder, "config") else self.config.embeddings
+            new_config = self.config.model_copy(update={"embeddings": embedder_config})
+            return Crawler(
+                config=new_config,
+                converter=self.converter,
+                extractor=self.extractor,
+                vector_db=None,  # Will be recreated with new embedder dimension
+                embedder=embedder,  # Use provided instance directly
+                llm=self.llm,
+                chunker=self.chunker,
+            )
+        else:
+            raise TypeError(f"Expected EmbedderConfig or Embedder instance, got {type(embedder)}")
+
+    def with_converter(self, converter: ConverterConfig | Converter) -> "Crawler":
+        """
+        Override the converter configuration or instance and return a new Crawler instance.
+        
+        Args:
+            converter: Either a ConverterConfig object or a Converter instance
+            
+        Returns:
+            New Crawler instance with updated converter
+        """
+        if isinstance(converter, ConverterConfig):
+            # Config provided - update config and recreate instance
+            new_config = self.config.model_copy(update={"converter": converter})
+            return Crawler(
+                config=new_config,
+                converter=None,  # Will be recreated with new config
+                extractor=self.extractor,
+                vector_db=self.vector_db,
+                embedder=self.embedder,
+                llm=self.llm,
+                chunker=self.chunker,
+            )
+        elif isinstance(converter, Converter):
+            # Instance provided - use directly, extract config if possible
+            converter_config = getattr(converter, "config", None) if hasattr(converter, "config") else self.config.converter
+            new_config = self.config.model_copy(update={"converter": converter_config})
+            return Crawler(
+                config=new_config,
+                converter=converter,  # Use provided instance directly
+                extractor=self.extractor,
+                vector_db=self.vector_db,
+                embedder=self.embedder,
+                llm=self.llm,
+                chunker=self.chunker,
+            )
+        else:
+            raise TypeError(f"Expected ConverterConfig or Converter instance, got {type(converter)}")
+
+    def with_extractor(self, extractor: MetadataExtractorConfig | MetadataExtractor) -> "Crawler":
+        """
+        Override the extractor configuration or instance and return a new Crawler instance.
+        
+        Args:
+            extractor: Either a MetadataExtractorConfig object or a MetadataExtractor instance
+            
+        Returns:
+            New Crawler instance with updated extractor
+        """
+        if isinstance(extractor, MetadataExtractorConfig):
+            # Config provided - update config and recreate instance
+            new_config = self.config.model_copy(update={"extractor": extractor})
+            return Crawler(
+                config=new_config,
+                converter=self.converter,
+                extractor=None,  # Will be recreated with new config
+                vector_db=self.vector_db,
+                embedder=self.embedder,
+                llm=self.llm,
+                chunker=self.chunker,
+            )
+        elif isinstance(extractor, MetadataExtractor):
+            # Instance provided - use directly, extract config if possible
+            extractor_config = getattr(extractor, "config", None) if hasattr(extractor, "config") else self.config.extractor
+            new_config = self.config.model_copy(update={"extractor": extractor_config})
+            return Crawler(
+                config=new_config,
+                converter=self.converter,
+                extractor=extractor,  # Use provided instance directly
+                vector_db=self.vector_db,
+                embedder=self.embedder,
+                llm=self.llm,
+                chunker=self.chunker,
+            )
+        else:
+            raise TypeError(f"Expected MetadataExtractorConfig or MetadataExtractor instance, got {type(extractor)}")
+
+    def with_chunking(self, chunking: ChunkingConfig | Chunker) -> "Crawler":
+        """
+        Override the chunking configuration or instance and return a new Crawler instance.
+        
+        Args:
+            chunking: Either a ChunkingConfig object or a Chunker instance
+            
+        Returns:
+            New Crawler instance with updated chunker
+        """
+        if isinstance(chunking, ChunkingConfig):
+            # Config provided - update config and recreate instance
+            new_config = self.config.model_copy(update={"chunking": chunking})
+            return Crawler(
+                config=new_config,
+                converter=self.converter,
+                extractor=self.extractor,
+                vector_db=self.vector_db,
+                embedder=self.embedder,
+                llm=self.llm,
+                chunker=None,  # Will be recreated with new config
+            )
+        elif isinstance(chunking, Chunker):
+            # Instance provided - use directly, extract config if possible
+            chunking_config = getattr(chunking, "config", None) if hasattr(chunking, "config") else self.config.chunking
+            new_config = self.config.model_copy(update={"chunking": chunking_config})
+            return Crawler(
+                config=new_config,
+                converter=self.converter,
+                extractor=self.extractor,
+                vector_db=self.vector_db,
+                embedder=self.embedder,
+                llm=self.llm,
+                chunker=chunking,  # Use provided instance directly
+            )
+        else:
+            raise TypeError(f"Expected ChunkingConfig or Chunker instance, got {type(chunking)}")
+
+    def with_database(self, database: DatabaseClientConfig | DatabaseClient) -> "Crawler":
+        """
+        Override the database configuration or instance and return a new Crawler instance.
+        
+        Args:
+            database: Either a DatabaseClientConfig object or a DatabaseClient instance
+            
+        Returns:
+            New Crawler instance with updated database client
+        """
+        if isinstance(database, DatabaseClientConfig):
+            # Config provided - update config and recreate instance
+            new_config = self.config.model_copy(update={"database": database})
+            return Crawler(
+                config=new_config,
+                converter=self.converter,
+                extractor=self.extractor,
+                vector_db=None,  # Will be recreated with new database config
+                embedder=self.embedder,
+                llm=self.llm,
+                chunker=self.chunker,
+            )
+        elif isinstance(database, DatabaseClient):
+            # Instance provided - use directly, extract config if possible
+            database_config = getattr(database, "config", None) if hasattr(database, "config") else self.config.database
+            new_config = self.config.model_copy(update={"database": database_config})
+            return Crawler(
+                config=new_config,
+                converter=self.converter,
+                extractor=self.extractor,
+                vector_db=database,  # Use provided instance directly
+                embedder=self.embedder,
+                llm=self.llm,
+                chunker=self.chunker,
+            )
+        else:
+            raise TypeError(f"Expected DatabaseClientConfig or DatabaseClient instance, got {type(database)}")
 
     def benchmark(self, generate_queries: bool = False) -> None:
-        if self.benchmarker:
-            results = self.benchmarker.run_benchmark(generate_queries)
-            self.benchmarker.plot_results(results, "benchmark_results")
-            self.benchmarker.save_results(results, "benchmark_results/results.json")
+        try:
+            if self.benchmarker:
+                results = self.benchmarker.run_benchmark(generate_queries)
+                self.benchmarker.plot_results(results, "benchmark_results")
+                self.benchmarker.save_results(results, "benchmark_results/results.json")
+        except Exception as e:
+            print(f"Failed to benchmark: {e}")

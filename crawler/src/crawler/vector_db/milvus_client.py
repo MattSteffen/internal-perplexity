@@ -9,6 +9,7 @@ from pymilvus import (
 from tqdm import tqdm
 
 from .database_client import (
+    CollectionDescription,
     DatabaseClient,
     DatabaseClientConfig,
     DatabaseDocument,
@@ -55,6 +56,44 @@ class MilvusDB(DatabaseClient):
 
         # Create collection if needed
         self.create_collection(recreate=self.config.recreate)
+
+    @staticmethod
+    def get_collection_description(config: DatabaseClientConfig) -> CollectionDescription | None:
+        """
+        Retrieve the collection description from Milvus.
+
+        This static method creates a temporary connection to check if a collection
+        exists and retrieve its description. This is used for config restoration
+        before a full client instance is created.
+
+        Args:
+            config: Database configuration to use for connection
+
+        Returns:
+            CollectionDescription instance if collection exists and has a valid description,
+            None otherwise
+        """
+        try:
+            # Create a temporary Milvus client connection
+            client = MilvusClient(uri=config.uri, token=config.token)
+            
+            # Check if collection exists
+            if not client.has_collection(config.collection):
+                return None
+
+            # Get collection description
+            collection_info = client.describe_collection(config.collection)
+            description_str = collection_info.get("description", "")
+            
+            if not description_str:
+                return None
+
+            # Parse and return CollectionDescription
+            return extract_collection_description(description_str)
+            
+        except Exception:
+            # If anything fails, return None to allow continuation with original config
+            return None
 
     def create_collection(self, recreate: bool = False) -> None:
         """
@@ -168,6 +207,37 @@ class MilvusDB(DatabaseClient):
             raise e
         except Exception:
             raise
+
+    @staticmethod
+    def get_collection_description(config: DatabaseClientConfig) -> CollectionDescription | None:
+        """
+        Retrieve the collection description from Milvus.
+
+        Creates a temporary MilvusClient connection to fetch the collection description.
+        This is a static method because it needs to work before a full client instance
+        exists (for config restoration).
+
+        Args:
+            config: Database configuration to use for connection
+
+        Returns:
+            CollectionDescription instance if collection exists and has a description,
+            None otherwise
+        """
+        try:
+            # Create a temporary MilvusClient connection
+            client = MilvusClient(uri=config.uri, token=config.token)
+            if not client.has_collection(config.collection):
+                return None
+
+            # Get collection description
+            collection_info = client.describe_collection(config.collection)
+            collection_description = extract_collection_description(collection_info.get("description", ""))
+            return collection_description
+
+        except Exception:
+            # If fetching fails, return None to allow continuation with original config
+            return None
 
     def insert_data(self, data: list[DatabaseDocument]) -> None:
         """

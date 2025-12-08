@@ -33,14 +33,13 @@ This package is responsible for converting various document formats into clean M
 
 - **`Converter` (Abstract Base Class)**: Defines the standard interface for all converter implementations.
 - **Implementations**:
-  - `MarkItDownConverter`: Uses the `markitdown` library for conversion with vision model support.
   - `PyMuPDF4LLMConverter`: A comprehensive converter that uses `PyMuPDF` and `pymupdf4llm` to extract text, tables, and images. Includes VLM integration for image description.
 - **Factory Function**: `create_converter(config: ConverterConfig)` provides type-safe converter instantiation.
-- **Configuration**: `MarkItDownConfig`, `PyMuPDF4LLMConfig` (discriminated union via `ConverterConfig`)
+- **Configuration**: `PyMuPDF4LLMConfig`
 
 ### `extractor/`
 
-This module extracts structured information from the converted Markdown text. See `extractor/extractor.py` for implementation.
+This module extracts structured information from the converted Markdown text. See `extractor/overview.md` for detailed documentation.
 
 - **`MetadataExtractor`**: Single-schema metadata extractor that uses an LLM and a user-provided JSON schema to extract structured metadata from text.
 - **`MetadataExtractorConfig`**: Pydantic configuration for extractor settings including schema, context, structured output mode, and benchmark question generation.
@@ -53,7 +52,7 @@ This module extracts structured information from the converted Markdown text. Se
 
 ### `llm/`
 
-This package provides standardized interfaces for interacting with Large Language Models and embedding models.
+This package provides standardized interfaces for interacting with Large Language Models and embedding models. See `llm/overview.md` for detailed documentation.
 
 **`llm.py`**:
 - **`LLM` (Abstract Base Class)**: Defines the core `invoke` method for sending prompts to a model.
@@ -109,27 +108,15 @@ This module contains the main `Crawler` class that orchestrates the entire docum
   - Statistics collection
   - Benchmark support
 
-### `collection_config.py`
+### `config/`
 
-This module provides the `CollectionConfig` class for storing and retrieving collection settings.
+This package contains the `CrawlerConfig` class for orchestrating all crawler configurations. See `config/overview.md` for detailed documentation.
 
-- **`CollectionConfig`**: Pydantic model that encapsulates all configuration needed for a collection
+- **`CrawlerConfig`**: Pydantic model that aggregates all subsystem configurations (embeddings, LLMs, database, converter, extractor, chunking)
 - **Features**:
-  - Stores metadata schema, library context, crawler config, and LLM system prompt
-  - Serializes to/from JSON for storage in collection descriptions
-  - Enables easy recreation of collection setups
-
-### `collection_manager.py`
-
-This module provides the `CollectionManager` class for simplified collection management.
-
-- **`CollectionManager`**: High-level API for managing collections and adding documents
-- **Features**:
-  - Create/recreate collections with stored configurations
-  - Load collection configurations from database descriptions
-  - Add documents to existing collections
-  - Support for custom converters and extractors
-  - All configuration stored as JSON in collection descriptions
+  - Type-safe configuration management with Pydantic validation
+  - Serialization/deserialization for storage in Milvus collection descriptions
+  - Factory methods for creating configs from dictionaries and collection descriptions
 
 ---
 
@@ -150,7 +137,7 @@ All configuration classes in the processing module use Pydantic BaseModels for e
 
 - `LLMConfig`: Validates model names, URLs, timeouts, context lengths, structured output mode
 - `EmbedderConfig`: Validates model, base URL, and embedding dimension
-- `ConverterConfig`: Discriminated union of converter configs (MarkItDownConfig, PyMuPDF4LLMConfig)
+- `ConverterConfig`: Type alias for `PyMuPDF4LLMConfig`
 - `MetadataExtractorConfig`: Validates JSON schema, context, structured output mode, benchmark settings
 - `ChunkingConfig`: Validates chunk size, overlap, strategy, and boundary preservation settings
 - `DatabaseClientConfig`: Validates database provider, collection, connection parameters
@@ -250,20 +237,19 @@ metadata_schema = {
 
 ---
 
-## Simplified Collection API
+## Configuration Storage
 
-The `CollectionManager` provides a simplified interface for creating collections and adding documents. All configuration is stored in the collection description, making it easy to reuse collections.
+The crawler stores configuration in Milvus collection descriptions, enabling configuration restoration when reconnecting to existing collections. This is handled automatically by the `Crawler` class and `CrawlerConfig`.
 
 ### Basic Usage
 
 ```python
-from crawler import CollectionManager, CollectionConfig
+from crawler import Crawler, CrawlerConfig
 from crawler.llm import LLMConfig, EmbedderConfig
 from crawler.vector_db import DatabaseClientConfig
 from crawler.converter import PyMuPDF4LLMConfig
 from crawler.extractor import MetadataExtractorConfig
 from crawler.chunker import ChunkingConfig
-from crawler.config import CrawlerConfig
 
 # Create collection configuration
 embeddings = EmbedderConfig.ollama(model="all-minilm:v2")
@@ -295,95 +281,29 @@ crawler_config = CrawlerConfig.create(
     metadata_schema=extractor.json_schema,
 )
 
-collection_config = CollectionConfig(
-    metadata_schema=extractor.json_schema,
-    description="Research papers on machine learning",
-    crawler_config=crawler_config,
-    llm_system_prompt="This collection contains AI research papers. Use metadata filtering to retrieve documents by title, author, and keywords."
+# Create crawler - config is automatically stored in collection description
+crawler = Crawler(crawler_config)
+crawler.crawl("path/to/pdfs")
+
+# When reconnecting to the same collection, configuration is automatically restored
+# and merged with any new config you provide
+database_config = DatabaseClientConfig.milvus(collection="research_papers", recreate=False)
+new_config = CrawlerConfig.create(
+    database=database_config,
+    embeddings=embeddings,
+    llm=llm,
+    # Other settings restored from collection
 )
-
-# Initialize manager
-manager = CollectionManager(
-    db_host="localhost",
-    db_port=19530,
-    db_username="root",
-    db_password="Milvus"
-)
-
-# Create collection
-manager.create_collection(
-    config=collection_config,
-    collection_name="research_papers",
-    partition="ml_papers",
-    recreate=False
-)
-
-# Add documents later (configuration is automatically loaded from collection description)
-manager.add_documents(
-    path="path/to/pdfs",
-    collection_name="research_papers",
-    partition="ml_papers"
-)
-
-# Add documents with custom converter
-from crawler.converter import Converter
-from crawler.document import Document
-from crawler.converter.types import ConversionStats
-import json
-
-class JSONConverter(Converter):
-    @property
-    def name(self) -> str:
-        return "JSONConverter"
-    
-    def convert(self, document: Document) -> None:
-        # Custom conversion logic for JSON files
-        # Read content if not already set
-        if document.content is None:
-            from pathlib import Path
-            source_path = Path(document.source)
-            document.content = source_path.read_bytes()
-        
-        # Parse JSON from content
-        data = json.loads(document.content.decode('utf-8'))
-        
-        # Convert JSON to markdown
-        markdown = self._json_to_markdown(data)
-        
-        # Populate document fields
-        document.markdown = markdown
-        document.stats = ConversionStats(total_pages=1, processed_pages=1)
-        if document.source_name is None:
-            from pathlib import Path
-            source_path = Path(document.source)
-            document.source_name = source_path.name if source_path.name else document.source.split("/")[-1]
-    
-    def _json_to_markdown(self, data: dict) -> str:
-        # Your custom conversion logic
-        return "# Document\n\n" + json.dumps(data, indent=2)
-
-custom_converter = JSONConverter(None)
-manager.add_documents(
-    path="path/to/json",
-    collection_name="research_papers",
-    partition="ml_papers",
-    custom_converter=custom_converter
-)
-
-# Load and recreate collection
-config = manager.load_collection("research_papers", partition="ml_papers")
-manager.recreate_collection("research_papers", partition="ml_papers")
-
-# List all collections
-collections = manager.list_collections()
+crawler2 = Crawler(new_config)
+crawler2.crawl("more/documents")  # Uses restored + merged config
 ```
 
 ### Key Benefits
 
-1. **Self-contained Configuration**: All settings stored in collection description
-2. **Easy Reuse**: Load collection config and add new documents with same settings
-3. **Custom Processing**: Pass custom converters/extractors when needed
-4. **Simple API**: High-level methods hide complexity of underlying system
+1. **Automatic Storage**: Configuration stored in collection description on creation
+2. **Automatic Restoration**: Configuration loaded when connecting to existing collection
+3. **Config Merging**: Provided config overrides stored config
+4. **Type Safety**: All configuration uses Pydantic models for validation
 
 ## Integration Examples
 

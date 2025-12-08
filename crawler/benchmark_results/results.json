@@ -2,11 +2,11 @@
     "results_by_doc": {
         "/Users/mattsteffen/projects/llm/internal-perplexity/data/arxiv/2408.12236v1.pdf": [
             {
-                "query": "Virtual Simulated Patient** **Yanzeng Li** [1,2] **, Cheng Zeng** [3] **, Jinchao Zhang** [2*] **, Jie Zhou** [2] **, Lei Zou** [1*] 1 Wangxuan Institute of Computer Technology, Peking University",
+                "query": "Medical Image Generation in Virtual Simulated Patient** **Yanzeng Li** [1,2] **, Cheng Zeng** [3] **, Jinchao Zhang** [2*] **, Jie Zhou** [2] **, Lei Zou** [1*] 1 Wangxuan Institute of",
                 "expected_source": "/Users/mattsteffen/projects/llm/internal-perplexity/data/arxiv/2408.12236v1.pdf",
                 "placement_order": 1,
-                "distance": 0.02922872081398964,
-                "time_to_search": 0.033097028732299805,
+                "distance": 0.029131654649972916,
+                "time_to_search": 0.034829139709472656,
                 "found": true
             }
         ]
@@ -15,7 +15,7 @@
         "1": 1
     },
     "distance_distribution": [
-        0.02922872081398964
+        0.029131654649972916
     ],
     "percent_in_top_k": {
         "1": 100.0,
@@ -120,6 +120,6 @@
         "100": 100.0
     },
     "search_time_distribution": [
-        0.033097028732299805
+        0.034829139709472656
     ]
 }

@@ -2,7 +2,6 @@
 
 import type {
   Collection,
-  CollectionsApiResponse,
   CollectionsResponse,
   CollectionInfo,
   ProcessedDocument,
@@ -94,6 +93,8 @@ export async function fetchCollections(): Promise<Collection[]> {
         metadata_schema: undefined,
         pipeline_name: undefined,
         num_documents: 0,
+        num_chunks: 0,
+        num_partitions: 0,
         required_roles: [],
       };
     }
@@ -109,14 +110,14 @@ export async function fetchCollections(): Promise<Collection[]> {
       metadata_schema: collectionInfo.metadata_schema,
       pipeline_name: collectionInfo.pipeline_name,
       num_documents: collectionInfo.num_documents,
+      num_chunks: collectionInfo.num_chunks,
+      num_partitions: collectionInfo.num_partitions,
       required_roles: collectionInfo.required_roles,
+      permissions: collectionInfo.permissions,
       pipeline_config: pipelineConfig,
       // Note: security_rules are not part of the API response
       // They may be added later or come from a different source
       security_rules: undefined,
-      // Note: permissions and created_at/updated_at are not in the new format
-      // These may need to be added to the backend if needed
-      permissions: undefined,
       created_at: undefined,
       updated_at: undefined,
     };

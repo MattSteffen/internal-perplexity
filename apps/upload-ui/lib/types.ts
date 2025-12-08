@@ -49,6 +49,7 @@ export interface CollectionInfo {
   num_chunks: number;
   num_partitions: number;
   required_roles: string[];
+  permissions?: CollectionPermissions;
 }
 
 export interface CollectionsResponse {

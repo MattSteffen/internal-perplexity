@@ -325,18 +325,6 @@ class PyMuPDF4LLMConverter(Converter):
 
             # 8) Populate document fields in place
             document.markdown = md_text
-            # document.stats = ConversionStats(
-            #     total_pages=len(pdf_doc),
-            #     processed_pages=len(pdf_doc),
-            #     total_time_sec=total_time,
-            #     images_described=len(desc_map),
-            # )
-            document.warnings = warnings
-
-            # Set source_name if not already set
-            if document.source_name is None:
-                source_path = Path(document.source)
-                document.source_name = source_path.name if source_path.name else document.source.split("/")[-1]
         finally:
             try:
                 pdf_doc.close()

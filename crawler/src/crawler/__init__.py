@@ -42,7 +42,6 @@ __all__ = [
     # Core classes
     "Crawler",
     "CrawlerConfig",
-    "RESERVED",
     "sanitize_metadata",
     # Processing components
     "Converter",

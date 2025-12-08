@@ -150,8 +150,8 @@ export function CollectionsList({
         <button
           onClick={() => setFilterType("all")}
           className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${filterType === "all"
-              ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/30 dark:text-blue-300"
-              : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+            ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/30 dark:text-blue-300"
+            : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
             }`}
         >
           All
@@ -159,8 +159,8 @@ export function CollectionsList({
         <button
           onClick={() => setFilterType("public")}
           className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${filterType === "public"
-              ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/30 dark:text-blue-300"
-              : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+            ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/30 dark:text-blue-300"
+            : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
             }`}
         >
           Public
@@ -168,8 +168,8 @@ export function CollectionsList({
         <button
           onClick={() => setFilterType("admin_only")}
           className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${filterType === "admin_only"
-              ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/30 dark:text-blue-300"
-              : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+            ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/30 dark:text-blue-300"
+            : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
             }`}
         >
           Admin Only
@@ -235,8 +235,8 @@ export function CollectionsList({
                     {collection.permissions && (
                       <span
                         className={`rounded-full px-2 py-1 text-xs ${collection.permissions.default === "public"
-                            ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"
-                            : "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300"
+                          ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"
+                          : "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300"
                           }`}
                       >
                         {collection.permissions.default === "public"

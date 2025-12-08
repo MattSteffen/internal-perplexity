@@ -1,19 +1,12 @@
 # TODO
 
-- **Tasks**:
-  - [ ] Document Pipelines:
-    - [ ] Should have an implementation of crawler for each pipeline, so you can call pipeline.crawl(document) to process the document.
-    - [ ] Default pipeline
-    - [ ] The pipeline name displayed and saved should be different from the collection name (or can be). It should be the name of the pipeline and how the data is processed.
-  - [x] Implement search functionality.
-    - [x] Use search to get number of documents in the collection.
-  - [ ] Make sure collection information is properly rendered in the front end.
-    - [ ] Number of partitions is not displayed.
-    - [x] Number of documents is not displayed.
-    - [ ] Number of chunks is not displayed.
-    - [ ] Permissions are not displayed.
-  - [ ] Can't upload docs right now?
-  - [ ] Good logs
+**Tasks**:
+- [ ] Remove pipeline_name logic and just use the collection_name
+- [ ] Uploading:
+  - [ ] Make the metadata extraction more robust
+  - [ ] Make sure the search and document counting works, right now it shows one document.
+    - [ ] Or recreate is set to false and it works.
+- [ ] Good logs
 - [ ] Update RAG pipeline for BD docs too.
 - [ ] Load real data into milvus
 

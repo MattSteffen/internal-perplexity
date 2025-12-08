@@ -1,13 +1,7 @@
-from crawler import Crawler, CrawlerConfig
-from crawler.extractor import (
-    MetadataExtractorConfig,
-    MetadataExtractor,
-)
-from crawler.llm.embeddings import EmbedderConfig
+from crawler import Crawler
+from crawler.extractor import MetadataExtractorConfig
 from crawler.llm.llm import LLMConfig
-from crawler.converter import ConverterConfig
-from crawler.chunker import ChunkingConfig
-from crawler.vector_db import DatabaseClientConfig, MilvusBenchmark
+from crawler.vector_db import MilvusBenchmark
 
 # Schema definitions for ArXiv document metadata extraction
 schema1 = {
@@ -94,62 +88,98 @@ metadata_schema = {
 }
 
 
-# Type-safe configuration using new factory methods
+# Create configuration fully from components from crawler_config.py, not using presets
+from crawler.config.crawler_config import CrawlerConfig
+from crawler.llm.llm import LLMConfig
+from crawler.llm.embeddings import EmbedderConfig
+from crawler.vector_db import DatabaseClientConfig
+from crawler.converter import PyMuPDF4LLMConfig
+from crawler.extractor import MetadataExtractorConfig
+from crawler.chunker import ChunkingConfig
+
 def create_arxiv_config():
-    """Create type-safe configuration for ArXiv document processing."""
+    """Create configuration for ArXiv document processing using full direct CrawlerConfig."""
 
-    # Embeddings configuration
-    embeddings = EmbedderConfig.ollama(
-        model="all-minilm:v2", base_url="http://localhost:11434"
+    # Embeddings config (example: use Ollama & MiniLM)
+    embeddings = EmbedderConfig(
+        provider="ollama",
+        model="all-minilm:v2",
+        base_url="http://localhost:11434",
+        normalize=True,
+        batch_size=32,
+        query_instruction=None,
+        document_instruction=None,
     )
 
-    # Vision LLM for image processing
-    vision_llm = LLMConfig.ollama(
-        model_name="granite3.2-vision:latest", base_url="http://localhost:11434"
+    # Main LLM config (general extraction)
+    llm = LLMConfig(
+        provider="ollama",
+        base_url="http://localhost:11434",
+        model_name="gpt-oss:20b",
+        temperature=0.2,
+        max_tokens=4096,
+        use_parallel=False,
+        timeout_sec=45,
     )
 
-    # Database configuration
-    database = DatabaseClientConfig.milvus(
-        collection="arxiv4",
+    # Vision LLM config (for image description, if relevant)
+    vision_llm = LLMConfig(
+        provider="ollama",
+        base_url="http://localhost:11434",
+        model_name="granite3.2-vision:latest",
+        temperature=0.1,
+        max_tokens=2048,
+        use_parallel=False,
+        timeout_sec=60,
+    )
+
+    # Database config (Milvus)
+    database = DatabaseClientConfig(
+        provider="milvus",
         host="localhost",
         port=19530,
         username="matt",
         password="steffen",
+        collection="arxiv4",
+        # Optionally: extra options...
         recreate=True,
-        collection_description="A sequence of papers on topics related to clustering.",
+        description="A sequence of papers on topics related to clustering.",
+        security_groups=["read_only"],
     )
 
-    # Main LLM for metadata extraction (using tools mode)
-    llm = LLMConfig.ollama(
-        # model_name="qwen3:latest",
-        model_name="gpt-oss:20b",
-        base_url="http://localhost:11434",
-        # structured_output="response_format",  # Use OpenAI-compatible tools format
-        structured_output="tools",  # Use OpenAI-compatible tools format
+    # Converter config (pymupdf4llm)
+    converter = PyMuPDF4LLMConfig(
+        embed_images=True,
+        page_chunks=False,
+        max_workers=2,
+        vlm_config=vision_llm,
+        to_markdown_kwargs={},
+        image_prompt=None,
     )
 
-    # Multi-schema extractor configuration
+    # Extractor config (with schema and context) 
     extractor = MetadataExtractorConfig(
         json_schema=metadata_schema,
         context="A sequence of papers on topics related to clustering.",
+        llm=llm,
+        generate_questions=True,
+        num_questions=3,
     )
 
-    # PyMuPDF4LLM converter configuration with image processing
-    converter = ConverterConfig(
-        type="pymupdf4llm",
-        vlm_config=vision_llm,
-        image_prompt="Describe this image in detail for a technical document.",
-        max_workers=4,
-        to_markdown_kwargs={
-            "page_chunks": False,
-            "write_images": True,
-        },
+    # Chunker config
+    chunking = ChunkingConfig(
+        chunk_size=10000,
+        chunk_overlap=400,
+        strategy="recursive",
+        split_level="sentence",
+        join_short_chunks=True,
+        min_chunk_length=200,
+        max_chunks=None,
+        language="en",
     )
 
-    chunking = ChunkingConfig.create(chunk_size=1000)
-
-    # Create the complete crawler configuration
-    config = CrawlerConfig.create(
+    config = CrawlerConfig(
+        name="arxiv4",
         embeddings=embeddings,
         llm=llm,
         vision_llm=vision_llm,
@@ -158,10 +188,13 @@ def create_arxiv_config():
         extractor=extractor,
         chunking=chunking,
         metadata_schema=metadata_schema,
+        temp_dir="tmp/",
+        use_cache=True,
         benchmark=True,
+        generate_benchmark_questions=True,
+        num_benchmark_questions=3,
         security_groups=["read_only"],
     )
-
     return config
 
 
@@ -271,9 +304,9 @@ def main():
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
-    print("🚀 Starting ArXiv document processing with type-safe configuration...")
+    print("🚀 Starting ArXiv document processing with preset configuration...")
 
-    # Create configuration using the new type-safe approach
+    # Create configuration using preset
     config = create_arxiv_config()
 
     print(f"📊 Configuration created:")
@@ -283,7 +316,8 @@ def main():
     print(f"   • Chunk size: {config.chunking.chunk_size}")
     print(f"   • Benchmark: {config.benchmark}")
 
-    # Create and run crawler
+    # Create crawler - can also use builder pattern for runtime overrides
+    # Example: mycrawler = Crawler(config).with_llm(LLMConfig.ollama(model_name="other-model"))
     mycrawler = Crawler(config)
     print("🔄 Starting document processing...")
 

@@ -88,65 +88,6 @@ full_schema = {
 
 irad_library_description = "You are about to process a collection of internal company research documents focused on signal processing, machine learning, and development initiatives. These materials contain proprietary research findings, technical methodologies, experimental results, implementation strategies, and development protocols specific to our organization's projects and objectives. The documents span various aspects of signal processing algorithms, machine learning model architectures, data analysis techniques, software development practices, and applied research outcomes. Each document represents internal knowledge, technical insights, and research progress that may include confidential methodologies, performance metrics, and strategic technical directions relevant to our company's research and development efforts."
 
-irad_config_dict = {
-    "embeddings": {
-        "provider": "ollama",
-        "model": "nomic-embed-text",
-        "base_url": "http://localhost:11434",
-        "api_key": "ollama",
-    },
-    "vision_llm": {
-        "model_name": "gemma3:latest",
-        "provider": "ollama",
-        "base_url": "http://localhost:11434",
-    },
-    "database": {
-        "provider": "milvus",
-        "host": "localhost",
-        "port": 19530,
-        "username": "root",
-        "password": "Milvus",
-        "collection": "irad_documents",
-        "recreate": True,
-    },
-    "llm": {
-        "model_name": "gemma3",
-        "provider": "ollama",
-        "base_url": "http://localhost:11434",
-    },
-        "extractor": {
-            "type": "multi_schema",
-            "llm": {
-                "model_name": "gemma3",
-                "provider": "ollama",
-                "base_url": "http://localhost:11434",
-            },
-            "metadata_schema": full_schema,
-        },
-    "converter": {
-        "type": "pymupdf",
-        "metadata": {
-            "preserve_formatting": True,
-            "include_page_numbers": True,
-            "include_metadata": True,
-            "sort_reading_order": True,
-            "extract_tables": True,
-            "table_strategy": "lines_strict",
-            "image_description_prompt": "Describe this image in detail for a technical document.",
-            "image_describer": {
-                "type": "ollama",
-                "model": "gemma3:latest",
-                "base_url": "http://localhost:11434",
-            },
-        },
-    },
-        "utils": {
-            "chunk_size": 1000,
-            "temp_dir": "/tmp/irads",
-        },
-        "metadata_schema": full_schema,
-    }
-
 # File paths for processing
 dir_path = "/home/ubuntu/irads-crawler/data/irads"
 short_options = ["/home/ubuntu/irads-crawler/data/irads/test.pdf"]

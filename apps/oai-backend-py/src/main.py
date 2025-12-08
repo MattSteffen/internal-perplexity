@@ -9,7 +9,7 @@ from openai.types.chat import ChatCompletion
 from src.auth import init_oauth
 from src.auth_utils import get_optional_token, verify_token
 from src.config import settings
-from src.endpoints import auth, chat, collections, document_pipelines, embeddings, models, search, tools
+from src.endpoints import auth, chat, collections, documents, embeddings, models, search, tools
 
 app = FastAPI(
     title="OpenAI-Compatible Backend",
@@ -136,84 +136,34 @@ async def process_document_for_collection_endpoint(
     collection_name: str,
     file: UploadFile = File(...),
     user: dict = Depends(verify_token),
-) -> document_pipelines.ProcessedDocument:
+) -> documents.ProcessedDocument:
     """Process a document to extract metadata without uploading (collection-specific).
 
     curl -X POST http://localhost:8000/v1/collections/{collection_name}/process \
       -H "Authorization: Bearer $TOKEN" \
       -F "file=@document.pdf"
     """
-    return await document_pipelines.process_document(
+    return await documents.process_document(
         file=file,
         collection_name=collection_name,
         user=user,
     )
 
-
 @app.post("/v1/collections/{collection_name}/upload")
-async def upload_document_to_collection_endpoint(
+async def upload_document_for_collection_endpoint(
     collection_name: str,
     file: UploadFile = File(...),
-    metadata: str = Form(...),
     user: dict = Depends(verify_token),
-) -> document_pipelines.UploadResponse:
-    """Upload a document to a collection with metadata.
+) -> documents.UploadResponse:
+    """Upload and process a document to a collection (loads config from collection).
 
     curl -X POST http://localhost:8000/v1/collections/{collection_name}/upload \
       -H "Authorization: Bearer $TOKEN" \
-      -F "file=@document.pdf" \
-      -F 'metadata={"title":"Example","author":"John Doe"}'
+      -F "file=@document.pdf"
     """
-    return await document_pipelines.upload_document_to_collection(
+    return await documents.upload_document(
+        file=file,
         collection_name=collection_name,
-        file=file,
-        metadata=metadata,
-        user=user,
-    )
-
-
-@app.post("/v1/documents/upload/{pipeline_name}")
-async def upload_document_endpoint_path(
-    pipeline_name: str,
-    file: UploadFile = File(...),
-    config_overrides: str | None = Form(None),
-    user: dict = Depends(verify_token),
-) -> document_pipelines.UploadResponse:
-    """Upload and process a document through a predefined pipeline.
-
-    curl -X POST http://localhost:8000/v1/documents/upload/{pipeline_name} \
-      -H "Authorization: Bearer $TOKEN" \
-      -F "file=@document.pdf" \
-      -F 'config_overrides={"embedding_model": "nomic-embed-text", "security_groups": ["group1"]}'
-    """
-    return await document_pipelines.upload_document(
-        pipeline_name=pipeline_name,
-        collection_name=None,
-        file=file,
-        config_overrides=config_overrides,
-        user=user,
-    )
-
-
-@app.post("/v1/documents/upload")
-async def upload_document_endpoint(
-    collection_name: str | None = None,
-    file: UploadFile = File(...),
-    config_overrides: str | None = Form(None),
-    user: dict = Depends(verify_token),
-) -> document_pipelines.UploadResponse:
-    """Upload and process a document to a collection (loads config from collection).
-
-    curl -X POST "http://localhost:8000/v1/documents/upload?collection_name=my_collection" \
-      -H "Authorization: Bearer $TOKEN" \
-      -F "file=@document.pdf" \
-      -F 'config_overrides={"security_groups": ["group1"]}'
-    """
-    return await document_pipelines.upload_document(
-        pipeline_name=None,
-        collection_name=collection_name,
-        file=file,
-        config_overrides=config_overrides,
         user=user,
     )
 

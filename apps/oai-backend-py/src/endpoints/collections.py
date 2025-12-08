@@ -29,6 +29,7 @@ class CollectionInfo(BaseModel):
     num_chunks: int
     num_partitions: int
     required_roles: list[str]
+    permissions: dict[str, str] | None = None
 
 
 class CollectionsResponse(BaseModel):
@@ -121,26 +122,36 @@ async def list_collections(token: str | None = None) -> CollectionsResponse:
 
 
                 # Extract and parse collection description to get library_context and metadata_schema
+                collection_desc = None
                 try:
                     collection_desc = CollectionDescription.from_json(collection_info_dict["description"])
                     collection_info.pipeline_name = collection_desc.pipeline_name
                     collection_info.metadata_schema = collection_desc.metadata_schema
                     collection_info.description = collection_desc.description
-                    # Get the roles that are required to access the collection
-                    # Each role is granted a privilege group, if that group is in the collection_security_groups, then the role can access the collection
+                    # Determine permissions based on security groups
+                    # If "public" is in the security groups, collection is public; otherwise admin_only
+                    print("Collection config security groups ->", collection_desc.collection_config.security_groups)
+                    if collection_desc.collection_config.security_groups and "admin" in collection_desc.collection_config.security_groups:
+                        collection_info.permissions = {"default": "admin"}
+                    else:
+                        collection_info.permissions = {"default": "public"}
                 except Exception as e:
-                    raise ValueError(f"Failed to parse collection description for {collection_name}: {str(e)}") from e
-                try:
-                    all_roles = client.list_roles()
-                    print("All roles ->", all_roles)
-                    for r in all_roles:
-                        role_desc = client.describe_role(r)
-                        print("Role description ->", r, role_desc)
-                        for privilege in role_desc.get("privileges", []):
-                            if isinstance(privilege, str) and privilege in collection_desc.collection_security_groups:
-                                    collection_info.required_roles.append(r)
-                except Exception as e:
-                    raise ValueError(f"Failed to list roles for {collection_name}: {str(e)}") from e
+                    # If parsing fails, set default values
+                    logger.warning(f"Failed to parse collection description for {collection_name}: {str(e)}")
+                    # collection_info.permissions = {"default": "admin_only"}
+                
+                # Get the roles that are required to access the collection
+                # Each role is granted a privilege group, if that group is in the collection_security_groups, then the role can access the collection
+                if collection_desc:
+                    try:
+                        all_roles = client.list_roles()
+                        for r in all_roles:
+                            role_desc = client.describe_role(r)
+                            for privilege in role_desc.get("privileges", []):
+                                if isinstance(privilege, str) and privilege in collection_desc.collection_security_groups:
+                                        collection_info.required_roles.append(r)
+                    except Exception as e:
+                        logger.warning(f"Failed to list roles for {collection_name}: {str(e)}")
 
                 # Get num_documents using search function
                 # Use search with empty text, no filters, and limit 10000 to get all documents
@@ -184,8 +195,6 @@ async def list_collections(token: str | None = None) -> CollectionsResponse:
                 # If we can't get metadata for a collection, include minimal info
                 logger.warning(f"Failed to retrieve metadata for collection '{collection_name}': {str(e)}")
         
-        print("Collection descriptions ->", collection_descriptions)
-
         return CollectionsResponse(
             collection_names=list[str](collection_descriptions.keys()),
             collections=collection_descriptions,

@@ -208,17 +208,6 @@ class MetadataExtractor:
                     except Exception:
                         pass
                 raise ValueError("LLM did not return parseable JSON object")
-        # Some wrappers may return objects with .content or .text
-        if hasattr(result, "content"):
-            try:
-                return json.loads(str(result.content).strip())
-            except Exception:
-                pass
-        if hasattr(result, "text"):
-            try:
-                return json.loads(str(result.text).strip())
-            except Exception:
-                pass
         raise ValueError("Unsupported LLM response type for metadata extraction")
 
     def _enforce_schema(self, data: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:

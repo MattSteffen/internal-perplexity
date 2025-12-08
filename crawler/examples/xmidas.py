@@ -120,13 +120,11 @@ import json
 import os
 from pathlib import Path
 
-from crawler import Crawler, CrawlerConfig
+from crawler import Crawler, JsonDataPreset
 from crawler.extractor import MetadataExtractorConfig
-from crawler.converter import PyMuPDF4LLMConfig
-from crawler.llm.embeddings import EmbedderConfig
+from crawler.converter import ConverterConfig
 from crawler.llm.llm import LLMConfig
 from crawler.vector_db import DatabaseClientConfig
-from crawler.chunker import ChunkingConfig
 
 
 # Schema for LearnXM data (learnxm.json)
@@ -388,8 +386,8 @@ def create_xmidas_config(
     partition: str = "default",
     metadata_schema: Dict[str, Any] = None,
     temp_dir: str = "/tmp/xm",
-) -> CrawlerConfig:
-    """Create type-safe configuration for X-Midas document processing.
+):
+    """Create configuration for X-Midas document processing using preset and builder pattern.
 
     Args:
         partition: Milvus partition name for data organization
@@ -397,27 +395,30 @@ def create_xmidas_config(
         temp_dir: Temporary directory for caching
 
     Returns:
-        Validated CrawlerConfig instance
+        CrawlerConfig instance
     """
-    # Embeddings configuration
-    embeddings = EmbedderConfig.ollama(
-        model="nomic-embed-text", base_url="http://ollama.a1.autobahn.rinconres.com"
+    # Start with JsonDataPreset, then override with X-Midas specific settings
+    base_url = "http://ollama.a1.autobahn.rinconres.com"
+    
+    config = JsonDataPreset.create(
+        collection="xmidas",
+        llm_base_url=base_url,
+        embedder_base_url=base_url,
+        llm_model="mistral-small3.2",
+        embedder_model="nomic-embed-text",
+        chunk_size=10000,
+        metadata_schema=metadata_schema or {},
+        host="10.43.210.111",
+        port=19530,
+        username="root",
+        password="Milvus",
+        recreate=False,
+        temp_dir=temp_dir,
+        benchmark=False,
+        context=learnxm_description,
     )
-
-    # Vision LLM for image processing
-    vision_llm = LLMConfig.ollama(
-        model_name="mistral-small3.2:latest",
-        base_url="http://ollama.a1.autobahn.rinconres.com",
-    )
-
-    # Main LLM for metadata extraction
-    llm = LLMConfig.ollama(
-        model_name="mistral-small3.2",
-        base_url="http://ollama.a1.autobahn.rinconres.com",
-        structured_output="tools",
-    )
-
-    # Database configuration with partition support
+    
+    # Override database to add partition support
     database = DatabaseClientConfig.milvus(
         collection="xmidas",
         host="10.43.210.111",
@@ -427,40 +428,38 @@ def create_xmidas_config(
         recreate=False,
         partition=partition,
     )
-
-    # Basic extractor configuration
+    
+    # Override extractor with X-Midas specific context
     extractor = MetadataExtractorConfig(
-        json_schema=metadata_schema or {}, context=learnxm_description
+        json_schema=metadata_schema or {},
+        context=learnxm_description,
     )
-
-    # PyMuPDF4LLM converter configuration with image processing
-    converter = PyMuPDF4LLMConfig(
+    
+    # Override converter for image processing (even though JSON, may have embedded images)
+    vision_llm = LLMConfig.ollama(
+        model_name="mistral-small3.2:latest",
+        base_url=base_url,
+    )
+    
+    converter = ConverterConfig(
         type="pymupdf4llm",
         vlm_config=vision_llm,
         image_prompt="Describe this image in detail for a technical document.",
         max_workers=4,
         to_markdown_kwargs={
             "page_chunks": False,
-            "embed_images": True,
+            "write_images": True,
         },
     )
-
-    chunking = ChunkingConfig.create(chunk_size=10000)
-
-    # Create the complete crawler configuration
-    config = CrawlerConfig.create(
-        embeddings=embeddings,
-        llm=llm,
-        vision_llm=vision_llm,
-        database=database,
-        converter=converter,
-        extractor=extractor,
-        chunking=chunking,
-        metadata_schema=metadata_schema or {},
-        temp_dir=temp_dir,
-        benchmark=False,
-    )
-
+    
+    # Apply all overrides
+    config = config.model_copy(update={
+        "database": database,
+        "extractor": extractor,
+        "converter": converter,
+        "vision_llm": vision_llm,
+    })
+    
     return config
 
 
@@ -496,24 +495,19 @@ def crawl_data_source(data_type: str, schema: Dict[str, Any], partition: str):
     elif data_type == "qa":
         preprocess_qa_data(data, temp_dir)
 
-    # Create crawler with type-safe configuration
+    # Create crawler with preset configuration
     print(f"⚙️  Creating configuration for {data_type}...")
     crawler_config = create_xmidas_config(
         partition=partition, metadata_schema=schema, temp_dir=temp_dir
     )
-
-    # Alternative: Use dictionary-based configuration for backward compatibility
-    # config_copy = xm_config_dict.copy()
-    # config_copy["database"]["partition"] = partition
-    # crawler_config = CrawlerConfig.from_dict(config_copy)
-    # crawler_config.metadata_schema = schema
 
     print(f"🚀 Starting crawler for {data_type}...")
     print(f"   • Collection: {crawler_config.database.collection}")
     print(f"   • Partition: {partition}")
     print(f"   • LLM: {crawler_config.llm.model_name}")
 
-    # Create crawler (extractor will be created from config)
+    # Create crawler - can also use builder pattern for runtime overrides
+    # Example: mycrawler = Crawler(crawler_config).with_llm(LLMConfig.ollama(...))
     mycrawler = Crawler(crawler_config)
 
     # Crawl the data

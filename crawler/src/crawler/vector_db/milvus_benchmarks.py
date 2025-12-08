@@ -1,6 +1,7 @@
 import copy
 import logging
-import random
+import math
+import statistics
 import time
 from typing import Any
 
@@ -29,6 +30,153 @@ OUTPUT_FIELDS = [
     "keywords",
     "unique_words",
 ]
+
+
+class BenchmarkMetrics:
+    """
+    Utility class for calculating Information Retrieval metrics.
+    
+    Provides methods to compute standard IR evaluation metrics including
+    MRR, Recall@K, Precision@K, NDCG@K, and Hit Rate@K.
+    """
+
+    @staticmethod
+    def calculate_mrr(placements: list[int | None]) -> float:
+        """
+        Calculate Mean Reciprocal Rank (MRR).
+        
+        MRR is the average of 1/rank for each query where the relevant document
+        was found. Queries where the document was not found contribute 0.
+        
+        Args:
+            placements: List of placement positions (1-indexed) or None if not found
+            
+        Returns:
+            Mean Reciprocal Rank (0.0 to 1.0)
+        """
+        if not placements:
+            return 0.0
+        
+        reciprocal_ranks = []
+        for placement in placements:
+            if placement is not None and placement > 0:
+                reciprocal_ranks.append(1.0 / placement)
+            else:
+                reciprocal_ranks.append(0.0)
+        
+        return sum(reciprocal_ranks) / len(reciprocal_ranks) if reciprocal_ranks else 0.0
+
+    @staticmethod
+    def calculate_recall_at_k(placements: list[int | None], k: int) -> float:
+        """
+        Calculate Recall@K.
+        
+        Recall@K is the fraction of queries where the relevant document was
+        found in the top-k results.
+        
+        Args:
+            placements: List of placement positions (1-indexed) or None if not found
+            k: Top-k threshold
+            
+        Returns:
+            Recall@K (0.0 to 1.0)
+        """
+        if not placements:
+            return 0.0
+        
+        found_in_top_k = sum(1 for p in placements if p is not None and p <= k)
+        return found_in_top_k / len(placements)
+
+    @staticmethod
+    def calculate_precision_at_k(placements: list[int | None], k: int) -> float:
+        """
+        Calculate Precision@K.
+        
+        Precision@K is the fraction of top-k results that are relevant.
+        Since we have one relevant document per query, this is equivalent to
+        Recall@K for our use case.
+        
+        Args:
+            placements: List of placement positions (1-indexed) or None if not found
+            k: Top-k threshold
+            
+        Returns:
+            Precision@K (0.0 to 1.0)
+        """
+        # For single relevant document per query, Precision@K = Recall@K
+        return BenchmarkMetrics.calculate_recall_at_k(placements, k)
+
+    @staticmethod
+    def calculate_ndcg_at_k(placements: list[int | None], k: int) -> float:
+        """
+        Calculate Normalized Discounted Cumulative Gain@K (NDCG@K).
+        
+        NDCG@K measures ranking quality by considering position of relevant items.
+        For binary relevance (found/not found), this simplifies to a position-weighted metric.
+        
+        Args:
+            placements: List of placement positions (1-indexed) or None if not found
+            k: Top-k threshold
+            
+        Returns:
+            NDCG@K (0.0 to 1.0)
+        """
+        if not placements:
+            return 0.0
+        
+        # For binary relevance, DCG = 1 / log2(rank + 1) for found items in top-k
+        # IDCG = 1 / log2(2) = 1.0 (perfect ranking has relevant doc at position 1)
+        dcg = 0.0
+        for placement in placements:
+            if placement is not None and placement <= k:
+                dcg += 1.0 / math.log2(placement + 1)
+        
+        # IDCG is 1.0 (perfect case: relevant doc at position 1)
+        idcg = 1.0
+        
+        # Average NDCG across all queries
+        ndcg_per_query = dcg / len(placements) if placements else 0.0
+        return ndcg_per_query / idcg if idcg > 0 else 0.0
+
+    @staticmethod
+    def calculate_hit_rate_at_k(placements: list[int | None], k: int) -> float:
+        """
+        Calculate Hit Rate@K.
+        
+        Hit Rate@K is the percentage of queries where at least one relevant
+        document was found in the top-k results. This is equivalent to Recall@K
+        for single relevant document per query.
+        
+        Args:
+            placements: List of placement positions (1-indexed) or None if not found
+            k: Top-k threshold
+            
+        Returns:
+            Hit Rate@K (0.0 to 1.0)
+        """
+        return BenchmarkMetrics.calculate_recall_at_k(placements, k)
+
+    @staticmethod
+    def calculate_summary_stats(placements: list[int | None]) -> tuple[float, float, float]:
+        """
+        Calculate summary statistics for placement positions.
+        
+        Args:
+            placements: List of placement positions (1-indexed) or None if not found
+            
+        Returns:
+            Tuple of (mean, median, std_dev) for found placements only
+        """
+        found_placements = [p for p in placements if p is not None]
+        
+        if not found_placements:
+            return (0.0, 0.0, 0.0)
+        
+        mean = statistics.mean(found_placements)
+        median = statistics.median(found_placements)
+        std_dev = statistics.stdev(found_placements) if len(found_placements) > 1 else 0.0
+        
+        return (mean, median, std_dev)
 
 
 class MilvusBenchmark(DatabaseBenchmark):
@@ -154,38 +302,54 @@ class MilvusBenchmark(DatabaseBenchmark):
         except Exception:
             raise
 
-    def run_benchmark(self, generate_queries: bool = False) -> BenchmarkRunResults:
+    def run_benchmark(self, generate_queries: bool = False, k_values: list[int] | None = None, skip_docs_without_questions: bool = True) -> BenchmarkRunResults:
         """
-        Run comprehensive benchmark.
+        Run comprehensive benchmark with IR quality metrics.
+        
+        Args:
+            generate_queries: If True, generate queries using LLM (not yet implemented)
+            k_values: List of k values for @K metrics (default: [1, 5, 10, 25, 50, 100])
+            skip_docs_without_questions: If True, skip documents without benchmark_questions (default: True)
+            
+        Returns:
+            BenchmarkRunResults with comprehensive IR metrics
         """
-        # benchmark_start_time = time.time()
-        top_k_values = list(range(1, 101))
+        if k_values is None:
+            k_values = [1, 5, 10, 25, 50, 100]
 
         # Load documents from collection
         # Only get chunk_index == 0 to avoid processing the same document multiple times
         logger.info(f"Loading documents from collection '{self.db_config.collection}' with filter 'chunk_index == 0'")
-        all_docs = self.milvus_client.query(
-            collection_name=self.db_config.collection,
-            filter="chunk_index == 0",
-            output_fields=["source", "text", "id"],
-            limit=10000,
-        )
+        try:
+            all_docs = self.milvus_client.query(
+                collection_name=self.db_config.collection,
+                filter="chunk_index == 0",
+                output_fields=["source", "text", "id", "chunk_index"],
+                limit=10000,
+            )
+            if all_docs is None:
+                all_docs = []
+        except Exception as e:
+            logger.error(f"Error querying collection '{self.db_config.collection}': {e}")
+            raise ValueError(
+                f"Failed to query collection '{self.db_config.collection}': {e}. "
+                "Ensure the collection exists and is accessible."
+            ) from e
+        
         logger.info(f"Loaded {len(all_docs)} documents from collection")
 
-        # Generate queries from documents
-
+        # Generate queries from documents using stored benchmark_questions
         queries_by_doc = {}
         query_generation_stats = {
             "total_docs": len(all_docs),
             "docs_with_queries": 0,
-            "total_queries_generated": 0,
             "stored_questions_used": 0,
             "docs_skipped_no_source": 0,
             "docs_skipped_no_text": 0,
-            "docs_skipped_text_too_short": 0,
+            "docs_skipped_no_questions": 0,
         }
 
-        logger.info(f"Starting query generation with generate_queries={generate_queries}")
+        logger.info(f"Starting query generation with generate_queries={generate_queries}, skip_docs_without_questions={skip_docs_without_questions}")
         with tqdm(total=len(all_docs), desc="Processing documents", unit="doc") as pbar:
             for doc_idx, doc in enumerate(all_docs):
                 source = doc.get("source")
@@ -205,7 +369,7 @@ class MilvusBenchmark(DatabaseBenchmark):
 
                 logger.debug(f"Processing document {doc_idx}: source={source}, text_length={len(text)}")
 
-                # Try to use stored benchmark questions first (when generate_queries=False)
+                # Try to use stored benchmark questions
                 stored_questions_found = False
                 if not generate_queries:
                     logger.debug(f"Checking for stored questions for source: {source}")
@@ -234,39 +398,18 @@ class MilvusBenchmark(DatabaseBenchmark):
                                     logger.debug(f"Using {len(stored_questions)} stored questions for source: {source}")
                             except (json.JSONDecodeError, KeyError) as e:
                                 logger.debug(f"Failed to parse stored questions for {source}: {e}")
-                                # Fall through to generate queries from text
                         else:
                             logger.debug(f"No stored questions found for source: {source}")
                     except Exception as e:
                         logger.warning(f"Error getting stored questions for {source}: {e}")
-                        # Fall through to generate queries from text
                 
-                # Fall back to generating queries from text if stored questions weren't found
+                # Skip documents without questions if configured to do so
                 if not stored_questions_found:
-                    logger.debug(f"Generating queries from text for source: {source}")
-                    words = text.split()
-                    logger.debug(f"Document has {len(words)} words")
-                    if len(words) > 30:
-                        # Generate multiple queries per document for better statistics
-                        num_queries = min(3, max(1, len(words) // 100))  # 1-3 queries based on document length
-                        logger.debug(f"Will generate {num_queries} queries for this document")
-
-                        for query_idx in range(num_queries):
-                            start_index = random.randint(0, len(words) - 30)
-                            query = " ".join(words[start_index : start_index + 30])
-
-                            if source not in queries_by_doc:
-                                queries_by_doc[source] = []
-                            queries_by_doc[source].append(query)
-                            query_generation_stats["total_queries_generated"] += 1
-                            logger.debug(f"Generated query {query_idx + 1}/{num_queries}: {query[:50]}...")
-
-                        query_generation_stats["docs_with_queries"] += 1
-                        pbar.set_postfix_str(f"Generated queries: {query_generation_stats['total_queries_generated']}")
-                        logger.debug(f"Successfully generated {num_queries} queries for source: {source}")
+                    if skip_docs_without_questions:
+                        logger.debug(f"Skipping document {source} - no benchmark questions found")
+                        query_generation_stats["docs_skipped_no_questions"] += 1
                     else:
-                        logger.debug(f"Skipping document - text too short ({len(words)} words, need >30)")
-                        query_generation_stats["docs_skipped_text_too_short"] += 1
+                        logger.warning(f"Document {source} has no benchmark questions but skip_docs_without_questions=False (not skipping)")
 
                 pbar.update(1)
 
@@ -274,11 +417,10 @@ class MilvusBenchmark(DatabaseBenchmark):
         logger.info("Query generation statistics:")
         logger.info(f"  Total documents processed: {query_generation_stats['total_docs']}")
         logger.info(f"  Documents with queries: {query_generation_stats['docs_with_queries']}")
-        logger.info(f"  Total queries generated: {query_generation_stats['total_queries_generated']}")
         logger.info(f"  Stored questions used: {query_generation_stats['stored_questions_used']}")
         logger.info(f"  Documents skipped (no source): {query_generation_stats['docs_skipped_no_source']}")
         logger.info(f"  Documents skipped (no text): {query_generation_stats['docs_skipped_no_text']}")
-        logger.info(f"  Documents skipped (text too short): {query_generation_stats['docs_skipped_text_too_short']}")
+        logger.info(f"  Documents skipped (no questions): {query_generation_stats['docs_skipped_no_questions']}")
         logger.info(f"  Total queries_by_doc keys: {len(queries_by_doc)}")
         if queries_by_doc:
             total_queries = sum(len(queries) for queries in queries_by_doc.values())
@@ -286,12 +428,36 @@ class MilvusBenchmark(DatabaseBenchmark):
             logger.info(f"  Sample sources with queries: {list(queries_by_doc.keys())[:5]}")
 
         # TODO: Implement LLM-based query generation
-        # if generate_queries:
 
         if not queries_by_doc:
             logger.error("No queries could be generated from documents!")
             logger.error(f"Query generation stats: {query_generation_stats}")
-            raise ValueError("No queries could be generated from documents")
+            
+            # Provide more specific error messages based on the situation
+            if query_generation_stats["total_docs"] == 0:
+                raise ValueError(
+                    f"No documents found in collection '{self.db_config.collection}' with filter 'chunk_index == 0'. "
+                    "Ensure the collection contains documents with chunk_index == 0."
+                )
+            elif query_generation_stats["docs_skipped_no_questions"] > 0:
+                # Documents were loaded but all were skipped because they had no questions
+                if skip_docs_without_questions:
+                    raise ValueError(
+                        f"All {query_generation_stats['total_docs']} documents were skipped because they have no benchmark_questions. "
+                        f"Set skip_docs_without_questions=False to generate queries using LLM, or ensure documents have benchmark_questions."
+                    )
+                else:
+                    raise ValueError(
+                        f"No queries could be generated from {query_generation_stats['total_docs']} documents. "
+                        "Documents may be missing benchmark_questions and LLM query generation is not yet implemented."
+                    )
+            else:
+                # Other reasons (no source, no text, etc.)
+                raise ValueError(
+                    f"No queries could be generated from documents. "
+                    f"Stats: {query_generation_stats}. "
+                    "Ensure documents have valid source, text, and benchmark_questions fields."
+                )
 
         # Run benchmark searches
         results_by_doc: dict[str, list[BenchmarkResult]] = {}
@@ -384,20 +550,43 @@ class MilvusBenchmark(DatabaseBenchmark):
                 doc_pbar.set_postfix_str(f"Queries: {len(queries)}, Time: {doc_time:.2f}s")
                 doc_pbar.update(1)
 
-        # Calculate percent in top-k
-        percent_in_top_k = {}
-        total_queries = sum(len(q) for q in queries_by_doc.values())
+        # Collect all placements for metric calculations
+        all_placements: list[int | None] = []
+        for results in results_by_doc.values():
+            for result in results:
+                all_placements.append(result.placement_order)
 
-        for k in top_k_values:
-            count = sum(1 for placement in placement_distribution.keys() if placement <= k)
+        total_queries = len(all_placements)
+        queries_found = sum(1 for p in all_placements if p is not None)
+        queries_not_found = total_queries - queries_found
+
+        # Calculate percent in top-k (fixed: count total queries found, not unique positions)
+        percent_in_top_k = {}
+        for k in k_values:
+            count = sum(v for p, v in placement_distribution.items() if p <= k)
             percent_in_top_k[k] = (count / total_queries) * 100 if total_queries > 0 else 0
 
-        # Log final benchmark statistics
-        # benchmark_time = time.time() - benchmark_start_time
+        # Calculate IR metrics using BenchmarkMetrics utility
+        mrr = BenchmarkMetrics.calculate_mrr(all_placements)
+        recall_at_k = {k: BenchmarkMetrics.calculate_recall_at_k(all_placements, k) for k in k_values}
+        precision_at_k = {k: BenchmarkMetrics.calculate_precision_at_k(all_placements, k) for k in k_values}
+        ndcg_at_k = {k: BenchmarkMetrics.calculate_ndcg_at_k(all_placements, k) for k in k_values}
+        hit_rate_at_k = {k: BenchmarkMetrics.calculate_hit_rate_at_k(all_placements, k) for k in k_values}
 
-        # Log top-k performance highlights
-        # top_k_highlights = [(k, percent_in_top_k[k]) for k in [1, 5, 10, 50, 100]]
-        # for k, percentage in top_k_highlights:
+        # Calculate summary statistics
+        mean_placement, median_placement, std_placement = BenchmarkMetrics.calculate_summary_stats(all_placements)
+
+        # Log final benchmark statistics
+        logger.info("Benchmark Results Summary:")
+        logger.info(f"  Total queries: {total_queries}")
+        logger.info(f"  Queries found: {queries_found} ({queries_found/total_queries*100:.1f}%)")
+        logger.info(f"  Queries not found: {queries_not_found} ({queries_not_found/total_queries*100:.1f}%)")
+        logger.info(f"  MRR: {mrr:.4f}")
+        logger.info(f"  Mean placement: {mean_placement:.2f}")
+        logger.info(f"  Median placement: {median_placement:.2f}")
+        logger.info(f"  Std dev placement: {std_placement:.2f}")
+        for k in k_values:
+            logger.info(f"  Recall@{k}: {recall_at_k[k]:.4f}")
 
         # Convert integer keys to strings for Pydantic validation
         results_by_doc_str_keys = {str(k): v for k, v in results_by_doc.items()}
@@ -408,6 +597,17 @@ class MilvusBenchmark(DatabaseBenchmark):
             distance_distribution=distance_distribution,
             percent_in_top_k=percent_in_top_k,
             search_time_distribution=search_time_distribution,
+            mrr=mrr,
+            recall_at_k=recall_at_k,
+            precision_at_k=precision_at_k,
+            ndcg_at_k=ndcg_at_k,
+            hit_rate_at_k=hit_rate_at_k,
+            mean_placement=mean_placement,
+            median_placement=median_placement,
+            std_placement=std_placement,
+            total_queries=total_queries,
+            queries_found=queries_found,
+            queries_not_found=queries_not_found,
         )
 
 

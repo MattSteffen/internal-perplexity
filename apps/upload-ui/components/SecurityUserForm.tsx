@@ -126,9 +126,9 @@ export function SecurityUserForm({
                                 className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-blue-400"
                             >
                                 <option value="">Select a security role</option>
-                                {roles.map((role) => (
-                                    <option key={role.role} value={role.role}>
-                                        {role.role} {role.privileges.length > 0 && `(${role.privileges.length} privileges)`}
+                                {roles.map((role, index) => (
+                                    <option key={`role-${index}-${role.role}`} value={role.role}>
+                                        {role.role} {role.privileges?.length > 0 && `(${role.privileges?.length} privileges)`}
                                     </option>
                                 ))}
                                 <option value="__create_new__">+ Create new role</option>

@@ -47,6 +47,7 @@ class CrawlerConfig(BaseModel):
         min_length=1,
         description="Temporary directory for caching processed documents",
     )
+    use_cache: bool = Field(default=True, description="Whether to use cache for processed documents")
     benchmark: bool = Field(default=False, description="Whether to run benchmarking after crawling")
     generate_benchmark_questions: bool = Field(
         default=False,
@@ -160,6 +161,10 @@ class CrawlerConfig(BaseModel):
     ) -> "CrawlerConfig":
         """Create a CrawlerConfig from a CollectionDescription.
 
+        This is the canonical method for restoring a CrawlerConfig from a collection description.
+        It copies the stored collection_config and overrides the database settings to match
+        the actual collection being accessed.
+
         Args:
             description: CollectionDescription instance containing the config
             database_config: Database configuration (collection name will be used)
@@ -168,7 +173,32 @@ class CrawlerConfig(BaseModel):
             CrawlerConfig instance restored from the collection description
 
         Raises:
-            ValueError: If collection_config_json is None or invalid
+            ValueError: If collection_config is None or invalid
         """
-        return description.to_crawler_config(database_config)
+        config = description.collection_config.model_copy()
+        # Override collection name in database config to match the actual collection
+        config.database = config.database.copy_with_overrides(
+            collection=database_config.collection,
+            recreate=False,  # Always set to False when restoring
+        )
+
+        return config
+
+    def merge_with(self, override_config: "CrawlerConfig") -> "CrawlerConfig":
+        """
+        Merge this config (stored/base) with an override config (provided).
+        
+        The override config's values take precedence over this config's values.
+        This is used when loading a config from a collection and merging with
+        user-provided overrides.
+        
+        Args:
+            override_config: Config with values that should override this config
+            
+        Returns:
+            New merged CrawlerConfig instance with override values taking precedence
+        """
+        # Use Pydantic's model_copy with update to merge configs
+        # Override config values take precedence
+        return self.model_copy(update=override_config.model_dump())
 

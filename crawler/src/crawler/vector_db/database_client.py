@@ -220,6 +220,9 @@ class CollectionDescription(BaseModel):
         """
         Create a CrawlerConfig from the stored collection_config.
 
+        This method delegates to CrawlerConfig.from_collection_description() which is
+        the canonical implementation for restoring configs from collection descriptions.
+
         Args:
             database_config: Database configuration to use (collection name will be overridden)
 
@@ -229,14 +232,9 @@ class CollectionDescription(BaseModel):
         Raises:
             ValueError: If collection_config is None or invalid
         """
-        config = self.collection_config.model_copy()
-        # Override collection name in database config to match the actual collection
-        config.database = config.database.copy_with_overrides(
-            collection=database_config.collection,
-            recreate=False,  # Always set to False when restoring
-        )
+        from ..config import CrawlerConfig
 
-        return config
+        return CrawlerConfig.from_collection_description(self, database_config)
 
 
 class DatabaseClientConfig(BaseModel):
@@ -373,6 +371,24 @@ class DatabaseClient(ABC):
         """
         pass
 
+    @staticmethod
+    @abstractmethod
+    def get_collection_description(config: "DatabaseClientConfig") -> "CollectionDescription | None":
+        """
+        Retrieve the collection description from the database.
+
+        This is a static method because it needs to work before a full client instance
+        exists, which is necessary for config restoration during crawler initialization.
+
+        Args:
+            config: Database configuration to use for connection
+
+        Returns:
+            CollectionDescription instance if collection exists and has a valid description,
+            None otherwise
+        """
+        pass
+
     @abstractmethod
     def create_collection(self, recreate=False) -> None:
         """
@@ -431,6 +447,25 @@ class DatabaseClient(ABC):
         """
         pass
 
+    @staticmethod
+    @abstractmethod
+    def get_collection_description(config: "DatabaseClientConfig") -> "CollectionDescription | None":
+        """
+        Retrieve the collection description from the database.
+
+        This is a static method because it needs to work before a full client instance
+        exists (for config restoration). It creates a temporary connection to fetch
+        the collection description.
+
+        Args:
+            config: Database configuration to use for connection
+
+        Returns:
+            CollectionDescription instance if collection exists and has a description,
+            None otherwise
+        """
+        pass
+
 class BenchmarkResult(BaseModel):
     """
     Results for a single query in a benchmark run.
@@ -477,6 +512,17 @@ class BenchmarkRunResults(BaseModel):
         distance_distribution: List of all similarity distances from results
         percent_in_top_k: Percentage of queries found in top-k results (k -> percentage)
         search_time_distribution: List of all search times in seconds
+        mrr: Mean Reciprocal Rank - average of 1/rank for found documents
+        recall_at_k: Recall@K metrics - fraction of relevant docs retrieved in top-k
+        precision_at_k: Precision@K metrics - fraction of top-k results that are relevant
+        ndcg_at_k: Normalized Discounted Cumulative Gain@K metrics
+        hit_rate_at_k: Hit rate@K - percentage of queries with at least one relevant result in top-k
+        mean_placement: Mean placement position of found documents
+        median_placement: Median placement position of found documents
+        std_placement: Standard deviation of placement positions
+        total_queries: Total number of queries executed
+        queries_found: Number of queries where expected document was found
+        queries_not_found: Number of queries where expected document was not found
     """
 
     results_by_doc: dict[str, list[BenchmarkResult]] = Field(..., description="Mapping of document source identifiers to their benchmark results")
@@ -484,6 +530,17 @@ class BenchmarkRunResults(BaseModel):
     distance_distribution: list[float] = Field(..., description="List of all similarity distances/scores from the benchmark")
     percent_in_top_k: dict[int, float] = Field(..., description="Percentage of queries found in top-k results: k -> percentage (0-100)")
     search_time_distribution: list[float] = Field(..., description="List of all search execution times in seconds")
+    mrr: float = Field(..., description="Mean Reciprocal Rank - average of 1/rank for found documents")
+    recall_at_k: dict[int, float] = Field(..., description="Recall@K metrics - fraction of relevant docs retrieved in top-k")
+    precision_at_k: dict[int, float] = Field(..., description="Precision@K metrics - fraction of top-k results that are relevant")
+    ndcg_at_k: dict[int, float] = Field(..., description="Normalized Discounted Cumulative Gain@K metrics")
+    hit_rate_at_k: dict[int, float] = Field(..., description="Hit rate@K - percentage of queries with at least one relevant result in top-k")
+    mean_placement: float = Field(..., description="Mean placement position of found documents")
+    median_placement: float = Field(..., description="Median placement position of found documents")
+    std_placement: float = Field(..., description="Standard deviation of placement positions")
+    total_queries: int = Field(..., description="Total number of queries executed")
+    queries_found: int = Field(..., description="Number of queries where expected document was found")
+    queries_not_found: int = Field(..., description="Number of queries where expected document was not found")
 
     model_config = {
         "validate_assignment": True,
@@ -505,6 +562,17 @@ class BenchmarkRunResults(BaseModel):
             "distance_distribution": self.distance_distribution,
             "percent_in_top_k": {str(k): v for k, v in self.percent_in_top_k.items()},
             "search_time_distribution": self.search_time_distribution,
+            "mrr": self.mrr,
+            "recall_at_k": {str(k): v for k, v in self.recall_at_k.items()},
+            "precision_at_k": {str(k): v for k, v in self.precision_at_k.items()},
+            "ndcg_at_k": {str(k): v for k, v in self.ndcg_at_k.items()},
+            "hit_rate_at_k": {str(k): v for k, v in self.hit_rate_at_k.items()},
+            "mean_placement": self.mean_placement,
+            "median_placement": self.median_placement,
+            "std_placement": self.std_placement,
+            "total_queries": self.total_queries,
+            "queries_found": self.queries_found,
+            "queries_not_found": self.queries_not_found,
         }
 
 
@@ -538,17 +606,17 @@ class DatabaseBenchmark(ABC):
         pass
 
     @abstractmethod
-    def run_benchmark(self, generate_queries: bool = False) -> BenchmarkRunResults:
+    def run_benchmark(self, generate_queries: bool = False, k_values: list[int] | None = None, skip_docs_without_questions: bool = True) -> BenchmarkRunResults:
         """
         Run a benchmark for a set of documents and queries.
+        
         Args:
-            queries_by_doc: An optional dictionary where keys are document source
-                            identifiers and values are lists of queries to run. If not
-                            provided, queries will be generated automatically.
-            top_k_values: A list of integers for calculating 'percent in top k'.
-                          Defaults to [1, 5, 10, 20, 50, 100].
+            generate_queries: If True, generate queries using LLM (implementation-specific)
+            k_values: List of k values for @K metrics (default: [1, 5, 10, 25, 50, 100])
+            skip_docs_without_questions: If True, skip documents without benchmark_questions (default: True)
+            
         Returns:
-            A BenchmarkRunResults object containing detailed and aggregated results.
+            A BenchmarkRunResults object containing detailed and aggregated results with IR metrics.
         """
         pass
 
@@ -586,6 +654,70 @@ class DatabaseBenchmark(ABC):
         plt.title("Percent in Top k by k")
         plt.grid(True)
         plt.savefig(os.path.join(output_dir, "percent_in_top_k.png"))
+        plt.close()
+
+        # Recall@K curve
+        plt.figure()
+        k_values = sorted(results.recall_at_k.keys())
+        recall_values = [results.recall_at_k[k] * 100 for k in k_values]  # Convert to percentage
+        plt.plot(k_values, recall_values, marker="o", label="Recall@K", linewidth=2)
+        plt.xlabel("k")
+        plt.ylabel("Recall (%)")
+        plt.title("Recall@K Performance")
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        plt.savefig(os.path.join(output_dir, "recall_at_k.png"))
+        plt.close()
+
+        # NDCG@K curve
+        plt.figure()
+        k_values = sorted(results.ndcg_at_k.keys())
+        ndcg_values = [results.ndcg_at_k[k] for k in k_values]
+        plt.plot(k_values, ndcg_values, marker="o", label="NDCG@K", linewidth=2, color="green")
+        plt.xlabel("k")
+        plt.ylabel("NDCG")
+        plt.title("Normalized Discounted Cumulative Gain@K")
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        plt.savefig(os.path.join(output_dir, "ndcg_at_k.png"))
+        plt.close()
+
+        # Combined metrics comparison
+        plt.figure(figsize=(10, 6))
+        k_values = sorted(results.recall_at_k.keys())
+        recall_values = [results.recall_at_k[k] * 100 for k in k_values]
+        precision_values = [results.precision_at_k[k] * 100 for k in k_values]
+        hit_rate_values = [results.hit_rate_at_k[k] * 100 for k in k_values]
+        
+        plt.plot(k_values, recall_values, marker="o", label="Recall@K", linewidth=2)
+        plt.plot(k_values, precision_values, marker="s", label="Precision@K", linewidth=2)
+        plt.plot(k_values, hit_rate_values, marker="^", label="Hit Rate@K", linewidth=2)
+        plt.xlabel("k")
+        plt.ylabel("Percentage (%)")
+        plt.title("IR Metrics Comparison")
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        plt.savefig(os.path.join(output_dir, "metrics_comparison.png"))
+        plt.close()
+
+        # MRR and summary statistics bar chart
+        plt.figure(figsize=(10, 6))
+        metrics = ["MRR", "Mean Placement", "Median Placement"]
+        values = [results.mrr, results.mean_placement, results.median_placement]
+        colors = ["blue", "orange", "green"]
+        bars = plt.bar(metrics, values, color=colors, alpha=0.7)
+        plt.ylabel("Value")
+        plt.title("Summary Statistics")
+        plt.grid(True, alpha=0.3, axis="y")
+        
+        # Add value labels on bars
+        for bar, val in zip(bars, values):
+            height = bar.get_height()
+            plt.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{val:.3f}',
+                    ha='center', va='bottom')
+        
+        plt.savefig(os.path.join(output_dir, "summary_statistics.png"))
         plt.close()
 
         # Search time distribution
