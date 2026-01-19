@@ -15,6 +15,7 @@ data flow through the entire pipeline.
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from typing import TYPE_CHECKING, Any
 
@@ -41,27 +42,36 @@ class Document(BaseModel):
     Attributes:
         document_id: Unique identifier for the document (UUID)
         source: Source identifier (file path, URL, etc.)
-        content: Raw binary content (set by converter)
+        security_group: Access control groups for RBAC
+        
+        content: Raw binary content (set by read_content if a filepath is provided)
+
         markdown: Markdown representation (set by converter)
-        source_name: Optional source name from converter
-        stats: Conversion statistics (set by converter)
-        warnings: Conversion warnings (set by converter)
+
         metadata: Extracted metadata (set by extractor)
         benchmark_questions: Generated questions (set by extractor)
-        chunks: Text chunks (set by chunker)
-        text_embeddings: Dense vector embeddings for each chunk (set by embedder)
-        sparse_text_embeddings: Sparse embeddings for text chunks (set by embedder)
-        sparse_metadata_embeddings: Sparse embeddings for metadata (set by embedder)
-        security_group: Access control groups for RBAC
-        minio_url: Optional URL to document in object storage
+        
+        chunks (class Chunk): Document split into the chunks and the respective embeddings
+          text: Text chunks (set by chunker)
+          security_group: Access control groups for RBAC
+          text_embeddings: Dense vector embeddings for each chunk (set by embedder)
+          sparse_text_embeddings: Sparse embeddings for text chunks (set by embedder)
+          sparse_metadata_embeddings: Sparse embeddings for metadata (set by embedder)
+
     """
 
     # Required fields - must be provided at creation
-    document_id: str = Field(..., description="Unique identifier for the document (UUID)")
-    source: str = Field(..., description="Source identifier (file path, URL, etc.)")
+    document_id: str = Field(description="Unique identifier for the document (UUID)")
+    source: str = Field(description="Source identifier (file path, URL, etc.)")
+    security_group: list[str] = Field(
+        default_factory=lambda: ["public"],
+        description="Access control groups for RBAC",
+    )
 
+    # Fields populated by read_content if a filepath is provided
+    content: bytes | None = Field(default=None, description="Raw binary content")
+    
     # Fields populated by converter
-    content: bytes | None = Field(default=None, description="Raw binary content (set by converter)")
     markdown: str | None = Field(default=None, description="Markdown representation (set by converter)")
 
     # Fields populated by extractor
@@ -69,18 +79,8 @@ class Document(BaseModel):
     benchmark_questions: list[str] | None = Field(default=None, description="Generated questions (set by extractor)")
 
     # Fields populated by chunker
-    chunks: list[str] | None = Field(default=None, description="Text chunks (set by chunker)")
+    chunks: list[Chunk] | None = Field(default=None, description="Text chunks (set by chunker)")
 
-    # Fields populated by embedder
-    text_embeddings: list[list[float]] | None = Field(default=None, description="Dense vector embeddings for each chunk (set by embedder)")
-    sparse_text_embeddings: list[list[float]] | None = Field(default=None, description="Sparse embeddings for text chunks (set by embedder)")
-    sparse_metadata_embeddings: list[float] | None = Field(default=None, description="Sparse embedding for metadata (set by embedder)")
-
-    # Optional fields
-    security_group: list[str] = Field(
-        default_factory=lambda: ["public"],
-        description="Access control groups for RBAC",
-    )
 
     model_config = {
         "arbitrary_types_allowed": True,  # Allow bytes type
@@ -107,11 +107,17 @@ class Document(BaseModel):
         """
         if document_id is None:
             document_id = str(uuid.uuid4())
-
+            
+        if isinstance(source, str) and os.path.isfile(source):
+            content = cls.read_content(source)
+        else:
+            content = None
+            
         return cls(
             document_id=document_id,
             source=source,
             security_group=security_group or ["public"],
+            content=content,
         )
 
     def is_converted(self) -> bool:
@@ -128,7 +134,7 @@ class Document(BaseModel):
 
     def is_ready_for_storage(self) -> bool:
         """Check if document is ready for vector DB storage."""
-        return self.is_converted() and self.is_extracted() and self.is_chunked() and self.text_embeddings is not None and len(self.text_embeddings) == len(self.chunks)
+        return self.is_converted() and self.is_extracted() and self.is_chunked()
 
     def to_database_documents(self) -> list[DatabaseDocument]:
         """
@@ -146,29 +152,25 @@ class Document(BaseModel):
         """
         from ..vector_db import DatabaseDocument
         if not self.is_ready_for_storage():
-            raise ValueError("Document is not ready for storage. Must have chunks and embeddings.")
-
-        if self.chunks is None or self.text_embeddings is None:
-            raise ValueError("Document must have chunks and text_embeddings")
-
-        if len(self.chunks) != len(self.text_embeddings):
-            raise ValueError(f"Mismatch between chunks ({len(self.chunks)}) and embeddings ({len(self.text_embeddings)})")
+            raise ValueError("Document is not ready for storage. Must have chunks.")
 
         documents = []
 
-        for i, (chunk, embedding) in enumerate(zip(self.chunks, self.text_embeddings)):
+        for chunk in self.chunks:
             document = DatabaseDocument(
                 document_id=self.document_id,
-                text=chunk,
-                text_embedding=embedding,
-                chunk_index=i,
+                text=chunk.text,
+                text_embedding=chunk.text_embedding,
+                text_sparse_embedding=chunk.sparse_text_embedding or None,
+                metadata_sparse_embedding=chunk.sparse_metadata_embedding or None,
+                chunk_index=chunk.chunk_index,
                 source=self.source,
                 metadata=self.metadata or {},
                 security_group=self.security_group,
             )
 
             # Add benchmark questions if available (only to first chunk)
-            if self.benchmark_questions and i == 0:
+            if self.benchmark_questions:
                 document.benchmark_questions = self.benchmark_questions
 
             # Sparse embeddings are calculated on insert
@@ -176,37 +178,28 @@ class Document(BaseModel):
 
         return documents
 
-    def from_database_documents(self, documents: list[DatabaseDocument], include_embeddings: bool = True) -> Document:
+    @classmethod
+    def from_database_documents(cls, documents: list[DatabaseDocument], include_chunks: bool = True) -> Document:
         """
         Convert database documents to a document.
 
         Args:
             documents: List of database documents
-            include_embeddings: Whether to include embeddings in the document
+            include_chunks: Whether to include chunks in the document
         Returns:
             Document instance
         """
-        documents.sort(key=lambda x: x.chunk_index)
-        chunks = [document.text for document in documents]
-        if include_embeddings:
-            text_embeddings = [document.text_embedding for document in documents]
-            sparse_text_embeddings = [document.text_sparse_embedding for document in documents]
-            sparse_metadata_embeddings = [document.metadata_sparse_embedding for document in documents]
-        else:
-            text_embeddings = None
-            sparse_text_embeddings = None
-            sparse_metadata_embeddings = None
+        sorted_documents = sorted(documents, key=lambda x: x.chunk_index)
+        chunks = [Chunk(text=document.text, text_embedding=document.text_embedding, sparse_text_embedding=document.text_sparse_embedding, sparse_metadata_embedding=document.metadata_sparse_embedding, chunk_index=document.chunk_index) for document in sorted_documents] if include_chunks else None
 
-        return Document(
-            document_id=documents[0].document_id,
-            source=documents[0].source,
+        return cls(
+            document_id=sorted_documents[0].document_id,
+            source=sorted_documents[0].source,
+            markdown="\n".join([document.text for document in sorted_documents]),
             chunks=chunks,
-            metadata=documents[0].metadata,
-            benchmark_questions=documents[0].benchmark_questions,
-            security_group=documents[0].security_group,
-            text_embeddings=text_embeddings,
-            sparse_text_embeddings=sparse_text_embeddings,
-            sparse_metadata_embeddings=sparse_metadata_embeddings,
+            metadata=sorted_documents[0].metadata,
+            benchmark_questions=sorted_documents[0].benchmark_questions,
+            security_group=sorted_documents[0].security_group,
         )
 
     def validate(self) -> None:
@@ -235,11 +228,11 @@ class Document(BaseModel):
             status_parts.append("extracted")
         if self.is_chunked():
             status_parts.append(f"chunked({len(self.chunks)})")
-        if self.text_embeddings:
-            status_parts.append(f"embedded({len(self.text_embeddings)})")
+        if self.is_chunked() and self.chunks and self.chunks[0].text_embedding:
+            status_parts.append(f"embedded({len(self.chunks)})")
 
         status = ", ".join(status_parts) if status_parts else "new"
-        return f"Document(id={self.document_id[:8]}..., source={self.source}, status=[{status}])"
+        return f"Document(id={self.document_id[:8]} source={self.source}, status=[{status}])"
 
     def save(self, filepath: str) -> None:
         """
@@ -303,36 +296,31 @@ class Document(BaseModel):
             self.content = None
 
     @classmethod
-    def from_file(cls, filepath: str) -> Document:
+    def read_content(cls, filepath: str) -> bytes:
         """
-        Load a document from a JSON file.
-
-        Factory method that creates a new Document instance from a saved file.
+        Read the content of a file and return it as a bytes object.
 
         Args:
-            filepath: Path to load the document from
+            filepath: Path to the file to read
 
         Returns:
-            Document instance loaded from file
+            Bytes object containing the file content
         """
-        import base64
+        with open(filepath, "rb") as f:
+            return f.read()
 
-        with open(filepath) as f:
-            data = json.load(f)
 
-        # Handle binary content by base64 decoding
-        content_str = data.get("content")
-        content = None
-        if content_str is not None:
-            content = base64.b64decode(content_str)
+class Chunk(BaseModel):
+    """
+    Chunk of a document.
+    """
+    text: str = Field(description="Text chunk")
+    chunk_index: int = Field(description="Index of the chunk")
 
-        return cls(
-            document_id=data.get("document_id"),
-            source=data.get("source"),
-            content=content,
-            markdown=data.get("markdown"),
-            metadata=data.get("metadata"),
-            benchmark_questions=data.get("benchmark_questions"),
-            chunks=data.get("chunks"),
-            security_group=data.get("security_group", ["public"]),
-        )
+    text_embedding: list[float] = Field(description="Dense vector embedding for the text chunk")
+    sparse_text_embedding: list[float] | None = Field(default=None, description="Sparse vector embedding for the text chunk (computed by DB)")
+    sparse_metadata_embedding: list[float] | None = Field(default=None, description="Sparse vector embedding for the metadata (computed by DB)")
+
+    model_config = {
+        "validate_assignment": True,  # Validate when fields are assigned
+    }

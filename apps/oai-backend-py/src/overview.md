@@ -1,6 +1,6 @@
 # src/ Package Overview
 
-This package contains the main application code for the OpenAI-compatible backend proxy.
+This package contains the main application code for the OpenAI-compatible backend proxy with Milvus vector database integration.
 
 ## Files
 
@@ -12,7 +12,12 @@ FastAPI application entry point. Defines the main app instance and routes all en
 - FastAPI app initialization
 - OAuth initialization with Keycloak
 - Health check endpoint (`/health`)
-- Route registration for authentication, chat completions, embeddings, and models listing
+- Route registration for all API endpoints including:
+  - Authentication
+  - Chat completions and agent endpoint
+  - Embeddings and models listing
+  - Collections, pipelines, and document management
+  - Search and tool calling
 
 ### `auth.py`
 OAuth2 authentication setup with Keycloak. Initializes the OAuth client and registers Keycloak as an OAuth provider:
@@ -22,117 +27,167 @@ OAuth2 authentication setup with Keycloak. Initializes the OAuth client and regi
 
 ### `auth_utils.py`
 Authentication utilities for token verification. Provides:
-- `verify_token(credentials)`: Verifies JWT token from Keycloak and returns decoded claims
-- `get_optional_token(credentials)`: Optional token verification that returns None if token is missing (useful for optional auth endpoints)
-- Handles token expiration validation
+- `verify_token(credentials)`: Verifies token and returns decoded claims with `milvus_token` and `username`
+- `get_optional_token(credentials)`: Optional token verification that returns None if token is missing
+- `extract_username_from_token(token)`: Extracts username from `username:password` token format
 - Raises HTTP 401 for invalid/expired tokens
 
 ### `config.py`
-Configuration management using Pydantic Settings. Loads settings from environment variables with `OAI_` prefix:
+Configuration management using Pydantic Settings. Includes:
+
+**Application Settings** (OAI_ prefix):
 - `ollama_base_url`: Base URL for Ollama API (default: `http://localhost:11434/v1`)
 - `api_key`: API key for Ollama (default: `ollama`)
 - `host`: Server host binding (default: `0.0.0.0`)
 - `port`: Server port (default: `8000`)
-- `keycloak_url`: Keycloak realm URL (default: empty, required for auth)
-- `client_id`: OAuth2 client ID (default: empty, required for auth)
-- `client_secret`: OAuth2 client secret (default: empty, required for auth)
-- `redirect_uri`: OAuth2 redirect URI (default: `http://localhost:3000/api/auth/callback`)
-- `frontend_redirect_url`: Frontend redirect URL after authentication (default: `http://localhost:3000/dashboard`)
+- Keycloak OAuth2 settings (keycloak_url, client_id, client_secret, redirect_uri)
 
-### `client.py`
-Legacy OpenAI client instance (deprecated in favor of client router). This file is kept for backwards compatibility but new code should use `app.clients.router`.
+**RadChat Config** (for agent functionality):
+- `OllamaConfig`: embedding_model, llm_model, request_timeout, context_length
+- `MilvusConfig`: host, port, username, password, collection_name
+- `SearchConfig`: nprobe, search_limit, hybrid_limit, rrf_k, drop_ratio
+- `AgentConfig`: max_tool_calls, default_role, logging_level
+
+### `milvus_client.py`
+Milvus client factory for database operations. Provides `get_milvus_client(token)` which creates a MilvusClient with authentication.
+
+### `utils.py`
+Shared utility functions. Contains `map_openai_error_to_http()` which converts OpenAI API errors to appropriate HTTP exceptions.
 
 ## Subpackages
 
 ### `clients/`
-Contains client implementations for different model providers with a unified interface.
+Contains client implementations for different model providers.
 
 #### `clients/__init__.py`
 Empty package marker.
 
 #### `clients/base.py`
-Defines the `ChatCompletionClient` protocol that all clients must implement. This provides a unified interface for any chat completion provider.
+Defines `ChatCompletionClient` and `EmbeddingClient` protocols for unified interfaces.
 
 #### `clients/ollama.py`
-Ollama client implementation. Wraps the OpenAI-compatible AsyncOpenAI client to proxy requests to Ollama. Handles all Ollama models.
+Ollama client implementation. Wraps AsyncOpenAI client to proxy requests to Ollama.
 
 #### `clients/radchat.py`
-RadChat custom agent implementation. A simple agent that returns "hello world" as a demonstration of custom agents. Returns two streaming chunks: "hello" and " world".
+RadChat agent with hardcoded collection. Full agentic RAG implementation with:
+- Milvus vector search tool
+- System prompt with database schema and preliminary context
+- Citation building for source attribution
+- Streaming response support
+
+#### `clients/milvuschat.py`
+MilvusChat agent that dynamically connects to any collection. Features:
+- Uses collection's `llm_prompt` from CollectionDescription for system prompt
+- Performs initial search for preliminary context
+- Agentic tool-calling loop with search tool
+- Both streaming and non-streaming modes
+- Collection-specific metadata summaries
 
 #### `clients/router.py`
-Client router that selects the appropriate client based on model name. Routes `radchat` to the RadChatClient and all other models to the OllamaClient.
-
-### `utils.py`
-Shared utility functions for error handling and common operations. Contains `map_openai_error_to_http()` which converts OpenAI API errors to appropriate HTTP exceptions with proper status codes (404 for model not found, 400 for bad requests, 503 for service unavailable, etc.).
+Client router that selects clients based on model name:
+- `radchat` -> RadChatClient
+- `milvuschat` -> MilvusChatClient
+- All other models -> OllamaClient
 
 ### `endpoints/`
 Contains endpoint handler functions for API routes.
 
 #### `endpoints/__init__.py`
-Empty package marker.
+Package exports for all endpoint modules.
+
+#### `endpoints/agent.py`
+Agent endpoint handler. Implements `POST /v1/agent` for agentic RAG conversations:
+- Connects to specified Milvus collection
+- Uses collection's llm_prompt for system prompt
+- Supports streaming and non-streaming responses
+- Requires authentication with Milvus token
 
 #### `endpoints/chat.py`
-Chat completions endpoint handler. Implements `POST /v1/chat/completions` with support for:
+Chat completions endpoint handler. Implements `POST /v1/chat/completions` with:
 - Streaming responses (Server-Sent Events format)
-- Non-streaming responses
-- Full OpenAI-compatible request/response format
-- Tool/function calling:
-  - Automatically adds all registered tools to requests (unless user provides `tools` parameter)
-  - Executes tool calls and injects results back into conversation
-  - Supports multi-turn tool calling (up to 5 iterations)
-  - Handles tool calls in both streaming and non-streaming modes
-- Comprehensive error handling:
-  - 400: Invalid JSON or missing required fields
-  - 404: Model not found
-  - 503: Ollama service unavailable
-  - Proper error formatting for streaming responses
-
-#### `endpoints/embeddings.py`
-Embeddings endpoint handler. Implements `POST /v1/embeddings` for generating embeddings using Ollama models. Includes error handling:
-- 400: Invalid JSON or missing required fields (model, input)
-- 404: Model not found
-- 503: Ollama service unavailable
-
-#### `endpoints/models.py`
-Models listing endpoint handler. Implements `GET /v1/models` for listing available models in OpenAI-compatible format. Fetches Ollama models from Ollama's native `/api/tags` endpoint and includes custom agent models (like `radchat`) in the response.
+- Tool/function calling with multi-turn support (up to 5 iterations)
+- Automatic tool injection from registry
+- Error handling for streaming responses
 
 #### `endpoints/collections.py`
-Collections endpoint handler. Implements `GET /v1/collections` for listing all Milvus collections with their metadata. Returns:
-- `collections`: List of collection names
-- `collection_metadata`: Dictionary mapping collection names to their metadata (includes all fields returned by Milvus `describe_collection`)
+Collections management. Implements:
+- `GET /v1/collections`: List collections with metadata, document counts, and access levels
+- `POST /v1/collections`: Create new collections with template or custom config
+  - Supports `template_name` (standard, academic) or `custom_config`
+  - Sets security groups based on `roles` parameter
+  - Grants CollectionReadOnly privileges to specified roles
+- `GET /v1/roles`: List Milvus roles
+- `GET /v1/users`: List Milvus users with their roles
+
+#### `endpoints/documents.py`
+Document processing and upload. Implements:
+- `POST /v1/collections/{collection_name}/process`: Process document to extract metadata and markdown
+  - Returns `ProcessedDocument` with metadata, markdown_content, file_name, file_size
+- `POST /v1/collections/{collection_name}/upload`: Upload documents to collection
+  - Supports raw file upload with automatic processing
+  - Supports pre-processed markdown_content with metadata_override
+  - RBAC check verifies user has write access to collection
+  - Optional security_groups parameter for document-level access control
+
+#### `endpoints/embeddings.py`
+Embeddings endpoint. Implements `POST /v1/embeddings` for generating embeddings.
+
+#### `endpoints/models.py`
+Models listing. Implements `GET /v1/models` listing:
+- All Ollama models from `/api/tags`
+- Custom agents: `radchat`, `milvuschat`
+
+#### `endpoints/pipeline_registry.py`
+Pipeline template registry for crawler configurations. Provides:
+- `PipelineRegistry` class for managing predefined templates
+- Two built-in templates:
+  - `standard`: General document processing (2000 char chunks)
+  - `academic`: Research paper processing (10000 char chunks, richer metadata)
+- Templates define LLM, embedding, chunking, and metadata extraction settings
+- `get_registry()`: Returns global registry instance
+
+#### `endpoints/search.py`
+Search endpoint. Implements `POST /v1/search` with:
+- Hybrid search (dense + sparse embeddings)
+- Automatic security group filtering based on user roles
+- Custom filter expression support
+- Returns combined Document objects with chunks merged by document_id
 
 #### `endpoints/auth.py`
-Authentication endpoints for Keycloak OAuth2. Implements:
-- `GET /login`: Initiates OAuth2 login flow with Keycloak (redirects to Keycloak with GitLab identity provider hint)
-- `GET /auth/callback`: Handles OAuth2 callback from Keycloak after GitLab login (exchanges code for tokens and sets HTTP-only cookie)
-- `GET /logout`: Logout endpoint that clears cookies and redirects to Keycloak logout
-- `GET /auth/me`: Returns current authenticated user information (requires Bearer token)
+Authentication endpoints for Keycloak OAuth2:
+- `GET /login`: Initiates OAuth2 login flow
+- `GET /auth/callback`: Handles OAuth2 callback
+- `GET /logout`: Logout and cookie clearing
+- `GET /auth/me`: Current user information
 
-### `milvus_client.py`
-Milvus client singleton for database operations. Provides a single `MilvusClient` instance that can be reused across the application. Connection URI is configurable via `MILVUS_URI` environment variable (defaults to `http://localhost:19530`).
+#### `endpoints/tools.py`
+Direct tool calling endpoint. Implements `POST /v1/tools` for invoking tools outside of chat.
 
 ### `tools/`
-Contains the tool system for function/tool calling functionality.
+Tool system for function/tool calling.
 
 #### `tools/__init__.py`
-Package marker that exports the `tool_registry` singleton instance.
+Exports the `tool_registry` singleton.
 
 #### `tools/base.py`
-Defines the `Tool` protocol that all tools must implement. Tools must provide:
-- `get_definition()`: Returns an OpenAI-compatible `ChatCompletionToolParam` definition
-- `execute(arguments)`: Async method that executes the tool with given arguments and returns a JSON string result
+Defines the `Tool` protocol:
+- `get_definition()`: Returns ChatCompletionToolParam
+- `execute(arguments)`: Async execution returning JSON string
+
+#### `tools/milvus_search.py`
+Milvus search tool implementation. Provides:
+- `MilvusSearchTool` class for semantic search
+- `perform_search()`: Hybrid search with dense + sparse embeddings
+- `perform_query()`: Filter-based queries
+- `consolidate_documents()`: Groups chunks by document_id
+- `build_citations()`: Creates OpenWebUI-format citations
 
 #### `tools/weather.py`
-Weather tool implementation. Provides a mock weather tool that returns weather data for a given location. Includes:
-- Location parameter (required): city and state
-- Unit parameter (optional): celsius or fahrenheit (defaults to celsius)
-- Returns temperature, conditions, and humidity as JSON
+Mock weather tool for demonstration purposes.
 
 #### `tools/registry.py`
-Tool registry that manages all available tools. Provides:
-- `get_tool_definitions()`: Returns list of all tool definitions in OpenAI format
-- `execute_tool(name, arguments)`: Executes a tool by name with given arguments
-- `register_tool(name, tool)`: Registers a new tool instance
-
-The registry automatically includes the weather tool. Tools are automatically added to all chat completion requests unless the user explicitly provides a `tools` parameter.
+Tool registry managing available tools:
+- `get_tool_definitions()`: Returns all tool definitions
+- `execute_tool(name, arguments, metadata)`: Executes tool with optional user metadata
+- Default tools: `get_weather`, `search`
 

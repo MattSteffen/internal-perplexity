@@ -52,9 +52,9 @@ class Converter(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def convert(self, document: "Document") -> None:
+    def convert(self, document: "Document") -> str:
         """
-        Convert a Document in place, populating converter fields.
+        Convert a Document in markdown, populating converter fields.
 
         This method modifies the document directly, populating:
         - content: Raw binary content (if not already set)

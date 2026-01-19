@@ -1,4 +1,4 @@
-# Storage Module Overview
+# Vector Database Module Overview
 
 This module provides a type-safe, provider-agnostic interface for storing document chunks and their embeddings in vector databases. All data models use Pydantic BaseModels for automatic validation and type safety.
 
@@ -7,182 +7,260 @@ This module provides a type-safe, provider-agnostic interface for storing docume
 ### `__init__.py`
 Exports the public API for the storage module. Provides clean imports for:
 - `DatabaseClient`, `DatabaseClientConfig`, `DatabaseDocument` - Core abstractions
+- `SearchResult`, `UpsertResult` - Operation result types
+- `CollectionDescription` - Collection metadata with crawler config
 - `MilvusDB` - Milvus implementation of DatabaseClient
 - `MilvusBenchmark` - Benchmarking tools for Milvus
-- `get_db`, `get_db_benchmark` - Factory functions for creating database instances
+- `get_db`, `get_db_benchmark` - Factory functions
 
 ### `database_client.py`
 Core abstractions and data models for the storage layer. Contains:
 
 **Pydantic Models:**
+
 - `DatabaseDocument` - Type-safe model for document chunks with validation
-  - Required fields: `default_document_id` (str, UUID), `default_text` (str), `default_text_embedding` (list[float]), `default_chunk_index` (int, >= 0), `default_source` (str), `security_group` (list[str]), `metadata` (dict)
-  - Optional fields: `id` (int, default: -1), `default_metadata` (str, JSON), `default_minio` (str), `default_text_sparse_embedding` (list[float]), `default_metadata_sparse_embedding` (list[float]), `default_benchmark_questions` (list[str])
-  - All system fields use `default_` prefix to avoid conflicts with user metadata
-  - Validates `default_chunk_index >= 0`
+  - Required fields: `document_id` (str, UUID), `text` (str), `text_embedding` (list[float]), `chunk_index` (int, >= 0), `source` (str), `security_group` (list[str]), `metadata` (dict)
+  - Optional fields: `id` (int, auto-generated), `text_sparse_embedding`, `metadata_sparse_embedding`, `benchmark_questions`
+  - Validates `chunk_index >= 0`
   - Provides dict-like access methods (`__getitem__`, `get()`) for backward compatibility
   - Methods: `to_dict()`, `from_dict()`, `to_string()`
+
+- `SearchResult` - Result from a search operation
+  - Contains: `document` (DatabaseDocument), `distance` (float), `score` (float)
+  - Factory method: `from_milvus_hit()` for converting Milvus results
   
+- `UpsertResult` - Result from an upsert operation
+  - Contains: `inserted_count`, `updated_count`, `failed_ids`
+  - Properties: `total_count`, `has_failures`
+
+- `CollectionDescription` - Metadata for collection configuration
+  - Contains: `collection_config` (CrawlerConfig), `llm_prompt`, `columns`
+  - Properties: `collection_security_groups`, `metadata_schema`, `description`
+  - Methods: `to_json()`, `from_json()`, `to_crawler_config()`
+
 - `DatabaseClientConfig` - Configuration model for database connections
-  - Required: provider, collection
-  - Optional: partition, recreate flag, description
-  - Connection params: host, port (validated 1-65535), username, password
-  - Properties: uri, token
+  - Required: `provider`, `collection`
+  - Optional: `partition`, `recreate`, `collection_description`, `access_level`
+  - Connection params: `host`, `port` (validated 1-65535), `username`, `password`
+  - Properties: `uri`, `token`
   - Factory method: `DatabaseClientConfig.milvus()` for convenient Milvus config
-  
+
 - `BenchmarkResult` - Results for a single benchmark query
-  - Tracks: query text, expected source, placement order, distance, search time, found flag
-  - Validates placement_order >= 1, time_to_search >= 0
-  
-- `BenchmarkRunResults` - Aggregated benchmark statistics
-  - Contains: results by document, placement/distance/time distributions, top-k percentages
-  - Provides JSON serialization with integer key conversion
+- `BenchmarkRunResults` - Aggregated benchmark statistics with IR metrics
 
 **Abstract Base Classes:**
+
 - `DatabaseClient` - Interface that all database implementations must follow
-  - Methods: `__init__`, `create_collection`, `insert_data`, `check_duplicate`
-  
+  - Connection: `connect()`, `disconnect()`, `is_connected()`
+  - Search: `search(texts, filters, limit)` -> `list[SearchResult]`
+  - Get: `get_chunk(id)`, `get_document(document_id)`
+  - Write: `upsert(documents)` -> `UpsertResult`
+  - Delete: `delete_chunk(id)`, `delete_document(document_id)`
+  - Collection: `create_collection()`, `get_collection()`
+  - Utility: `exists(source, chunk_index)`
+
 - `DatabaseBenchmark` - Interface for benchmarking database performance
-  - Methods: `__init__`, `search`, `run_benchmark`, `plot_results`, `save_results`
+  - Methods: `search()`, `run_benchmark()`, `plot_results()`, `save_results()`
 
 ### `database_utils.py`
-Factory functions for creating database and benchmark instances based on provider:
-- `get_db(config: DatabaseClientConfig, dimension: int, metadata: dict, description: str) -> DatabaseClient` - Returns appropriate DatabaseClient implementation
-- `get_db_benchmark(db_config: DatabaseClientConfig, embed_config: EmbedderConfig) -> DatabaseBenchmark` - Returns appropriate DatabaseBenchmark implementation
-- Currently supports "milvus" provider, raises ValueError for unsupported providers
+Factory functions for creating database and benchmark instances:
+
+- `get_db(config, dimension, crawler_config, embedder)` -> `DatabaseClient`
+  - Returns appropriate DatabaseClient implementation (not yet connected)
+  - Caller must call `connect()` before using
+
+- `get_db_benchmark(db_config, embed_config, db)` -> `DatabaseBenchmark`
+  - Returns appropriate DatabaseBenchmark implementation
+  - Can optionally reuse an existing connected DatabaseClient
 
 ### `milvus_client.py`
 Concrete implementation of DatabaseClient for Milvus vector database:
 
 **Class: MilvusDB**
-- Implements the DatabaseClient interface for Milvus
-- Uses MilvusClient from pymilvus library
-- Constructor: `__init__(config: DatabaseClientConfig, embedding_dimension: int, metadata_schema: dict, description: str)`
-  - Automatically creates collection on initialization if it doesn't exist
-  - Tests connection on initialization
-- Key features:
-  - Automatic collection creation with schema from `milvus_utils`
-  - Partition support for data organization
-  - Optimized duplicate detection using bulk queries
-  - Batch processing with progress tracking (tqdm)
-  - Automatic data flushing for persistence
-  - Comprehensive logging of insertion statistics
-  
-**Methods:**
-- `create_collection(recreate: bool = False) -> None` - Creates collection and partition if needed
-- `insert_data(data: list[DatabaseDocument]) -> None` - Inserts DatabaseDocument instances with duplicate detection
-- `check_duplicate(source: str, chunk_index: int) -> bool` - Checks if a specific chunk exists
-- `_create_collection() -> None` - Internal method to create collection with schema
-- `_existing_chunk_indexes(source: str) -> set[int]` - Bulk fetches existing chunk indexes for a source
+
+Implements the complete DatabaseClient interface for Milvus with:
+- Connection management with state tracking
+- Hybrid search (dense + sparse vectors)
+- Full CRUD operations
+- Security group filtering
+
+**Connection Lifecycle:**
+```python
+# Create client (not yet connected)
+db = MilvusDB(config, embedding_dimension, crawler_config, embedder)
+
+# Connect with optional collection creation
+db.connect(create_if_missing=True)
+
+# Perform operations
+results = db.search(["query text"], limit=10)
+chunk = db.get_chunk(123)
+doc = db.get_document("uuid-here")
+result = db.upsert(documents)
+db.delete_document("uuid-here")
+
+# Disconnect when done
+db.disconnect()
+```
+
+**Key Methods:**
+- `connect(create_if_missing=False)` - Establishes connection, optionally creates collection
+- `disconnect()` - Closes connection (safe to call multiple times)
+- `is_connected()` - Returns connection state
+- `search(texts, filters, limit)` - Hybrid search with RRF ranking
+- `get_chunk(id)` - Get single chunk by database ID
+- `get_document(document_id)` - Get all chunks for a document
+- `upsert(documents)` - Insert or update documents (uses source+chunk_index as key)
+- `delete_chunk(id)` - Delete single chunk by ID
+- `delete_document(document_id)` - Delete all chunks for a document
+- `create_collection(recreate)` - Create collection with schema
+- `get_collection()` - Get CollectionDescription with config
+- `exists(source, chunk_index)` - Check if chunk exists (replaces check_duplicate)
+- `set_embedder(embedder)` - Set embedder for search operations
+
+**Deprecated Methods (for backwards compatibility):**
+- `check_duplicate()` - Use `exists()` instead
+- `insert_data()` - Use `upsert()` instead
 
 ### `milvus_utils.py`
 Schema and index definitions for Milvus collections:
 
 **Functions:**
-- `create_schema(embedding_size: int, user_metadata_json_schema: dict, description: str) -> CollectionSchema` - Creates Milvus collection schema
-  - Defines base fields: `id`, `default_document_id`, `default_minio`, `default_chunk_index`, `default_text`, `default_text_embedding`
-  - Adds sparse embeddings for BM25 full-text search (`default_text_sparse_embedding`, `default_metadata_sparse_embedding`)
-  - Includes metadata fields and security group for RBAC
+- `create_schema(embedding_size, crawler_config)` -> `CollectionSchema`
+  - Defines all fields including sparse embeddings for BM25
   - Sets up BM25 functions for automatic sparse embedding generation
-  - Enables dynamic fields for flexibility
-  - All system fields use `default_` prefix
-  
-- `create_index(client: MilvusClient) -> None` - Creates search indexes on the collection
-  - AUTOINDEX with COSINE metric for dense text embeddings (`default_text_embedding`)
-  - SPARSE_INVERTED_INDEX with BM25 for full-text search on text and metadata
+  - Stores CrawlerConfig in collection description for pipeline restoration
+
+- `create_index(client)` -> Index params
+  - AUTOINDEX with COSINE metric for dense embeddings
+  - SPARSE_INVERTED_INDEX with BM25 for full-text search
   - BITMAP index for security group filtering
-  - Configures BM25 parameters (k1=1.2, b=0.75)
+
+- `extract_collection_description(description)` -> `CollectionDescription | None`
+  - Parse JSON description from Milvus collection
+
+- `create_description(fields, crawler_config)` -> JSON string
+  - Creates collection description with config and LLM prompt
 
 **Constants:**
 - `MAX_DOC_LENGTH = 65535` - Maximum VARCHAR length
 - `DEFAULT_SECURITY_GROUP = ["public"]` - Default RBAC group
-- `JSON_TYPE_TO_MILVUS_ELEMENT_TYPE` - Type mapping for schema generation
+- `DEFAULT_OUTPUT_FIELDS` - Standard fields for search/query operations
 
 ### `milvus_benchmarks.py`
-Benchmarking tools for evaluating Milvus search performance:
+Benchmarking tools for evaluating search quality:
 
 **Class: MilvusBenchmark**
-- Implements DatabaseBenchmark interface
-- Uses Ollama for embedding generation
-- Performs hybrid search (dense + sparse BM25)
+
+Now uses `MilvusDB.search()` instead of duplicating search logic.
 
 **Key Features:**
-- Comprehensive logging with emoji indicators
+- Uses MilvusDB for search operations
+- IR metrics: MRR, Recall@K, Precision@K, NDCG@K, Hit Rate@K
 - Progress tracking with tqdm
-- Hybrid search combining:
-  - Dense vector similarity (COSINE)
-  - BM25 full-text search on text
-  - BM25 full-text search on metadata
-  - RRF (Reciprocal Rank Fusion) for result merging
-  
+- Comprehensive logging
+
 **Methods:**
-- `__init__(db_config, embed_config)` - Connects to Milvus and Ollama
-- `get_embedding(text)` - Generates embeddings via Ollama
-- `search(queries, filters)` - Performs hybrid search
-- `run_benchmark(generate_queries)` - Runs comprehensive benchmark
-  - Loads documents from collection
-  - Generates or uses stored benchmark questions
-  - Executes searches and tracks metrics
-  - Calculates top-k performance
-  - Returns BenchmarkRunResults with full statistics
-  
-**Output Fields:**
-- Defined in `OUTPUT_FIELDS` constant: source, chunk_index, text, metadata, custom fields
+- `__init__(db_config, embed_config, db=None)` - Can reuse existing MilvusDB
+- `search(queries, filters)` - Delegates to MilvusDB.search()
+- `run_benchmark(generate_queries, k_values, skip_docs_without_questions)` - Full benchmark
+
+**BenchmarkMetrics utility class:**
+- `calculate_mrr(placements)` - Mean Reciprocal Rank
+- `calculate_recall_at_k(placements, k)` - Recall@K
+- `calculate_precision_at_k(placements, k)` - Precision@K
+- `calculate_ndcg_at_k(placements, k)` - NDCG@K
+- `calculate_hit_rate_at_k(placements, k)` - Hit Rate@K
+- `calculate_summary_stats(placements)` - Mean, median, std dev
 
 ### `db.md`
-Comprehensive documentation for the storage module:
-- Architecture overview and features
-- Installation requirements (pymilvus, pydantic)
-- Basic usage examples with Pydantic models
-- API reference for all classes and methods
-- Schema configuration guide
-- Provider extension instructions
-- Error handling patterns
-- Migration guide from legacy interface
-- Performance considerations and best practices
+Comprehensive documentation for the storage module (may need updating).
 
 ## Design Decisions
 
-### Pydantic for Type Safety
-All data models use Pydantic BaseModel instead of dataclasses to provide:
-- Automatic validation at creation and assignment time
-- Clear error messages for invalid data
-- Runtime type checking
-- Easy serialization/deserialization (model_dump, model_validate)
-- IDE autocomplete support
-- Field-level validation (e.g., min/max constraints)
+### Connection State Management
+The new interface separates construction from connection:
+1. `__init__` creates the client with configuration
+2. `connect()` establishes the connection
+3. All operations require `is_connected() == True`
+4. `disconnect()` cleanly closes resources
 
-### System Field Prefixing
-All system fields use `default_` prefix to avoid conflicts with user-defined metadata. This allows users to have fields like "text" or "source" in their metadata without collision.
+This enables better control over connection lifecycle and error handling.
 
-### Security Group for RBAC
-Every document includes a `security_group` field (array of strings) for row-level access control. Default is `["public"]` but should be explicitly set based on user permissions.
+### Unified Search Interface
+Search is now part of the main `DatabaseClient` interface, not a separate benchmark class. This allows:
+- Consistent search behavior across use cases
+- Proper embedder integration
+- Security group filtering in all searches
 
-### Hybrid Search Architecture
-Milvus implementation combines three search strategies:
-1. Dense vector similarity (COSINE metric)
-2. BM25 full-text search on document text
-3. BM25 full-text search on metadata
-Results are merged using RRF ranking for better relevance.
+### Upsert Instead of Insert
+`upsert()` replaces `insert_data()` with proper semantics:
+- Uses `(source, chunk_index)` as unique key
+- Returns `UpsertResult` with counts and failures
+- Handles both insert and update in one call
 
-### Optimized Duplicate Detection
-Instead of checking duplicates one-by-one, the implementation:
-1. Groups documents by source
-2. Fetches all existing chunk indexes for a source in one query
-3. Checks against cached set for each chunk
-This reduces database round-trips significantly for large batches.
+### SearchResult Type
+Search returns typed `SearchResult` objects instead of raw dicts:
+- Contains full `DatabaseDocument`
+- Includes `distance` and normalized `score`
+- Factory method for converting Milvus results
+
+### Collection Description for Config Restoration
+`CollectionDescription` stores the complete `CrawlerConfig`, enabling:
+- Pipeline reconstruction from collection metadata
+- Schema validation on connect
+- LLM prompt generation from metadata schema
 
 ## Dependencies
 
 - `pymilvus>=2.6.0` - Milvus vector database client
 - `pydantic>=2.0` - Data validation and settings management
-- `ollama>=0.5.3` - Embedding generation (for benchmarks)
 - `tqdm>=4.66.0` - Progress bars
-- `matplotlib>=3.10.5` - Plotting benchmark results
+- `matplotlib>=3.10.5` - Plotting benchmark results (optional)
 
 ## Usage Examples
 
-See `db.md` for detailed usage examples, or refer to:
+### Basic Usage
+```python
+from crawler.vector_db import get_db, DatabaseClientConfig
+
+# Create config
+config = DatabaseClientConfig.milvus(
+    collection="my_docs",
+    host="localhost",
+    port=19530,
+)
+
+# Create and connect
+db = get_db(config, embedding_dimension=384, crawler_config=crawler_config, embedder=embedder)
+db.connect(create_if_missing=True)
+
+# Search
+results = db.search(["What is machine learning?"], limit=10)
+for result in results:
+    print(f"{result.document.source}: {result.score:.3f}")
+
+# Get document
+chunks = db.get_document("uuid-here")
+
+# Upsert
+result = db.upsert(database_documents)
+print(f"Inserted: {result.inserted_count}, Updated: {result.updated_count}")
+
+# Cleanup
+db.disconnect()
+```
+
+### With Context Manager (recommended pattern)
+```python
+db = get_db(config, dimension, crawler_config, embedder)
+try:
+    db.connect(create_if_missing=True)
+    # ... operations ...
+finally:
+    db.disconnect()
+```
+
+See also:
 - `examples/arxiv.py` - Real-world usage with ArXiv papers
 - `examples/xmidas.py` - XMIDAS document processing
-

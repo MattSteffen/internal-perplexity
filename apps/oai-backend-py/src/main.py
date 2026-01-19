@@ -9,7 +9,7 @@ from openai.types.chat import ChatCompletion
 from src.auth import init_oauth
 from src.auth_utils import get_optional_token, verify_token
 from src.config import settings
-from src.endpoints import auth, chat, collections, documents, embeddings, models, search, tools
+from src.endpoints import agent, auth, chat, collections, documents, embeddings, models, search, tools
 
 app = FastAPI(
     title="OpenAI-Compatible Backend",
@@ -50,7 +50,7 @@ async def chat_completions(
       -H "Content-Type: application/json" \
       -H "Authorization: Bearer $TOKEN" \
       -d '{
-        "model": "llama3.2:1b",
+        "model": "gpt-oss:20b",
         "messages": [{"role": "user", "content": "Hello!"}],
         "stream": false
       }'
@@ -90,19 +90,41 @@ async def create_collection_endpoint(
 ) -> collections.CreateCollectionResponse:
     """Create a new collection with pipeline configuration.
 
+    Using a template:
+
     curl -X POST http://localhost:8000/v1/collections \
       -H "Authorization: Bearer $TOKEN" \
       -H "Content-Type: application/json" \
       -d '{
         "collection_name": "my_collection",
-        "pipeline_name": "irads",
-        "default_permissions": "public"
+        "template_name": "standard",
+        "access_level": "public"
+      }'
+
+    Or with custom config:
+
+    curl -X POST http://localhost:8000/v1/collections \
+      -H "Authorization: Bearer $TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "collection_name": "my_collection",
+        "custom_config": {...},
+        "access_level": "public"
       }'
     """
     token: str = user.get("milvus_token", "")
     if not token:
         raise HTTPException(status_code=401, detail="Milvus token is required")
     return await collections.create_collection(request, token)
+
+
+@app.get("/v1/pipelines")
+async def list_pipelines_endpoint() -> collections.PipelinesResponse:
+    """List available pipeline templates.
+
+    curl -X GET http://localhost:8000/v1/pipelines
+    """
+    return await collections.list_pipelines()
 
 
 @app.get("/v1/roles")
@@ -149,10 +171,14 @@ async def process_document_for_collection_endpoint(
         user=user,
     )
 
+
 @app.post("/v1/collections/{collection_name}/upload")
 async def upload_document_for_collection_endpoint(
     collection_name: str,
-    file: UploadFile = File(...),
+    file: UploadFile = File(None),
+    markdown_content: str | None = Form(None),
+    metadata_override: str | None = Form(None),
+    security_groups: str | None = Form(None),
     user: dict = Depends(verify_token),
 ) -> documents.UploadResponse:
     """Upload and process a document to a collection (loads config from collection).
@@ -162,9 +188,12 @@ async def upload_document_for_collection_endpoint(
       -F "file=@document.pdf"
     """
     return await documents.upload_document(
-        file=file,
         collection_name=collection_name,
         user=user,
+        file=file,
+        markdown_content=markdown_content,
+        metadata_override=metadata_override,
+        security_groups=security_groups,
     )
 
 
@@ -201,6 +230,29 @@ async def call_tool_endpoint(request: Request) -> tools.ToolCallResponse:
       }'
     """
     return await tools.call_tool(request)
+
+
+@app.post("/v1/agent", response_model=None)
+async def agent_endpoint(
+    request: Request,
+    user: dict = Depends(verify_token),
+) -> StreamingResponse | ChatCompletion:
+    """Agentic RAG endpoint connected to a specific Milvus collection.
+
+    Creates an agentic conversation that uses the collection's llm_prompt
+    for system prompt generation and performs semantic search as needed.
+
+    curl -X POST http://localhost:8000/v1/agent \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer $TOKEN" \
+      -d '{
+        "model": "milvuschat",
+        "collection": "my_collection",
+        "messages": [{"role": "user", "content": "What documents discuss machine learning?"}],
+        "stream": false
+      }'
+    """
+    return await agent.create_agent_completion(request, user=user)
 
 
 if __name__ == "__main__":

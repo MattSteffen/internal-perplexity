@@ -44,12 +44,11 @@ export interface CollectionMetadata {
 export interface CollectionInfo {
   description: string;
   metadata_schema: Record<string, unknown>;
-  pipeline_name: string;
   num_documents: number;
   num_chunks: number;
   num_partitions: number;
   required_roles: string[];
-  permissions?: CollectionPermissions;
+  access_level: AccessLevel;
 }
 
 export interface CollectionsResponse {
@@ -64,11 +63,9 @@ export interface Collection {
   security_rules?: SecurityRule[];
   created_at?: string;
   updated_at?: string;
-  pipeline_config?: PipelineConfig;
-  permissions?: CollectionPermissions;
+  access_level?: AccessLevel;
   // New fields from CollectionInfo
   metadata_schema?: Record<string, unknown>;
-  pipeline_name?: string;
   num_documents?: number;
   num_chunks?: number;
   num_partitions?: number;
@@ -84,6 +81,7 @@ export interface DocumentMetadata {
 
 export interface ProcessedDocument {
   metadata: DocumentMetadata;
+  markdown_content: string;
   file_name: string;
   file_size?: number;
 }
@@ -94,27 +92,13 @@ export interface UploadRequest {
   collection_name: string;
 }
 
-export interface Role {
-  role: string;
-  privileges: string[];
-}
-
 export interface User {
   id: string;
   name: string;
-  email?: string;
-  roles?: string[];
+  roles: string[];
 }
 
-export interface PipelineConfig {
-  pipeline_name?: string;
-  overrides?: Record<string, unknown>;
-  full_config?: Record<string, unknown>;
-}
-
-export interface CollectionPermissions {
-  default: "admin_only" | "public";
-}
+export type AccessLevel = "public" | "private" | "admin";
 
 export interface CollectionMetadataJson {
   description?: string; // Old format - kept for backward compatibility
@@ -123,8 +107,15 @@ export interface CollectionMetadataJson {
   full_prompt?: string;
   llm_prompt?: string; // New format field name
   collection_config_json?: Record<string, unknown>; // New format field
-  pipeline_config?: PipelineConfig;
-  permissions?: CollectionPermissions;
+  access_level?: AccessLevel;
+}
+
+export interface Chunk {
+  text: string;
+  chunk_index: number;
+  text_embedding: number[];
+  sparse_text_embedding?: number[] | null;
+  sparse_metadata_embedding?: number[] | null;
 }
 
 // Document interface matching Python Document model from crawler
@@ -135,11 +126,8 @@ export interface Document {
   markdown?: string | null;
   metadata?: DocumentMetadata | null;
   benchmark_questions?: string[] | null;
-  chunks?: string[] | null;
-  text_embeddings?: number[][] | null;
-  sparse_text_embeddings?: number[][] | null;
-  sparse_metadata_embeddings?: number[] | null;
-  security_group?: string[];
+  chunks?: Chunk[] | null;
+  security_group: string[];
 }
 
 // Legacy SearchResult interface - kept for backward compatibility
@@ -167,5 +155,13 @@ export interface SearchRequest {
   text: string;
   filters?: string[];
   limit?: number;
+}
+
+export interface UploadResponse {
+  message: string;
+  collection_name: string;
+  document_id?: string | null;
+  chunks_created: number;
+  processing_time_sec: number;
 }
 

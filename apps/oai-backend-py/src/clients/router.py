@@ -7,6 +7,7 @@ from openai.types import CreateEmbeddingResponse
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
 
 from src.clients.base import ChatCompletionClient, EmbeddingClient
+from src.clients.milvuschat import milvuschat_client
 from src.clients.ollama import ollama_client
 from src.clients.radchat import radchat_client
 
@@ -17,6 +18,7 @@ class ClientRouter:
     # Map of model names to their clients
     _MODEL_CLIENTS: dict[str, ChatCompletionClient] = {
         "radchat": radchat_client,
+        "milvuschat": milvuschat_client,
     }
 
     def get_client(self, model: str) -> ChatCompletionClient:

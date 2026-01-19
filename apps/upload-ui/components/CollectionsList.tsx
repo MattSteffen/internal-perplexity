@@ -13,7 +13,7 @@ interface CollectionsListProps {
   onCreateCollection?: () => void;
 }
 
-type FilterType = "all" | "public" | "admin_only";
+type FilterType = "all" | "public" | "private" | "admin";
 
 export function CollectionsList({
   collections,
@@ -44,19 +44,11 @@ export function CollectionsList({
 
       if (!matchesSearch) return false;
 
-      // Filter by permissions
-      const isPublic = collection.permissions?.default === "public";
-      const isAdminOnly = collection.permissions?.default === "admin_only";
-
-      switch (filterType) {
-        case "public":
-          return isPublic;
-        case "admin_only":
-          return isAdminOnly;
-        case "all":
-        default:
-          return true;
+      // Filter by access_level
+      if (filterType === "all") {
+        return true;
       }
+      return collection.access_level === filterType;
     });
   }, [safeCollections, searchQuery, filterType]);
 
@@ -146,34 +138,46 @@ export function CollectionsList({
       </div>
 
       {/* Filter buttons */}
-      <div className="flex flex-wrap gap-2">
-        <button
-          onClick={() => setFilterType("all")}
-          className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${filterType === "all"
-            ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/30 dark:text-blue-300"
-            : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-            }`}
-        >
-          All
-        </button>
-        <button
-          onClick={() => setFilterType("public")}
-          className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${filterType === "public"
-            ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/30 dark:text-blue-300"
-            : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-            }`}
-        >
-          Public
-        </button>
-        <button
-          onClick={() => setFilterType("admin_only")}
-          className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${filterType === "admin_only"
-            ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/30 dark:text-blue-300"
-            : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-            }`}
-        >
-          Admin Only
-        </button>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Access:</span>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setFilterType("all")}
+            className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${filterType === "all"
+              ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/30 dark:text-blue-300"
+              : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+              }`}
+          >
+            All
+          </button>
+          <button
+            onClick={() => setFilterType("public")}
+            className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${filterType === "public"
+              ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/30 dark:text-blue-300"
+              : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+              }`}
+          >
+            Public
+          </button>
+          <button
+            onClick={() => setFilterType("private")}
+            className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${filterType === "private"
+              ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/30 dark:text-blue-300"
+              : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+              }`}
+          >
+            Private
+          </button>
+          <button
+            onClick={() => setFilterType("admin")}
+            className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${filterType === "admin"
+              ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/30 dark:text-blue-300"
+              : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+              }`}
+          >
+            Admin
+          </button>
+        </div>
       </div>
 
       {/* Collections list */}
@@ -207,11 +211,6 @@ export function CollectionsList({
                     </p>
                   )}
                   <div className="mt-2 flex flex-wrap gap-2">
-                    {collection.pipeline_name && (
-                      <span className="rounded-full bg-blue-100 px-2 py-1 text-xs text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
-                        Pipeline: {collection.pipeline_name}
-                      </span>
-                    )}
                     {collection.num_documents !== undefined && (
                       <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-800 dark:bg-gray-900/30 dark:text-gray-300">
                         {collection.num_documents} {collection.num_documents === 1 ? "document" : "documents"}
@@ -232,16 +231,21 @@ export function CollectionsList({
                         Roles: {collection.required_roles.join(", ")}
                       </span>
                     )}
-                    {collection.permissions && (
+                    {collection.access_level && (
                       <span
-                        className={`rounded-full px-2 py-1 text-xs ${collection.permissions.default === "public"
-                          ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"
-                          : "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300"
-                          }`}
+                        className={`rounded-full px-2 py-1 text-xs ${
+                          collection.access_level === "public"
+                            ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"
+                            : collection.access_level === "private"
+                            ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300"
+                            : "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300"
+                        }`}
                       >
-                        {collection.permissions.default === "public"
-                          ? "Public Access"
-                          : "Admin Only"}
+                        {collection.access_level === "public"
+                          ? "Public"
+                          : collection.access_level === "private"
+                          ? "Private"
+                          : "Admin"}
                       </span>
                     )}
                     {collection.security_rules &&

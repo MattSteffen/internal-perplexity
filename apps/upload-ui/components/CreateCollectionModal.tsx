@@ -12,11 +12,12 @@ interface CreateCollectionModalProps {
 
 export interface CreateCollectionData {
   collection_name: string;
-  pipeline_name: string | null;
+  template_name?: string | null;
   custom_config: Record<string, unknown> | null;
   config_overrides: Record<string, unknown> | null;
   description: string | null;
-  default_permissions: "admin_only" | "public";
+  roles?: string[] | null;
+  access_level: "public" | "private" | "admin";
   metadata_schema: Record<string, unknown> | null;
 }
 
@@ -81,10 +82,9 @@ export function CreateCollectionModal({
   const [collectionName, setCollectionName] = useState("");
   const [description, setDescription] = useState("");
   const [pipelineType, setPipelineType] = useState<"predefined" | "custom">("predefined");
-  const [pipelineName, setPipelineName] = useState("irads");
   const [configOverrides, setConfigOverrides] = useState("{}");
   const [customConfig, setCustomConfig] = useState(JSON.stringify(DEFAULT_CONFIG, null, 2));
-  const [defaultPermissions, setDefaultPermissions] = useState<"admin_only" | "public">("admin_only");
+  const [accessLevel, setAccessLevel] = useState<"public" | "private" | "admin">("public");
   const [metadataSchema, setMetadataSchema] = useState("{}");
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -123,11 +123,10 @@ export function CreateCollectionModal({
 
       const data: CreateCollectionData = {
         collection_name: collectionName.trim(),
-        pipeline_name: pipelineType === "predefined" ? pipelineName : null,
         custom_config: parsedCustomConfig,
         config_overrides: parsedConfigOverrides,
         description: description.trim() || null,
-        default_permissions: defaultPermissions,
+        access_level: accessLevel,
         metadata_schema: parsedMetadataSchema,
       };
 
@@ -137,10 +136,9 @@ export function CreateCollectionModal({
       setCollectionName("");
       setDescription("");
       setPipelineType("predefined");
-      setPipelineName("irads");
       setConfigOverrides("{}");
       setCustomConfig(JSON.stringify(DEFAULT_CONFIG, null, 2));
-      setDefaultPermissions("admin_only");
+      setAccessLevel("public");
       setMetadataSchema("{}");
       onClose();
     } catch (err) {
@@ -245,20 +243,6 @@ export function CreateCollectionModal({
             <>
               <div>
                 <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                  Pipeline Name
-                </label>
-                <select
-                  value={pipelineName}
-                  onChange={(e) => setPipelineName(e.target.value)}
-                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                >
-                  <option value="irads">irads</option>
-                  <option value="arxiv_math">arxiv_math</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
                   Config Overrides (JSON, optional)
                 </label>
                 <textarea
@@ -286,15 +270,16 @@ export function CreateCollectionModal({
 
           <div>
             <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              Default Permissions
+              Access Level
             </label>
             <select
-              value={defaultPermissions}
-              onChange={(e) => setDefaultPermissions(e.target.value as "admin_only" | "public")}
+              value={accessLevel}
+              onChange={(e) => setAccessLevel(e.target.value as "public" | "private" | "admin")}
               className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
             >
-              <option value="admin_only">Admin Only</option>
               <option value="public">Public</option>
+              <option value="private">Private</option>
+              <option value="admin">Admin</option>
             </select>
           </div>
 

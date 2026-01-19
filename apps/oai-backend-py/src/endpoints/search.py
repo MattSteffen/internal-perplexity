@@ -139,7 +139,7 @@ def _combine_search_results_to_documents(
             document_id=db_docs[0].document_id,
             source=db_docs[0].source,
         )
-        document = temp_doc.from_database_documents(db_docs, include_embeddings=False)
+        document = temp_doc.from_database_documents(db_docs, include_chunks=False)
         combined_documents.append(document)
 
     return combined_documents
@@ -324,4 +324,3 @@ async def search(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Search failed: {str(e)}",
         ) from e
-

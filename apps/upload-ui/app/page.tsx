@@ -9,9 +9,11 @@ import { FileMetadataEditor } from "@/components/FileMetadataEditor";
 import { SubmitSection } from "@/components/SubmitSection";
 import { CollectionSchemaDisplay } from "@/components/CollectionSchemaDisplay";
 import { CreateCollectionModal } from "@/components/CreateCollectionModal";
+import { CollectionInfoModal } from "@/components/CollectionInfoModal";
 import { LoginModal } from "@/components/LoginModal";
 import { SearchPanel } from "@/components/SearchPanel";
 import { Header } from "@/components/Header";
+import { Button } from "@/components/ui/button";
 import { fetchCollections, createCollection } from "@/lib/api";
 import { useAuth, useSearch, useDocumentUpload } from "@/lib/hooks";
 import type { Collection } from "@/lib/types";
@@ -26,6 +28,7 @@ export default function Home() {
   const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
   const [loadingCollections, setLoadingCollections] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [collectionInfoModalOpen, setCollectionInfoModalOpen] = useState(false);
   const [modalSelectedFile, setModalSelectedFile] = useState<File | null>(null);
 
   // Logic Hooks
@@ -149,7 +152,17 @@ export default function Home() {
               </>
             )}
 
-            {selectedCollection && <CollectionSchemaDisplay collection={collections.find(c => c.name === selectedCollection) || null} />}
+            {selectedCollection && (
+              <div className="mt-4">
+                <Button
+                  variant="outline"
+                  onClick={() => setCollectionInfoModalOpen(true)}
+                  className="w-full"
+                >
+                  Show Collection Info
+                </Button>
+              </div>
+            )}
           </div>
 
           {/* Column 3: Search */}
@@ -208,6 +221,12 @@ export default function Home() {
           isOpen={createModalOpen}
           onClose={() => setCreateModalOpen(false)}
           onCreate={async (d) => { await createCollection(d); loadCollections(); }}
+        />
+
+        <CollectionInfoModal
+          isOpen={collectionInfoModalOpen}
+          onClose={() => setCollectionInfoModalOpen(false)}
+          collection={collections.find(c => c.name === selectedCollection) || null}
         />
       </div>
     </main>

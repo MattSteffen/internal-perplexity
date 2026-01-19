@@ -64,4 +64,13 @@ async def list_models(request: Request) -> ModelList:
     )
     models.append(radchat_model)
 
+    # MilvusChat - collection-bound agentic RAG
+    milvuschat_model = Model(
+        id="milvuschat",
+        object="model",
+        created=current_time,
+        owned_by="custom",
+    )
+    models.append(milvuschat_model)
+
     return ModelList(data=models, object="list")

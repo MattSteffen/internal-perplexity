@@ -5,13 +5,10 @@ import type {
   CollectionsResponse,
   CollectionInfo,
   ProcessedDocument,
-  Role,
   User,
-  CollectionMetadataJson,
-  PipelineConfig,
-  CollectionPermissions,
   SearchRequest,
   SearchResponse,
+  UploadResponse,
 } from "./types";
 
 const API_BASE_URL =
@@ -44,7 +41,6 @@ function getAuthToken(): string {
  *     "my_collection": {
  *       "description": "Human readable description",
  *       "metadata_schema": {...},
- *       "pipeline_name": "irads",
  *       "num_documents": 100,
  *       "required_roles": ["admin"]
  *     }
@@ -91,7 +87,6 @@ export async function fetchCollections(): Promise<Collection[]> {
         name: collectionName,
         description: undefined,
         metadata_schema: undefined,
-        pipeline_name: undefined,
         num_documents: 0,
         num_chunks: 0,
         num_partitions: 0,
@@ -99,22 +94,15 @@ export async function fetchCollections(): Promise<Collection[]> {
       };
     }
 
-    // Build pipeline_config from pipeline_name
-    const pipelineConfig: PipelineConfig | undefined = collectionInfo.pipeline_name
-      ? { pipeline_name: collectionInfo.pipeline_name }
-      : undefined;
-
     return {
       name: collectionName,
       description: collectionInfo.description || undefined,
       metadata_schema: collectionInfo.metadata_schema,
-      pipeline_name: collectionInfo.pipeline_name,
       num_documents: collectionInfo.num_documents,
       num_chunks: collectionInfo.num_chunks,
       num_partitions: collectionInfo.num_partitions,
       required_roles: collectionInfo.required_roles,
-      permissions: collectionInfo.permissions,
-      pipeline_config: pipelineConfig,
+      access_level: collectionInfo.access_level,
       // Note: security_rules are not part of the API response
       // They may be added later or come from a different source
       security_rules: undefined,
@@ -169,16 +157,16 @@ export async function processDocument(
  * curl -X POST http://localhost:8000/v1/collections/{collection_name}/upload \
  *   -H "Authorization: Bearer matt:steffen" \
  *   -F "file=@document.pdf" \
- *   -F "metadata={\"title\":\"Example\",\"author\":\"John Doe\"}"
+ *   -F "metadata_override={\"title\":\"Example\",\"author\":\"John Doe\"}"
  */
 export async function uploadDocument(
   collectionName: string,
   file: File,
   metadata: Record<string, unknown>,
-): Promise<void> {
+): Promise<UploadResponse> {
   const formData = new FormData();
   formData.append("file", file);
-  formData.append("metadata", JSON.stringify(metadata));
+  formData.append("metadata_override", JSON.stringify(metadata));
 
   const response = await fetch(
     `${API_BASE_URL}/v1/collections/${collectionName}/upload`,
@@ -203,6 +191,8 @@ export async function uploadDocument(
     }
     throw new Error(errorMessage);
   }
+
+  return response.json();
 }
 
 /**
@@ -210,7 +200,7 @@ export async function uploadDocument(
  * curl -X GET http://localhost:8000/v1/roles \
  *   -H "Authorization: Bearer matt:steffen"
  */
-export async function fetchRoles(): Promise<Role[]> {
+export async function fetchRoles(): Promise<string[]> {
   const response = await fetch(`${API_BASE_URL}/v1/roles`, {
     method: "GET",
     headers: {
@@ -282,28 +272,28 @@ export async function fetchUsers(): Promise<User[]> {
 }
 
 /**
- * Create a new collection with pipeline configuration and permissions
+ * Create a new collection with access level
  * curl -X POST http://localhost:8000/v1/collections \
  *   -H "Authorization: Bearer matt:steffen" \
  *   -H "Content-Type: application/json" \
  *   -d '{
  *     "collection_name": "my_collection",
- *     "pipeline_name": "irads",
  *     "config_overrides": {"embedding_model": "nomic-embed-text"},
- *     "default_permissions": "public"
+ *     "access_level": "public"
  *   }'
  */
 export async function createCollection(
   data: {
     collection_name: string;
-    pipeline_name?: string | null;
+    template_name?: string | null;
     custom_config?: Record<string, unknown> | null;
     config_overrides?: Record<string, unknown> | null;
     description?: string | null;
-    default_permissions?: "admin_only" | "public";
+    roles?: string[] | null;
+    access_level?: "public" | "private" | "admin";
     metadata_schema?: Record<string, unknown> | null;
   },
-): Promise<{ collection_name: string; message: string }> {
+): Promise<{ collection_name: string; message: string; roles: string[] }> {
   const response = await fetch(`${API_BASE_URL}/v1/collections`, {
     method: "POST",
     headers: {

@@ -341,7 +341,7 @@ Create a new collection with pipeline configuration and permissions.
     "embedding_model": "nomic-embed-text"
   },
   "description": "My collection description",
-  "default_permissions": "public",
+  "access_level": "public",
   "metadata_schema": {}
 }
 ```
@@ -354,7 +354,7 @@ curl -X POST http://localhost:8000/v1/collections \
   -d '{
     "collection_name": "my_collection",
     "pipeline_name": "irads",
-    "default_permissions": "public"
+    "access_level": "public"
   }'
 ```
 
@@ -364,9 +364,7 @@ curl -X POST http://localhost:8000/v1/collections \
   "collection_name": "my_collection",
   "message": "Collection created successfully",
   "pipeline_name": "irads",
-  "permissions": {
-    "default": "public"
-  }
+  "access_level": "public"
 }
 ```
 
@@ -376,7 +374,7 @@ curl -X POST http://localhost:8000/v1/collections \
 - `custom_config` (object, optional): Full CrawlerConfig dict for custom pipeline (required if `pipeline_name` not provided)
 - `config_overrides` (object, optional): Configuration overrides for predefined pipeline
 - `description` (string, optional): Human-readable description of the collection
-- `default_permissions` (string, optional): Default permission level - `"admin_only"` or `"public"` (default: `"admin_only"`)
+- `access_level` (string, optional): Access level - `"public"`, `"private"`, or `"admin"` (default: `"public"`)
 - `metadata_schema` (object, optional): Optional JSON schema override for metadata
 
 ### Document Processing

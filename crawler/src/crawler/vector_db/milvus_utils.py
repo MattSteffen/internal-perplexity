@@ -403,9 +403,14 @@ def create_description(
     from ..config import CrawlerConfig
     CollectionDescription.model_rebuild()
 
+    # Before creating the CollectionDescription, ensure recreate is False
+    # This prevents the collection from being dropped when the config is restored
+    config_for_storage = crawler_config.model_copy()
+    config_for_storage.database = config_for_storage.database.copy_with_overrides(recreate=False)
+
     # Create CollectionDescription and return as JSON string
     description = CollectionDescription(
-        collection_config=crawler_config,
+        collection_config=config_for_storage,
         llm_prompt=llm_prompt,
     )
 

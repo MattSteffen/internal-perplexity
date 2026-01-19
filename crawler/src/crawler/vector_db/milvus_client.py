@@ -1,10 +1,21 @@
+"""
+Milvus implementation of the DatabaseClient interface.
+
+This module provides a concrete implementation of the DatabaseClient ABC
+for the Milvus vector database. It supports hybrid search (dense + sparse),
+CRUD operations, and collection management.
+"""
+
 import json
 import uuid
+from collections import defaultdict
 from typing import TYPE_CHECKING, Any
 
 from pymilvus import (
+    AnnSearchRequest,
     MilvusClient,
     MilvusException,
+    RRFRanker,
 )
 from tqdm import tqdm
 
@@ -13,11 +24,32 @@ from .database_client import (
     DatabaseClient,
     DatabaseClientConfig,
     DatabaseDocument,
+    SearchResult,
+    UpsertResult,
 )
-from .milvus_utils import DEFAULT_SECURITY_GROUP, create_index, create_schema, extract_collection_description
+from .milvus_utils import (
+    DEFAULT_SECURITY_GROUP,
+    create_index,
+    create_schema,
+    extract_collection_description,
+)
 
 if TYPE_CHECKING:
     from ..config import CrawlerConfig
+    from ..llm.embeddings import Embedder
+
+# Default output fields for search and query operations
+DEFAULT_OUTPUT_FIELDS = [
+    "id",
+    "document_id",
+    "source",
+    "chunk_index",
+    "text",
+    "text_embedding",
+    "metadata",
+    "security_group",
+    "benchmark_questions",
+]
 
 
 class MilvusDB(DatabaseClient):
@@ -25,7 +57,15 @@ class MilvusDB(DatabaseClient):
     Milvus implementation of the DatabaseClient interface.
 
     Manages interaction with a Milvus vector database collection for storing
-    document chunks and their embeddings.
+    document chunks and their embeddings. Supports hybrid search combining
+    dense embeddings with BM25 sparse vectors.
+
+    Example:
+        >>> config = DatabaseClientConfig.milvus("my_collection")
+        >>> db = MilvusDB(config, embedding_dimension=384, crawler_config=crawler_config)
+        >>> db.connect(create_if_missing=True)
+        >>> results = db.search(["What is machine learning?"], limit=10)
+        >>> db.disconnect()
     """
 
     def __init__(
@@ -33,110 +73,183 @@ class MilvusDB(DatabaseClient):
         config: DatabaseClientConfig,
         embedding_dimension: int,
         crawler_config: "CrawlerConfig",
+        embedder: "Embedder | None" = None,
     ):
         """
-        Initialize the Milvus database client.
+        Initialize the Milvus database client without connecting.
 
         Args:
-            config: DatabaesClientConfig instance with connection parameters
+            config: DatabaseClientConfig instance with connection parameters
             embedding_dimension: Vector embedding dimensionality
             crawler_config: CrawlerConfig containing collection configuration
+            embedder: Optional embedder for search operations (can be set later)
         """
-
         self.config = config
         self.embedding_dimension = embedding_dimension
         self.crawler_config = crawler_config
-        # Initialize Milvus client
-        try:
-            self.client = MilvusClient(uri=self.config.uri, token=self.config.token)
-            # Test the connection
-            self.client.list_collections()
-        except MilvusException as e:
-            raise e
+        self.embedder = embedder
 
-        # Create collection if needed
-        self.create_collection(recreate=self.config.recreate)
+        # Connection state
+        self._client: MilvusClient | None = None
+        self._connected: bool = False
+        self._user_security_groups: list[str] = []
 
-    @staticmethod
-    def get_collection_description(config: DatabaseClientConfig) -> CollectionDescription | None:
+    # -------------------------------------------------------------------------
+    # Connection Management
+    # -------------------------------------------------------------------------
+
+    def connect(self, create_if_missing: bool = False) -> "MilvusDB":
         """
-        Retrieve the collection description from Milvus.
-
-        This static method creates a temporary connection to check if a collection
-        exists and retrieve its description. This is used for config restoration
-        before a full client instance is created.
+        Establish connection to the Milvus database.
 
         Args:
-            config: Database configuration to use for connection
+            create_if_missing: If True, create collection if it doesn't exist
 
         Returns:
-            CollectionDescription instance if collection exists and has a valid description,
-            None otherwise
+            Self for method chaining
+
+        Raises:
+            ConnectionError: If connection fails
+            RuntimeError: If collection doesn't exist and create_if_missing is False
         """
+        if self._connected and self._client is not None:
+            return self
+
         try:
-            # Create a temporary Milvus client connection
-            client = MilvusClient(uri=config.uri, token=config.token)
-            
-            # Check if collection exists
-            if not client.has_collection(config.collection):
-                return None
+            self._client = MilvusClient(uri=self.config.uri, token=self.config.token)
+            # Test the connection
+            self._client.list_collections()
+            self._connected = True
+        except MilvusException as e:
+            self._connected = False
+            raise ConnectionError(f"Failed to connect to Milvus: {e}") from e
 
-            # Get collection description
-            collection_info = client.describe_collection(config.collection)
-            description_str = collection_info.get("description", "")
-            
-            if not description_str:
-                return None
+        # Handle collection creation/validation
+        collection_exists = self._client.has_collection(self.config.collection)
 
-            # Parse and return CollectionDescription
-            return extract_collection_description(description_str)
-            
-        except Exception:
-            # If anything fails, return None to allow continuation with original config
-            return None
+        if self.config.recreate and collection_exists:
+            self._client.drop_collection(self.config.collection)
+            collection_exists = False
+
+        if not collection_exists:
+            if create_if_missing or self.config.recreate:
+                self.create_collection(recreate=False)
+            else:
+                self._connected = False
+                raise RuntimeError(
+                    f"Collection '{self.config.collection}' does not exist. "
+                    "Set create_if_missing=True to create it."
+                )
+        else:
+            # Load collection for searching
+            self._client.load_collection(self.config.collection)
+
+        # Get user security groups
+        user_info = self._client.describe_user(self.config.username)
+        if user_info:
+            user_roles = user_info.get("roles", [])
+            if user_roles:
+                self._user_security_groups = list[str](user_roles)
+
+        return self
+
+    def disconnect(self) -> None:
+        """
+        Close the database connection.
+
+        Safe to call multiple times.
+        """
+        if self._client is not None:
+            try:
+                self._client.close()
+            except Exception:
+                pass  # Ignore errors during disconnect
+            finally:
+                self._client = None
+                self._connected = False
+
+    def is_connected(self) -> bool:
+        """
+        Check if client is currently connected to the database.
+
+        Returns:
+            True if connected, False otherwise
+        """
+        return self._connected and self._client is not None
+
+    def _require_connected(self) -> None:
+        """
+        Internal guard to ensure connection before operations.
+
+        Raises:
+            RuntimeError: If not connected
+        """
+        if not self.is_connected():
+            raise RuntimeError(
+                "Database not connected. Call connect() before performing operations."
+            )
+
+    def set_embedder(self, embedder: "Embedder") -> None:
+        """
+        Set the embedder for search operations.
+
+        Args:
+            embedder: Embedder instance for generating query embeddings
+        """
+        self.embedder = embedder
+
+    # -------------------------------------------------------------------------
+    # Collection Management
+    # -------------------------------------------------------------------------
 
     def create_collection(self, recreate: bool = False) -> None:
         """
-        Create a collection/table with the specified schema.
+        Create a collection with the specified schema.
 
         Args:
             recreate: If True, drop existing collection and recreate
 
         Raises:
-            DatabaseError: If collection creation fails
+            RuntimeError: If not connected
         """
+        self._require_connected()
+
         try:
-            collection_exists = self.client.has_collection(self.config.collection)
+            collection_exists = self._client.has_collection(self.config.collection)
 
             if collection_exists and recreate:
-                self.client.drop_collection(self.config.collection)
+                self._client.drop_collection(self.config.collection)
                 collection_exists = False
 
             if not collection_exists:
-                self._create_collection()
+                self._create_collection_internal()
 
+            # Handle partition creation
             if self.config.partition:
-                partition_exists = self.client.has_partition(
+                partition_exists = self._client.has_partition(
                     collection_name=self.config.collection,
                     partition_name=self.config.partition,
                 )
-                if recreate:
-                    self.client.drop_partition(
+                if recreate and partition_exists:
+                    self._client.drop_partition(
                         collection_name=self.config.collection,
                         partition_name=self.config.partition,
                     )
                     partition_exists = False
 
                 if not partition_exists:
-                    self.client.create_partition(
+                    self._client.create_partition(
                         collection_name=self.config.collection,
                         partition_name=self.config.partition,
                     )
 
-        except MilvusException as e:
-            raise e
+            # Load collection for searching
+            self._client.load_collection(self.config.collection)
 
-    def _create_collection(self) -> None:
+        except MilvusException as e:
+            raise RuntimeError(f"Failed to create collection: {e}") from e
+
+    def _create_collection_internal(self) -> None:
         """
         Internal method to create a new collection with the specified schema.
         """
@@ -144,9 +257,9 @@ class MilvusDB(DatabaseClient):
             self.embedding_dimension,
             self.crawler_config,
         )
-        index = create_index(self.client)
+        index = create_index(self._client)
 
-        self.client.create_collection(
+        self._client.create_collection(
             collection_name=self.config.collection,
             dimension=self.embedding_dimension,
             schema=collection_schema,
@@ -155,223 +268,543 @@ class MilvusDB(DatabaseClient):
             auto_id=True,
         )
 
-        # Create partition if specified
         if self.config.partition:
-            self.client.create_partition(self.config.collection, self.config.partition)
+            self._client.create_partition(self.config.collection, self.config.partition)
 
-    def _existing_chunk_indexes(self, source: str) -> set[int]:
+    def get_collection(self) -> CollectionDescription | None:
         """
-        Get all existing chunk indexes for a given source in a single query.
+        Get collection description with full config for pipeline reconstruction.
+
+        Returns:
+            CollectionDescription if collection exists and has valid description,
+            None otherwise
+
+        Raises:
+            RuntimeError: If not connected
+        """
+        self._require_connected()
+
+        try:
+            if not self._client.has_collection(self.config.collection):
+                return None
+
+            collection_info = self._client.describe_collection(self.config.collection)
+            description_str = collection_info.get("description", "")
+
+            if not description_str:
+                return None
+
+            return extract_collection_description(description_str)
+
+        except Exception:
+            return None
+
+    # -------------------------------------------------------------------------
+    # Search
+    # -------------------------------------------------------------------------
+
+    def search(
+        self,
+        texts: list[str],
+        filters: list[str] | None = None,
+        limit: int = 10,
+    ) -> list[SearchResult]:
+        """
+        Hybrid search combining dense and sparse vectors.
+
+        Performs a multi-vector search using:
+        - Dense embeddings (text_embedding) for semantic similarity
+        - Sparse embeddings (text_sparse_embedding) for keyword matching
+        - Sparse metadata embeddings for metadata-based search
+
+        Results are ranked using Reciprocal Rank Fusion (RRF).
+
+        Args:
+            texts: Query texts to search for (will be embedded)
+            filters: Optional Milvus filter expressions
+            limit: Maximum number of results to return
+
+        Returns:
+            List of SearchResult objects sorted by relevance
+
+        Raises:
+            RuntimeError: If not connected or embedder not set
+        """
+        self._require_connected()
+
+        if not texts:
+            return []
+
+        # Build filter string with security groups
+        all_filters = list(filters or [])
+
+        # Add security group filter
+        all_filters.insert(
+            0, f"array_contains_any(security_group, {list[str](self._user_security_groups)})"
+        )
+
+        filter_str = " and ".join(all_filters) if all_filters else ""
+
+        # Build search requests
+        search_requests = []
+
+        for text in texts:
+            # Dense vector search (requires embedder)
+            if self.embedder is not None:
+                try:
+                    embedding = self.embedder.embed(text)
+                    if embedding:
+                        search_requests.append(
+                            AnnSearchRequest(
+                                data=[embedding],
+                                anns_field="text_embedding",
+                                param={"metric_type": "COSINE", "params": {"nprobe": 10}},
+                                expr=filter_str if filter_str else None,
+                                limit=limit,
+                            )
+                        )
+                except Exception:
+                    pass  # Skip if embedding fails
+
+            # Sparse text search (BM25)
+            search_requests.append(
+                AnnSearchRequest(
+                    data=[text],
+                    anns_field="text_sparse_embedding",
+                    param={"drop_ratio_search": 0.2},
+                    expr=filter_str if filter_str else None,
+                    limit=limit,
+                )
+            )
+
+            # Sparse metadata search (BM25)
+            search_requests.append(
+                AnnSearchRequest(
+                    data=[text],
+                    anns_field="metadata_sparse_embedding",
+                    param={"drop_ratio_search": 0.2},
+                    expr=filter_str if filter_str else None,
+                    limit=limit,
+                )
+            )
+
+        if not search_requests:
+            return []
+
+        try:
+            # Perform hybrid search with RRF ranking
+            ranker = RRFRanker(k=100)
+            results = self._client.hybrid_search(
+                collection_name=self.config.collection,
+                reqs=search_requests,
+                ranker=ranker,
+                output_fields=DEFAULT_OUTPUT_FIELDS,
+                limit=limit,
+            )
+
+            # Process results into SearchResult objects
+            search_results = []
+            if results and len(results) > 0:
+                for hit in results[0]:
+                    entity = hit.entity.to_dict() if hasattr(hit.entity, "to_dict") else hit.entity
+                    entity["distance"] = hit.distance
+                    entity["id"] = hit.id
+
+                    try:
+                        search_result = SearchResult.from_milvus_hit(
+                            entity, DEFAULT_OUTPUT_FIELDS
+                        )
+                        search_results.append(search_result)
+                    except Exception:
+                        continue
+
+            return search_results
+
+        except MilvusException as e:
+            raise RuntimeError(f"Search failed: {e}") from e
+
+    # -------------------------------------------------------------------------
+    # Get Operations
+    # -------------------------------------------------------------------------
+
+    def get_chunk(self, id: int) -> DatabaseDocument | None:
+        """
+        Get a single chunk by its database ID.
+
+        Args:
+            id: The database-assigned primary key
+
+        Returns:
+            DatabaseDocument if found, None otherwise
+
+        Raises:
+            RuntimeError: If not connected
+        """
+        self._require_connected()
+
+        try:
+            results = self._client.query(
+                collection_name=self.config.collection,
+                filter=f"id == {id} AND array_contains_any(security_group, {list[str](self._user_security_groups)})",
+                output_fields=DEFAULT_OUTPUT_FIELDS,
+                limit=1,
+            )
+
+            if not results:
+                return None
+
+            return self._result_to_document(results[0])
+
+        except MilvusException as e:
+            raise RuntimeError(f"Failed to get chunk: {e}") from e
+
+    def get_document(self, document_id: str) -> list[DatabaseDocument]:
+        """
+        Get all chunks for a document by its document_id (UUID).
+
+        Chunks are returned sorted by chunk_index.
+
+        Args:
+            document_id: The document's unique identifier (UUID format)
+
+        Returns:
+            List of DatabaseDocument chunks, empty list if not found
+
+        Raises:
+            RuntimeError: If not connected
+        """
+        self._require_connected()
+
+        try:
+            results = self._client.query(
+                collection_name=self.config.collection,
+                filter=f"document_id == '{document_id}' AND array_contains_any(security_group, {list[str](self._user_security_groups)})",
+                output_fields=DEFAULT_OUTPUT_FIELDS,
+                limit=10000,  # Support large documents
+            )
+
+            if not results:
+                return []
+
+            documents = [self._result_to_document(r) for r in results]
+            return sorted(documents, key=lambda d: d.chunk_index)
+
+        except MilvusException as e:
+            raise RuntimeError(f"Failed to get document: {e}") from e
+
+    def _result_to_document(self, result: dict[str, Any]) -> DatabaseDocument:
+        """
+        Convert a Milvus query result to a DatabaseDocument.
+
+        Args:
+            result: Dictionary from Milvus query
+
+        Returns:
+            DatabaseDocument instance
+        """
+        # Handle benchmark_questions (stored as JSON string)
+        benchmark_questions = result.get("benchmark_questions")
+        if isinstance(benchmark_questions, str):
+            try:
+                benchmark_questions = json.loads(benchmark_questions)
+            except json.JSONDecodeError:
+                benchmark_questions = []
+
+        return DatabaseDocument(
+            id=result.get("id", -1),
+            document_id=result.get("document_id", ""),
+            text=result.get("text", ""),
+            text_embedding=result.get("text_embedding", []),
+            chunk_index=result.get("chunk_index", 0),
+            source=result.get("source", ""),
+            security_group=result.get("security_group", ["public"]),
+            metadata=result.get("metadata", {}),
+            benchmark_questions=benchmark_questions or [],
+        )
+
+    # -------------------------------------------------------------------------
+    # Upsert Operation
+    # -------------------------------------------------------------------------
+
+    def upsert(self, documents: list[DatabaseDocument]) -> UpsertResult:
+        """
+        Insert or update documents.
+
+        Uses (source, chunk_index) as the unique key for determining
+        whether to insert or update.
+
+        Args:
+            documents: List of DatabaseDocument objects to upsert
+
+        Returns:
+            UpsertResult with counts of inserted, updated, and failed documents
+
+        Raises:
+            RuntimeError: If not connected
+        """
+        self._require_connected()
+
+        if not documents:
+            return UpsertResult()
+
+        # Group by source for batch duplicate checking
+        by_source: dict[str, list[DatabaseDocument]] = defaultdict(list)
+        for doc in documents:
+            by_source[doc.source].append(doc)
+
+        to_insert: list[dict[str, Any]] = []
+        to_update: list[dict[str, Any]] = []
+        failed_ids: list[str] = []
+
+        # Process by source with progress tracking
+        with tqdm(total=len(documents), desc="Processing documents", unit="doc") as pbar:
+            for source, source_docs in by_source.items():
+                try:
+                    # Fetch existing chunk indexes for this source
+                    existing_indexes = self._get_existing_chunk_indexes(source)
+
+                    for doc in source_docs:
+                        try:
+                            prepared = self._prepare_document_for_insert(doc)
+
+                            if doc.chunk_index in existing_indexes:
+                                to_update.append(prepared)
+                            else:
+                                to_insert.append(prepared)
+
+                            pbar.update(1)
+
+                        except Exception as e:
+                            failed_ids.append(doc.document_id)
+                            pbar.update(1)
+
+                except Exception:
+                    for doc in source_docs:
+                        failed_ids.append(doc.document_id)
+                    pbar.update(len(source_docs))
+
+        # Insert new documents
+        inserted_count = 0
+        if to_insert:
+            try:
+                self._client.insert(
+                    collection_name=self.config.collection,
+                    partition_name=self.config.partition,
+                    data=to_insert,
+                )
+                inserted_count = len(to_insert)
+            except MilvusException as e:
+                # All inserts failed
+                for item in to_insert:
+                    failed_ids.append(item.get("document_id", "unknown"))
+
+        # Update existing documents (delete + insert for Milvus)
+        updated_count = 0
+        if to_update:
+            for item in to_update:
+                try:
+                    # Delete existing
+                    self._client.delete(
+                        collection_name=self.config.collection,
+                        filter=f"source == '{item['source']}' AND chunk_index == {item['chunk_index']}",
+                    )
+                except Exception:
+                    failed_ids.append(item.get("document_id", "unknown"))
+                    continue
+
+            # Insert updated documents
+            try:
+                self._client.insert(
+                    collection_name=self.config.collection,
+                    partition_name=self.config.partition,
+                    data=to_update,
+                )
+                updated_count = len(to_update)
+            except MilvusException:
+                for item in to_update:
+                    failed_ids.append(item.get("document_id", "unknown"))
+
+        # Flush to persist
+        try:
+            self._client.flush(self.config.collection)
+        except Exception:
+            pass
+
+        return UpsertResult(
+            inserted_count=inserted_count,
+            updated_count=updated_count,
+            failed_ids=failed_ids,
+        )
+
+    def _get_existing_chunk_indexes(self, source: str) -> set[int]:
+        """
+        Get all existing chunk indexes for a given source.
 
         Args:
             source: Source identifier (file path)
 
         Returns:
-            Set[int]: Set of existing chunk indexes for the source
+            Set of existing chunk indexes
         """
         try:
-            results = self.client.query(
+            results = self._client.query(
                 collection_name=self.config.collection,
-                filter=f"source == '{source}'",
+                filter=f"source == '{source}' AND array_contains_any(security_group, {list[str](self._user_security_groups)})",
                 output_fields=["chunk_index"],
-                limit=10000,  # Adjust limit as needed
+                limit=10000,
             )
             return {result["chunk_index"] for result in results}
+        except Exception:
+            return set()
+
+    def _prepare_document_for_insert(self, doc: DatabaseDocument) -> dict[str, Any]:
+        """
+        Prepare a DatabaseDocument for Milvus insertion.
+
+        Args:
+            doc: DatabaseDocument to prepare
+
+        Returns:
+            Dictionary ready for Milvus insert
+        """
+        prepared = doc.to_dict()
+
+        # Generate document_id if not set
+        if not prepared.get("document_id"):
+            prepared["document_id"] = str(uuid.uuid4())
+
+        # Serialize metadata as JSON string for str_metadata field
+        prepared["str_metadata"] = json.dumps(doc.metadata, separators=(",", ":"))
+
+        # Serialize benchmark_questions as JSON string
+        benchmark_questions = prepared.get("benchmark_questions")
+        if benchmark_questions is None:
+            prepared["benchmark_questions"] = "[]"
+        elif isinstance(benchmark_questions, list):
+            prepared["benchmark_questions"] = json.dumps(
+                benchmark_questions, separators=(",", ":")
+            )
+        elif not isinstance(benchmark_questions, str):
+            prepared["benchmark_questions"] = "[]"
+
+        # Ensure security group is set
+        if "security_group" not in prepared or not prepared["security_group"]:
+            prepared["security_group"] = DEFAULT_SECURITY_GROUP
+
+        # Remove computed fields (Milvus generates these)
+        prepared.pop("text_sparse_embedding", None)
+        prepared.pop("metadata_sparse_embedding", None)
+
+        # Remove id (auto-generated)
+        prepared.pop("id", None)
+
+        return prepared
+
+    # -------------------------------------------------------------------------
+    # Delete Operations
+    # -------------------------------------------------------------------------
+
+    def delete_chunk(self, id: int) -> bool:
+        """
+        Delete a single chunk by its database ID.
+
+        Args:
+            id: The database-assigned primary key
+
+        Returns:
+            True if chunk was deleted, False if not found
+
+        Raises:
+            RuntimeError: If not connected
+        """
+        self._require_connected()
+
+        try:
+            # Check if exists first
+            results = self._client.query(
+                collection_name=self.config.collection,
+                filter=f"id == {id} AND array_contains_any(security_group, {list[str](self._user_security_groups)})",
+                output_fields=["id"],
+                limit=1,
+            )
+
+            if not results:
+                return False
+
+            self._client.delete(
+                collection_name=self.config.collection,
+                filter=f"id == {id} AND array_contains_any(security_group, {list[str](self._user_security_groups)})",
+            )
+            return True
 
         except MilvusException as e:
-            raise e
-        except Exception as e:
-            raise e
+            raise RuntimeError(f"Failed to delete chunk: {e}") from e
 
-    def check_duplicate(self, source: str, chunk_index: int) -> bool:
+    def delete_document(self, document_id: str) -> int:
+        """
+        Delete all chunks for a document by document_id.
+
+        Args:
+            document_id: The document's unique identifier (UUID format)
+
+        Returns:
+            Number of chunks deleted
+
+        Raises:
+            RuntimeError: If not connected
+        """
+        self._require_connected()
+
+        try:
+            # Count existing chunks
+            results = self._client.query(
+                collection_name=self.config.collection,
+                filter=f"document_id == '{document_id}' AND array_contains_any(security_group, {list[str](self._user_security_groups)})",
+                output_fields=["id"],
+                limit=10000,
+            )
+
+            count = len(results)
+            if count == 0:
+                return 0
+
+            self._client.delete(
+                collection_name=self.config.collection,
+                filter=f"document_id == '{document_id}' AND array_contains_any(security_group, {list[str](self._user_security_groups)})",
+            )
+            return count
+
+        except MilvusException as e:
+            raise RuntimeError(f"Failed to delete document: {e}") from e
+
+    # -------------------------------------------------------------------------
+    # Exists Check (replaces check_duplicate)
+    # -------------------------------------------------------------------------
+
+    def exists(self, source: str, chunk_index: int) -> bool:
         """
         Check if a document chunk already exists.
 
         Args:
-            source: Source identifier (file path)
+            source: Source identifier (file path, URL, etc.)
             chunk_index: Chunk index within the document
 
         Returns:
-            bool: True if duplicate exists, False otherwise
+            True if chunk exists, False otherwise
+
+        Raises:
+            RuntimeError: If not connected
         """
+        self._require_connected()
+
         try:
-            results = self.client.query(
+            results = self._client.query(
                 collection_name=self.config.collection,
-                filter=f"source == '{source}' AND chunk_index == {chunk_index}",
-                output_fields=["source"],
+                filter=f"source == '{source}' AND chunk_index == {chunk_index} AND array_contains_any(security_group, {list[str](self._user_security_groups)})",
+                output_fields=["id"],
                 limit=1,
             )
             return len(results) > 0
 
         except MilvusException as e:
-            raise e
-        except Exception:
-            raise
-
-    @staticmethod
-    def get_collection_description(config: DatabaseClientConfig) -> CollectionDescription | None:
-        """
-        Retrieve the collection description from Milvus.
-
-        Creates a temporary MilvusClient connection to fetch the collection description.
-        This is a static method because it needs to work before a full client instance
-        exists (for config restoration).
-
-        Args:
-            config: Database configuration to use for connection
-
-        Returns:
-            CollectionDescription instance if collection exists and has a description,
-            None otherwise
-        """
-        try:
-            # Create a temporary MilvusClient connection
-            client = MilvusClient(uri=config.uri, token=config.token)
-            if not client.has_collection(config.collection):
-                return None
-
-            # Get collection description
-            collection_info = client.describe_collection(config.collection)
-            collection_description = extract_collection_description(collection_info.get("description", ""))
-            return collection_description
-
-        except Exception:
-            # If fetching fails, return None to allow continuation with original config
-            return None
-
-    def insert_data(self, data: list[DatabaseDocument]) -> None:
-        """
-        Insert data into the collection with optimized duplicate detection and progress tracking.
-
-        Expected data format matches DatabaseDocument protocol:
-        - text: str
-        - text_embedding: List[float]
-        - chunk_index: int
-        - source: str
-        - Additional fields accessible via dict-like interface
-
-        Args:
-            data: List of document chunks to insert
-
-        Raises:
-            DatabaseError: If insertion fails
-        """
-        # insert_start_time = time.time()
-
-        if not data:
-            return
-
-        # Group items by source for optimized duplicate detection
-        items_by_source: dict[str, list[DatabaseDocument]] = {}
-        for item in data:
-            source = item.source
-            if source not in items_by_source:
-                items_by_source[source] = []
-            items_by_source[source].append(item)
-
-        # Filter out duplicates and prepare data for insertion
-        data_to_insert = []
-        duplicates_found = 0
-        processing_errors = 0
-
-        # Process items by source with progress tracking
-        with tqdm(total=len(data), desc="Processing items", unit="item") as pbar:
-            for source, source_items in items_by_source.items():
-                try:
-                    # Fetch all existing chunk indexes for this source in one query
-                    existing_indexes = self._existing_chunk_indexes(source)
-
-                    for item in source_items:
-                        try:
-                            # Validate required fields exist (these should be guaranteed by protocol)
-                            chunk_index = item.chunk_index
-
-                            # Check for duplicates using the cached indexes
-                            if chunk_index in existing_indexes:
-                                duplicates_found += 1
-                                pbar.update(1)
-                                continue
-
-                            # Prepare the data for insertion
-                            prepared_item = item.to_dict()
-                            if prepared_item["document_id"] is None:
-                                prepared_item["document_id"] = str(uuid.uuid4())
-
-                            # Add metadata as JSON string
-                            prepared_item["str_metadata"] = json.dumps(item.metadata, separators=(",", ":"))
-
-                            # Serialize benchmark_questions as JSON string (schema expects VARCHAR, not list)
-                            benchmark_questions = prepared_item.get("benchmark_questions")
-                            if benchmark_questions is None:
-                                prepared_item["benchmark_questions"] = "[]"
-                            elif isinstance(benchmark_questions, list):
-                                prepared_item["benchmark_questions"] = json.dumps(benchmark_questions, separators=(",", ":"))
-                            elif not isinstance(benchmark_questions, str):
-                                # If it's not a list or string, convert to empty array string
-                                prepared_item["benchmark_questions"] = "[]"
-                            # If it's already a string, leave it as is
-
-                            # Add security group to the item
-                            # TODO: Should require a security group to be set not set a default, this should be checked earlier
-                            if "security_group" not in prepared_item:
-                                prepared_item["security_group"] = DEFAULT_SECURITY_GROUP
-
-                            # Remove function output fields - these are computed by Milvus functions
-                            # and should NOT be provided in insert data
-                            prepared_item.pop("text_sparse_embedding", None)
-                            prepared_item.pop("metadata_sparse_embedding", None)
-
-                            # Remove the id field - it's auto-generated by Milvus
-                            prepared_item.pop("id", None)
-
-                            data_to_insert.append(prepared_item)
-                            pbar.set_postfix_str(f"Source: {source}")
-                            pbar.update(1)
-
-                        except AttributeError:
-                            processing_errors += 1
-                            pbar.update(1)
-                            continue
-                        except Exception:
-                            processing_errors += 1
-                            pbar.update(1)
-                            continue
-
-                except Exception:
-                    processing_errors += len(source_items)
-                    pbar.update(len(source_items))
-                    continue
-
-        # Log processing statistics
-        # processing_time = time.time() - insert_start_time
-
-        # if duplicates_found > 0:
-
-        # if processing_errors > 0:
-
-        if not data_to_insert:
-            return
-
-        # Insert the data with progress tracking
-        try:
-            # insert_api_start = time.time()
-
-            self.client.insert(
-                collection_name=self.config.collection,
-                partition_name=self.config.partition,
-                data=data_to_insert,
-            )
-
-            # insert_api_time = time.time() - insert_api_start
-            # insert_count = result.get("insert_count", len(data_to_insert))
-
-            # Flush to ensure data is persisted
-            self.client.flush(self.config.collection)
-            # flush_time = time.time() - flush_start
-
-            # total_insert_time = time.time() - insert_start_time
-
-        except MilvusException as e:
-            raise e
-        except Exception as e:
-            raise e
+            raise RuntimeError(f"Failed to check existence: {e}") from e

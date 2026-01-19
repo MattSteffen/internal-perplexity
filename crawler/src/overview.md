@@ -19,9 +19,9 @@ The modular design allows you to swap out components for different use cases whi
 ## Core Processing Stages
 
 1.  **Conversion**: Raw source files (like PDFs) are converted into a standardized Markdown format.
-2.  **Extraction**: Structured metadata is extracted from the Markdown content using a Large Language Model (LLM). The text is also broken down into smaller, manageable chunks.
-3.  **LLM Interaction**: A dedicated module handles all communication with LLMs, supporting various providers and features like structured JSON output.
-4.  **Embedding**: Text chunks are transformed into numerical vector embeddings for similarity search.
+2.  **Extraction**: Structured metadata is extracted from the Markdown content using a Large Language Model (LLM).
+3.  **Chunking + Embedding**: The text is broken down into smaller chunks, and each chunk is immediately embedded with dense vector representations. Sparse embeddings (BM25) are computed by the database on insert.
+4.  **LLM Interaction**: A dedicated module handles all communication with LLMs, supporting various providers and features like structured JSON output.
 
 ---
 
@@ -83,15 +83,26 @@ This module provides text chunking functionality. See `chunker/overview.md` for 
 This module provides the unified `Document` class that flows through the processing pipeline. See `document/overview.md` for detailed documentation.
 
 - **`Document`**: Pydantic BaseModel that serves as the central data structure
-- **Features**: Mutable design, automatic validation, serialization, status tracking, database entity conversion
+- **`Chunk`**: Pydantic BaseModel representing a document chunk with text and embeddings
+- **Features**: Mutable design, automatic validation, serialization, status tracking, database entity conversion. Chunks are created with embeddings at chunking time.
 
 ### `vector_db/`
 
 This module provides a type-safe interface for storing document chunks in vector databases. See `vector_db/overview.md` for detailed documentation.
 
-- **`DatabaseClient`**: Abstract interface for database implementations
+- **`DatabaseClient`**: Abstract interface with connection lifecycle and CRUD operations
+  - Connection: `connect()`, `disconnect()`, `is_connected()`
+  - Search: `search(texts, filters, limit)` -> `list[SearchResult]`
+  - Get: `get_chunk(id)`, `get_document(document_id)`
+  - Write: `upsert(documents)` -> `UpsertResult`
+  - Delete: `delete_chunk(id)`, `delete_document(document_id)`
+  - Collection: `create_collection()`, `get_collection()`
+  - Utility: `exists(source, chunk_index)`
 - **`MilvusDB`**: Milvus implementation with hybrid search (dense + sparse BM25)
-- **`DatabaseDocument`**: Pydantic model for document chunks with `default_` prefixed system fields
+- **`DatabaseDocument`**: Pydantic model for document chunks
+- **`SearchResult`**: Search result with document, distance, and score
+- **`UpsertResult`**: Result with inserted/updated counts and failures
+- **`CollectionDescription`**: Collection metadata with CrawlerConfig for pipeline restoration
 - **`DatabaseClientConfig`**: Pydantic configuration for database connections
 - **Factory Functions**: `get_db()`, `get_db_benchmark()`
 
@@ -102,7 +113,9 @@ This module contains the main `Crawler` class that orchestrates the entire docum
 - **`Crawler`**: Main orchestrator class that coordinates all processing stages
 - **`CrawlerConfig`**: Pydantic configuration model that aggregates all component configurations
 - **Features**:
-  - File/directory crawling with duplicate detection
+  - File/directory crawling with duplicate detection using `exists()`
+  - Database connection management with `connect()` / `disconnect()`
+  - Document storage using `upsert()` with proper insert/update semantics
   - Caching of processed documents
   - Progress tracking with tqdm
   - Statistics collection

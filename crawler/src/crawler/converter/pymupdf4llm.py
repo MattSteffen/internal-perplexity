@@ -246,9 +246,9 @@ class PyMuPDF4LLMConverter(Converter):
     def name(self) -> str:
         return "PyMuPDF4LLM"
 
-    def convert(self, document: Document) -> None:
+    def convert(self, document: Document) -> str:
         """
-        Convert a Document in place, populating content, markdown, stats, source_name, and warnings.
+        Convert a Document into markdown, populating content, markdown, stats, source_name, and warnings.
         """
         import pymupdf4llm  # imported here to make dependency explicit
 
@@ -323,13 +323,12 @@ class PyMuPDF4LLMConverter(Converter):
 
             total_time = time.time() - start_time
 
-            # 8) Populate document fields in place
-            document.markdown = md_text
         finally:
             try:
                 pdf_doc.close()
             except Exception:
                 pass
+        return md_text
 
     # -------------------------- Internal helpers ------------------------------
 

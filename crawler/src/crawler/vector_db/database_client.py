@@ -33,20 +33,20 @@ class DatabaseDocument(BaseModel):
         metadata_sparse_embedding: Sparse embedding of metadata for BM25 search (internal field)
         benchmark_questions: List of benchmark questions for testing
     """
-    id: int | None = Field(default=-1, description="Database-assigned primary key (auto-generated on insert)")
+    id: int = Field(default=-1, description="Database-assigned primary key (auto-generated on insert)")
 
     # Required attributes - these must exist
-    document_id: str = Field(..., description="Unique identifier for the document chunk (UUID format)")
-    text: str = Field(..., description="The text content of the document chunk")
-    chunk_index: int = Field(..., ge=0, description="Zero-based index of this chunk within the parent document")
-    source: str = Field(..., description="Source identifier (file path, URL, etc.)")
-    security_group: list[str] = Field(default_factory=lambda: ["public"], description="List of security groups for RBAC row-level access control")
+    document_id: str = Field(description="Unique identifier for the document chunk (UUID format)")
+    text: str = Field(description="The text content of the document chunk")
+    chunk_index: int = Field(ge=0, description="Zero-based index of this chunk within the parent document")
+    source: str = Field(description="Source identifier (file path, URL, etc.)")
+    security_group: list[str] = Field(description="List of security groups for RBAC row-level access control")
     metadata: dict[str, Any] = Field(default_factory=dict, description="User-defined metadata as key-value pairs")
 
     # Computed fields - these are computed by the embedder or by the vector db on insert
-    text_embedding: list[float] = Field(..., description="Dense vector embedding of the text content")
-    text_sparse_embedding: list[float] | None = Field(default_factory=list, description="Sparse vector embedding for BM25 full-text search on text")
-    metadata_sparse_embedding: list[float] | None = Field(default_factory=list, description="Sparse vector embedding for BM25 full-text search on metadata")
+    text_embedding: list[float] = Field(description="Dense vector embedding of the text content")
+    text_sparse_embedding: list[float] | None = Field(default=None, description="Sparse vector embedding for BM25 full-text search on text (computed by DB)")
+    metadata_sparse_embedding: list[float] | None = Field(default=None, description="Sparse vector embedding for BM25 full-text search on metadata (computed by DB)")
     
     # Optional fields - these are optional and can be set by the user
     benchmark_questions: list[str] | None = Field(default_factory=list, description="List of benchmark questions generated for testing retrieval")
@@ -122,6 +122,103 @@ class DatabaseDocument(BaseModel):
         return self.model_dump_json(indent=4)
 
 
+class SearchResult(BaseModel):
+    """
+    Result from a search operation with distance/score metadata.
+
+    This model wraps a DatabaseDocument with additional search-specific
+    information like distance and normalized score.
+
+    Attributes:
+        document: The matched DatabaseDocument
+        distance: Distance from query vector (lower is more similar for cosine)
+        score: Normalized similarity score (0-1, higher is better)
+    """
+
+    document: DatabaseDocument = Field(..., description="The matched database document")
+    distance: float = Field(..., description="Distance from query vector (lower is more similar)")
+    score: float = Field(default=0.0, description="Normalized similarity score (0-1, higher is better)")
+
+    model_config = {
+        "validate_assignment": True,
+    }
+
+    @classmethod
+    def from_milvus_hit(cls, hit: dict[str, Any], output_fields: list[str]) -> "SearchResult":
+        """
+        Create a SearchResult from a Milvus search hit.
+
+        Args:
+            hit: Raw hit dictionary from Milvus search
+            output_fields: List of fields that were requested
+
+        Returns:
+            SearchResult instance
+        """
+        distance = hit.get("distance", 0.0)
+        # Convert distance to score (for cosine, score = 1 - distance for normalized vectors)
+        # Milvus cosine distance is already 1 - cosine_similarity for COSINE metric
+        score = 1.0 - distance if distance <= 1.0 else 0.0
+
+        # Build document from hit data
+        doc_data = {
+            "id": hit.get("id", -1),
+            "document_id": hit.get("document_id", ""),
+            "text": hit.get("text", ""),
+            "chunk_index": hit.get("chunk_index", 0),
+            "source": hit.get("source", ""),
+            "security_group": hit.get("security_group", ["public"]),
+            "metadata": hit.get("metadata", {}),
+            "text_embedding": hit.get("text_embedding", []),
+        }
+
+        # Add optional fields if present
+        if "benchmark_questions" in hit:
+            bq = hit["benchmark_questions"]
+            if isinstance(bq, str):
+                import json
+                try:
+                    doc_data["benchmark_questions"] = json.loads(bq)
+                except json.JSONDecodeError:
+                    doc_data["benchmark_questions"] = []
+            else:
+                doc_data["benchmark_questions"] = bq or []
+
+        document = DatabaseDocument.from_dict(doc_data)
+        return cls(document=document, distance=distance, score=score)
+
+
+class UpsertResult(BaseModel):
+    """
+    Result from an upsert operation.
+
+    Provides counts of inserted vs updated documents and any failures.
+
+    Attributes:
+        inserted_count: Number of new documents inserted
+        updated_count: Number of existing documents updated
+        failed_ids: List of document IDs that failed to upsert
+    """
+
+    inserted_count: int = Field(default=0, ge=0, description="Number of new documents inserted")
+    updated_count: int = Field(default=0, ge=0, description="Number of existing documents updated")
+    failed_ids: list[str] = Field(default_factory=list, description="List of document IDs that failed to upsert")
+
+    model_config = {
+        "validate_assignment": True,
+    }
+
+    @property
+    def total_count(self) -> int:
+        """Total number of successfully upserted documents."""
+        return self.inserted_count + self.updated_count
+
+    @property
+    def has_failures(self) -> bool:
+        """Check if any documents failed to upsert."""
+        return len(self.failed_ids) > 0
+
+
 class CollectionDescription(BaseModel):
     """
     Typed model for Milvus collection descriptions.
@@ -133,26 +230,20 @@ class CollectionDescription(BaseModel):
     Attributes:
         collection_config: Full crawler config dictionary
         llm_prompt: Generated prompt text with metadata filtering instructions
-        pipeline_name: Name of the pipeline that created the collection
         collection_security_groups: List of security groups that are required to access the collection
         metadata_schema: User-provided metadata JSON schema
         description: Human-readable description of collection data
+        columns: List of columns in the collection that searching can return
     """
     collection_config: "CrawlerConfig" = Field(..., description="Full crawler config object")
-    llm_prompt: str = Field(..., description="Generated prompt text with metadata filtering instructions")
+    llm_prompt: str = Field(default="", description="Generated prompt text with metadata filtering instructions")
+    columns: list[str] = Field(default=["id", "text", "source", "document_id", "chunk_index", "metadata", "text_embedding", "text_sparse_embedding", "metadata_sparse_embedding", "benchmark_questions"], description="List of columns in the collection that searching can return")
+    
 
     model_config = {
         "validate_assignment": True,
     }
 
-    @property
-    def pipeline_name(self) -> str:
-        """
-        Get the name of the pipeline that created the collection.
-        Computed from collection_config.name.
-        """
-        return self.collection_config.name
-    
     @property
     def collection_security_groups(self) -> list[str]:
         """
@@ -248,6 +339,7 @@ class DatabaseClientConfig(BaseModel):
         provider: Database provider name (e.g., "milvus")
         collection: Name of the database collection/table
         partition: Optional partition name within the collection
+        access_level: Access level of the collection: public, private, admin
         recreate: Whether to drop and recreate the collection if it exists
         collection_description: Optional description of the collection
         host: Database host address
@@ -259,6 +351,7 @@ class DatabaseClientConfig(BaseModel):
     provider: str = Field(..., min_length=1, description="Database provider name (e.g., 'milvus')")
     collection: str = Field(..., min_length=1, description="Name of the database collection or table")
     partition: str | None = Field(default=None, description="Optional partition name for data organization within the collection")
+    access_level: str = Field(default="public", description="Access level of the collection: public, private, admin")
     recreate: bool = Field(default=False, description="If True, drop and recreate the collection if it already exists")
     collection_description: str | None = Field(default=None, description="Optional human-readable description of the collection")
     host: str = Field(default="localhost", description="Database server hostname or IP address")
@@ -352,6 +445,15 @@ class DatabaseClient(ABC):
 
     This interface defines the contract that all database implementations
     must follow to be compatible with the document processing pipeline.
+
+    Connection Lifecycle:
+        1. Create client with __init__()
+        2. Call connect() to establish connection
+        3. Use CRUD methods (search, get, upsert, delete)
+        4. Call disconnect() when done
+
+    All methods except __init__, connect, is_connected, and disconnect
+    require an active connection (will raise RuntimeError if not connected).
     """
 
     @abstractmethod
@@ -359,110 +461,228 @@ class DatabaseClient(ABC):
         self,
         config: DatabaseClientConfig,
         embedding_dimension: int,
-        metadata_schema: dict[str, Any],
+        crawler_config: "CrawlerConfig",
     ):
         """
-        Initialize the database client.
+        Initialize the database client without connecting.
 
         Args:
             config: Database-specific configuration parameters
             embedding_dimension: Vector embedding dimensionality
-            metadata_schema: JSON schema defining user metadata fields
+            crawler_config: CrawlerConfig containing collection configuration
         """
         pass
 
-    @staticmethod
     @abstractmethod
-    def get_collection_description(config: "DatabaseClientConfig") -> "CollectionDescription | None":
+    def connect(self, create_if_missing: bool = False) -> "DatabaseClient":
         """
-        Retrieve the collection description from the database.
+        Establish connection to the database.
 
-        This is a static method because it needs to work before a full client instance
-        exists, which is necessary for config restoration during crawler initialization.
+        Must be called before any other operation except is_connected().
+        Can be called multiple times safely (idempotent).
 
         Args:
-            config: Database configuration to use for connection
+            create_if_missing: If True, create collection if it doesn't exist
 
         Returns:
-            CollectionDescription instance if collection exists and has a valid description,
-            None otherwise
-        """
-        pass
-
-    @abstractmethod
-    def create_collection(self, recreate=False) -> None:
-        """
-        Create a collection/table with the specified schema.
-        Handles the logic for checking if collection exists and recreating if needed.
-        This can be a prefix to a bucket in s3. Some differenciator between groups of documents.
-
-        Must have set:
-            embedding_dimension: Dimension of vector embeddings
-            metadata_schema: Metadata schema definition
+            Self for method chaining
 
         Raises:
-            DatabaseError: If collection creation fails
+            ConnectionError: If connection fails
+            RuntimeError: If collection doesn't exist and create_if_missing is False
         """
         pass
 
     @abstractmethod
-    def insert_data(self, data: list[DatabaseDocument]) -> None:
-        # TODO: All locations where minio is used, update to use default_url
+    def disconnect(self) -> None:
         """
-        Insert data into the collection with duplicate detection.
+        Close the database connection.
 
-        Expected data format:
-        [
-            {
-                "text": "content text",
-                "text_embedding": [0.1, 0.2, ...],
-                "chunk_index": 0,
-                "source": "filename",
-                "document_id": "uuid",
-                "minio": "optional_url",
-                # ... other user-defined fields
-            },
-            ...
-        ]
+        Safe to call multiple times. After disconnect, connect() must be
+        called again before using other methods.
+        """
+        pass
+
+    @abstractmethod
+    def is_connected(self) -> bool:
+        """
+        Check if client is currently connected to the database.
+
+        Returns:
+            True if connected, False otherwise
+        """
+        pass
+
+    @abstractmethod
+    def search(
+        self,
+        texts: list[str],
+        filters: list[str] | None = None,
+        limit: int = 10,
+    ) -> list["SearchResult"]:
+        """
+        Hybrid search combining dense and sparse vectors.
+
+        Performs a multi-vector search using:
+        - Dense embeddings (text_embedding) for semantic similarity
+        - Sparse embeddings (text_sparse_embedding) for keyword matching
+        - Sparse metadata embeddings for metadata-based search
+
+        Results are ranked using Reciprocal Rank Fusion (RRF).
 
         Args:
-            data: List of document chunks to insert
+            texts: Query texts to search for (will be embedded)
+            filters: Optional Milvus filter expressions (e.g., ["source == 'file.pdf'"])
+            limit: Maximum number of results to return (default: 10)
+
+        Returns:
+            List of SearchResult objects sorted by relevance
 
         Raises:
-            DatabaseError: If insertion fails
+            RuntimeError: If not connected
         """
         pass
 
     @abstractmethod
-    def check_duplicate(self, source: str, chunk_index: int) -> bool:
+    def get_chunk(self, id: int) -> DatabaseDocument | None:
+        """
+        Get a single chunk by its database ID.
+
+        Args:
+            id: The database-assigned primary key (auto-generated on insert)
+
+        Returns:
+            DatabaseDocument if found, None otherwise
+
+        Raises:
+            RuntimeError: If not connected
+        """
+        pass
+
+    @abstractmethod
+    def get_document(self, document_id: str) -> list[DatabaseDocument]:
+        """
+        Get all chunks for a document by its document_id (UUID).
+
+        Chunks are returned sorted by chunk_index.
+
+        Args:
+            document_id: The document's unique identifier (UUID format)
+
+        Returns:
+            List of DatabaseDocument chunks, empty list if not found
+
+        Raises:
+            RuntimeError: If not connected
+        """
+        pass
+
+    @abstractmethod
+    def upsert(self, documents: list[DatabaseDocument]) -> "UpsertResult":
+        """
+        Insert or update documents.
+
+        Uses (source, chunk_index) as the unique key for determining
+        whether to insert or update. If a document with the same
+        source and chunk_index exists, it will be updated.
+
+        Args:
+            documents: List of DatabaseDocument objects to upsert
+
+        Returns:
+            UpsertResult with counts of inserted, updated, and failed documents
+
+        Raises:
+            RuntimeError: If not connected
+        """
+        pass
+
+    @abstractmethod
+    def delete_chunk(self, id: int) -> bool:
+        """
+        Delete a single chunk by its database ID.
+
+        Args:
+            id: The database-assigned primary key
+
+        Returns:
+            True if chunk was deleted, False if not found
+
+        Raises:
+            RuntimeError: If not connected
+        """
+        pass
+
+    @abstractmethod
+    def delete_document(self, document_id: str) -> int:
+        """
+        Delete all chunks for a document by document_id.
+
+        Args:
+            document_id: The document's unique identifier (UUID format)
+
+        Returns:
+            Number of chunks deleted
+
+        Raises:
+            RuntimeError: If not connected
+        """
+        pass
+
+    @abstractmethod
+    def create_collection(self, recreate: bool = False) -> None:
+        """
+        Create collection with the defined schema.
+
+        Only callable when connected. The collection schema includes:
+        - System fields (id, document_id, text, text_embedding, etc.)
+        - Security group for RBAC
+        - BM25 sparse indexes for full-text search
+
+        Args:
+            recreate: If True, drop existing collection and recreate
+
+        Raises:
+            RuntimeError: If not connected
+        """
+        pass
+
+    @abstractmethod
+    def get_collection(self) -> CollectionDescription | None:
+        """
+        Get collection description with full config for pipeline reconstruction.
+
+        The description contains the complete CrawlerConfig used to create
+        the collection, allowing the pipeline to be restored from the
+        collection metadata.
+
+        Returns:
+            CollectionDescription if collection exists and has valid description,
+            None otherwise
+
+        Raises:
+            RuntimeError: If not connected
+        """
+        pass
+
+    @abstractmethod
+    def exists(self, source: str, chunk_index: int) -> bool:
         """
         Check if a document chunk already exists.
 
+        This is a convenience method that can be used for duplicate detection
+        before processing. Equivalent to checking if get_document returns
+        non-empty results with the given source and chunk_index.
+
         Args:
-            source: Source identifier (file path)
+            source: Source identifier (file path, URL, etc.)
             chunk_index: Chunk index within the document
 
         Returns:
-            bool: True if duplicate exists, False otherwise
-        """
-        pass
+            True if chunk exists, False otherwise
 
-    @staticmethod
-    @abstractmethod
-    def get_collection_description(config: "DatabaseClientConfig") -> "CollectionDescription | None":
-        """
-        Retrieve the collection description from the database.
-
-        This is a static method because it needs to work before a full client instance
-        exists (for config restoration). It creates a temporary connection to fetch
-        the collection description.
-
-        Args:
-            config: Database configuration to use for connection
-
-        Returns:
-            CollectionDescription instance if collection exists and has a description,
-            None otherwise
+        Raises:
+            RuntimeError: If not connected
         """
         pass
 

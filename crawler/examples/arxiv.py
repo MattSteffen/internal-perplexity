@@ -103,12 +103,8 @@ def create_arxiv_config():
     # Embeddings config (example: use Ollama & MiniLM)
     embeddings = EmbedderConfig(
         provider="ollama",
-        model="all-minilm:v2",
+        model="qwen3-embedding:0.6b",
         base_url="http://localhost:11434",
-        normalize=True,
-        batch_size=32,
-        query_instruction=None,
-        document_instruction=None,
     )
 
     # Main LLM config (general extraction)
@@ -116,21 +112,14 @@ def create_arxiv_config():
         provider="ollama",
         base_url="http://localhost:11434",
         model_name="gpt-oss:20b",
-        temperature=0.2,
-        max_tokens=4096,
-        use_parallel=False,
-        timeout_sec=45,
+        structured_output="tools",
     )
 
     # Vision LLM config (for image description, if relevant)
     vision_llm = LLMConfig(
         provider="ollama",
         base_url="http://localhost:11434",
-        model_name="granite3.2-vision:latest",
-        temperature=0.1,
-        max_tokens=2048,
-        use_parallel=False,
-        timeout_sec=60,
+        model_name="qwen3-vl:2b",
     )
 
     # Database config (Milvus)
@@ -143,14 +132,12 @@ def create_arxiv_config():
         collection="arxiv4",
         # Optionally: extra options...
         recreate=True,
-        description="A sequence of papers on topics related to clustering.",
-        security_groups=["read_only"],
+        collection_description="A sequence of papers on topics related to clustering.",
     )
 
     # Converter config (pymupdf4llm)
+    # Note: embed_images=True and page_chunks=False are forced internally
     converter = PyMuPDF4LLMConfig(
-        embed_images=True,
-        page_chunks=False,
         max_workers=2,
         vlm_config=vision_llm,
         to_markdown_kwargs={},
@@ -162,20 +149,11 @@ def create_arxiv_config():
         json_schema=metadata_schema,
         context="A sequence of papers on topics related to clustering.",
         llm=llm,
-        generate_questions=True,
-        num_questions=3,
     )
 
     # Chunker config
     chunking = ChunkingConfig(
         chunk_size=10000,
-        chunk_overlap=400,
-        strategy="recursive",
-        split_level="sentence",
-        join_short_chunks=True,
-        min_chunk_length=200,
-        max_chunks=None,
-        language="en",
     )
 
     config = CrawlerConfig(
@@ -330,7 +308,7 @@ def main():
         mycrawler.benchmark()
 
     # Demonstrate search functionality
-    search_louvain_clustering()
+    # search_louvain_clustering()
 
     print("✅ ArXiv processing completed successfully!")
 

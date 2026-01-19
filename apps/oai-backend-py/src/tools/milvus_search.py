@@ -66,7 +66,7 @@ class MilvusDocument(BaseModel):
     }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "MilvusDocument":
+    def from_dict(cls, data: dict[str, Any]) -> MilvusDocument:
         """Create a document from a dict (with validation).
 
         Args:

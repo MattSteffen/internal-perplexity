@@ -27,11 +27,10 @@ Contains the core `Document` class (Pydantic BaseModel) with the following respo
 The `Document` class flows through the following stages:
 
 1. **Creation**: Document is created with `document_id` (UUID) and `source` (file path/URL)
-2. **Converter**: Populates `content` (bytes), `markdown` (str), `source_name` (str), `images` (list), `tables` (list), `stats` (ConversionStats), and `warnings` (list)
+2. **Converter**: Populates `content` (bytes) and `markdown` (str)
 3. **Extractor**: Populates `metadata` (dict) and `benchmark_questions` (list of strings)
-4. **Chunker**: Populates `chunks` (list of strings) - caller assigns the result
-5. **Embedder**: Populates `text_embeddings` (list of list[float]), `sparse_text_embeddings` (list of list[float]), and `sparse_metadata_embeddings` (list[float])
-6. **Vector DB**: Uses `to_database_entities()` to create database entities for storage
+4. **Chunker + Embedder**: Populates `chunks` (list of `Chunk` objects) - each chunk contains text and its dense embedding. Sparse embeddings are optional and computed by the database on insert.
+5. **Vector DB**: Uses `to_database_documents()` to create `DatabaseDocument` objects for storage
 
 ## Document Class Fields
 
@@ -53,15 +52,14 @@ The `Document` class flows through the following stages:
 - `metadata` (dict[str, Any] | None): Extracted structured metadata
 - `benchmark_questions` (list[str] | None): Generated questions for testing
 
-### Chunker Stage (populated by chunker)
+### Chunker + Embedder Stage (populated together)
 
-- `chunks` (list[str] | None): Text chunks for embedding and storage
-
-### Embedder Stage (populated by embedder)
-
-- `text_embeddings` (list[list[float]] | None): Dense vector embeddings for each chunk
-- `sparse_text_embeddings` (list[list[float]] | None): Sparse embeddings for text chunks
-- `sparse_metadata_embeddings` (list[float] | None): Sparse embedding for metadata
+- `chunks` (list[Chunk] | None): List of `Chunk` objects, each containing:
+  - `text` (str): The text content of the chunk
+  - `chunk_index` (int): Zero-based index of the chunk
+  - `text_embedding` (list[float]): Dense vector embedding for the chunk (required)
+  - `sparse_text_embedding` (list[float] | None): Sparse embedding for text (optional, computed by DB)
+  - `sparse_metadata_embedding` (list[float] | None): Sparse embedding for metadata (optional, computed by DB)
 
 ### Optional
 
@@ -94,19 +92,25 @@ result = extractor.run(doc)  # Returns MetadataExtractionResult
 doc.metadata = result.metadata
 doc.benchmark_questions = result.benchmark_questions
 
-# 4. Chunk the markdown
+# 4. Chunk the markdown and generate embeddings
 chunker = Chunker(ChunkingConfig.create(chunk_size=1000))
-doc.chunks = chunker.chunk_text(doc)  # Returns list[str], assign to doc.chunks
-
-# 5. Generate embeddings
 embedder = get_embedder(EmbedderConfig.ollama(model="all-minilm:v2"))
-doc.text_embeddings = embedder.embed_batch(doc.chunks)
+
+# Get text chunks and generate embeddings, then create Chunk objects
+text_chunks = chunker.chunk_text(doc)  # Returns list[str]
+embeddings = embedder.embed_batch(text_chunks)  # Returns list[list[float]]
+from crawler.document import Chunk
+doc.chunks = [
+    Chunk(text=text, chunk_index=i, text_embedding=embedding)
+    for i, (text, embedding) in enumerate(zip(text_chunks, embeddings))
+]
 
 # 6. Store in vector database
+from crawler.config import CrawlerConfig
 db_config = DatabaseClientConfig.milvus(collection="my_collection")
-db = get_db(db_config, embedder.get_dimension(), {}, "")
-entities = doc.to_database_entities()  # Convert to database entities
-db_docs = [DatabaseDocument(**entity) for entity in entities]
+crawler_config = CrawlerConfig.create(...)  # Your crawler config
+db = get_db(db_config, embedder.get_dimension(), crawler_config)
+db_docs = doc.to_database_documents()  # Convert to DatabaseDocument objects
 db.insert_data(db_docs)
 
 # Check status at any point
@@ -152,7 +156,7 @@ Helper methods allow checking document state without directly inspecting fields:
 - `is_converted() -> bool`: Returns True if document has markdown
 - `is_extracted() -> bool`: Returns True if metadata has been extracted
 - `is_chunked() -> bool`: Returns True if document has chunks
-- `is_ready_for_storage() -> bool`: Returns True if document has markdown, metadata, chunks, and embeddings (with matching lengths)
+- `is_ready_for_storage() -> bool`: Returns True if document has markdown, metadata, and chunks (chunks must have embeddings)
 
 ### Serialization
 
@@ -164,4 +168,4 @@ The Document class provides methods for saving and loading:
 
 ### Database Conversion
 
-- `to_database_entities() -> list[dict[str, Any]]`: Converts document to a list of entity dictionaries for database insertion. Each entity represents one chunk. Uses `default_` prefix for system fields to match DatabaseDocument schema. Raises ValueError if document is not ready for storage.
+- `to_database_documents() -> list[DatabaseDocument]`: Converts document to a list of `DatabaseDocument` objects for database insertion. Each `DatabaseDocument` represents one chunk. Sparse embeddings are optional (computed by the database via BM25 functions). Raises ValueError if document is not ready for storage (missing chunks or embeddings).

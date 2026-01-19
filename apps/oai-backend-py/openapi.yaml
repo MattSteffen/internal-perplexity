@@ -1005,13 +1005,14 @@ components:
           type: string
           nullable: true
           description: Human-readable description of the collection
-        default_permissions:
+        access_level:
           type: string
           enum:
-            - admin_only
             - public
-          default: admin_only
-          description: Default permission level
+            - private
+            - admin
+          default: public
+          description: Access level for the collection
         metadata_schema:
           type: object
           nullable: true
@@ -1030,9 +1031,13 @@ components:
           type: string
           nullable: true
           description: Name of the pipeline used (if any)
-        permissions:
-          type: object
-          description: Permission settings for the collection
+        access_level:
+          type: string
+          enum:
+            - public
+            - private
+            - admin
+          description: Access level for the collection
 
     ProcessedDocument:
       type: object

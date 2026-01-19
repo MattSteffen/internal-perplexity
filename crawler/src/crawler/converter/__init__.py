@@ -15,11 +15,15 @@ from .base import (
 # Factory
 from .pymupdf4llm import ConverterConfig
 
+# Alias for backward compatibility (used in examples and documentation)
+PyMuPDF4LLMConfig = ConverterConfig
+
 __all__ = [
     # Core interface
     "Converter",
     # Configs
     "ConverterConfig",
+    "PyMuPDF4LLMConfig",
     # Factory
     "create_converter",
 ]
