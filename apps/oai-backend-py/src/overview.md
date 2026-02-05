@@ -49,7 +49,12 @@ Configuration management using Pydantic Settings. Includes:
 - `AgentConfig`: max_tool_calls, default_role, logging_level
 
 ### `milvus_client.py`
-Milvus client factory for database operations. Provides `get_milvus_client(token)` which creates a MilvusClient with authentication.
+Milvus client pool and connection helpers for database operations. Provides:
+- `MilvusClientPool`: Thread-safe TTL + LRU pool keyed by stable user identifiers; falls back to a token fingerprint only when needed (tokens are still held by the client in memory).
+- `get_milvus_context()` / `get_milvus_client()`: FastAPI dependencies that use `get_current_user()` and a stub `get_milvus_token_for_user()` to retrieve per-user clients from the pool.
+- `get_milvus_uri()`: Returns the configured Milvus URI (e.g. for building crawler DatabaseClientConfig).
+- `parse_milvus_uri(uri)`: Parses a URI string into (host, port).
+- `parse_milvus_token(token)`: Parses username:password token into (username, password) for DatabaseClientConfig.
 
 ### `utils.py`
 Shared utility functions. Contains `map_openai_error_to_http()` which converts OpenAI API errors to appropriate HTTP exceptions.
@@ -82,6 +87,7 @@ MilvusChat agent that dynamically connects to any collection. Features:
 - Agentic tool-calling loop with search tool
 - Both streaming and non-streaming modes
 - Collection-specific metadata summaries
+- Pulls the canonical `search` tool schema from the shared tool registry
 
 #### `clients/router.py`
 Client router that selects clients based on model name:
@@ -108,14 +114,19 @@ Chat completions endpoint handler. Implements `POST /v1/chat/completions` with:
 - Tool/function calling with multi-turn support (up to 5 iterations)
 - Automatic tool injection from registry
 - Error handling for streaming responses
+- `milvuschat` requests require `collection` and default `token` from authenticated user context when omitted
 
 #### `endpoints/collections.py`
 Collections management. Implements:
 - `GET /v1/collections`: List collections with metadata, document counts, and access levels
-- `POST /v1/collections`: Create new collections with template or custom config
-  - Supports `template_name` (standard, academic) or `custom_config`
-  - Sets security groups based on `roles` parameter
-  - Grants CollectionReadOnly privileges to specified roles
+- `POST /v1/collections`: Create new collections from full CrawlerConfig JSON
+  - Request: `access_level`, `access_groups` (when group_only), `crawler_config`
+  - Collection name from `crawler_config.database.collection`
+  - Persists `security_groups` so the creator (and, for group_only, access_groups) pass app-level RBAC on upload
+  - Grants Milvus `CollectionReadWrite` to the creator role and, when `access_level` is group_only, to each `access_groups` role; fails with 400 if any role is missing in Milvus (best-effort drop_collection on failure)
+  - Validates `crawler_config` with CrawlerConfig.from_dict(); returns 400 with detail on failure
+- `GET /v1/pipelines`: List pipeline templates (PipelineInfo: name, description, metadata_schema, chunk_size, embedding_model, llm_model). No auth.
+- `GET /v1/pipelines/{name}`: Return full crawler-config JSON for the given pipeline. 404 if not found. No auth.
 - `GET /v1/roles`: List Milvus roles
 - `GET /v1/users`: List Milvus users with their roles
 
@@ -124,10 +135,12 @@ Document processing and upload. Implements:
 - `POST /v1/collections/{collection_name}/process`: Process document to extract metadata and markdown
   - Returns `ProcessedDocument` with metadata, markdown_content, file_name, file_size
 - `POST /v1/collections/{collection_name}/upload`: Upload documents to collection
+  - Both modes (file and pre-processed markdown) use `Crawler.crawl_document`; crawler skips convert/extract when markdown/metadata are already set
   - Supports raw file upload with automatic processing
   - Supports pre-processed markdown_content with metadata_override
   - RBAC check verifies user has write access to collection
   - Optional security_groups parameter for document-level access control
+  - Helpers: `_load_config_from_collection()`, `_parse_security_groups()`
 
 #### `endpoints/embeddings.py`
 Embeddings endpoint. Implements `POST /v1/embeddings` for generating embeddings.
@@ -138,20 +151,16 @@ Models listing. Implements `GET /v1/models` listing:
 - Custom agents: `radchat`, `milvuschat`
 
 #### `endpoints/pipeline_registry.py`
-Pipeline template registry for crawler configurations. Provides:
-- `PipelineRegistry` class for managing predefined templates
-- Two built-in templates:
-  - `standard`: General document processing (2000 char chunks)
-  - `academic`: Research paper processing (10000 char chunks, richer metadata)
-- Templates define LLM, embedding, chunking, and metadata extraction settings
-- `get_registry()`: Returns global registry instance
+Name-to-JSON pipeline registry. Pipelines are crawler-config-shaped dicts only; no CrawlerConfig creation or schema validation in this module.
+- `PipelineRegistry`: Stores pipeline name → full config JSON (dict). `register(name, config_dict)`, `get(name)` returns a copy of the JSON, `list_pipelines()`, `has_pipeline(name)`, `get_pipeline_info()` (best-effort display fields from JSON, no validation).
+- Call sites obtain config by: `CrawlerConfig.from_dict(registry.get(name))`; validation happens at use site via `from_dict`.
+- Built-in pipelines: `standard` (general document processing, 2000 char chunks), `academic` (research papers, 10000 char chunks). `get_registry()` returns the global registry instance.
 
 #### `endpoints/search.py`
-Search endpoint. Implements `POST /v1/search` with:
-- Hybrid search (dense + sparse embeddings)
-- Automatic security group filtering based on user roles
-- Custom filter expression support
-- Returns combined Document objects with chunks merged by document_id
+Search endpoint. Implements `POST /v1/search` as a thin wrapper over the Milvus search tool:
+- Delegates to `tools/milvus_search.search_async()` for both semantic and filter-only queries.
+- Consolidates `SearchResult` into crawler `Document` via `tools/milvus_search.consolidate_documents(...)`.
+- Returns `SearchResponse(results=list[Document], total=len)`; security group filtering is applied by the crawler’s MilvusDB.
 
 #### `endpoints/auth.py`
 Authentication endpoints for Keycloak OAuth2:
@@ -175,12 +184,13 @@ Defines the `Tool` protocol:
 - `execute(arguments)`: Async execution returning JSON string
 
 #### `tools/milvus_search.py`
-Milvus search tool implementation. Provides:
-- `MilvusSearchTool` class for semantic search
-- `perform_search()`: Hybrid search with dense + sparse embeddings
-- `perform_query()`: Filter-based queries
-- `consolidate_documents()`: Groups chunks by document_id
-- `build_citations()`: Creates OpenWebUI-format citations
+Milvus search tool implementation; delegates to crawler MilvusDB. Provides:
+- `MilvusSearchTool` class: single "search" tool; no text/queries => filter-only query
+- `search()`: Builds DatabaseClientConfig from env + token, instantiates MilvusDB (crawler_config=None), connects, then calls db.search(). Filter-only: db.search(texts=[], filters=..., limit=...). Semantic: db.get_collection() for embedding model, set_embedder(), db.search(texts=[query_text], ...)
+- `consolidate_documents(search_results)`: Groups SearchResult by document_id, returns list of crawler Document
+- `build_citations(documents)`: OI-style citations from list of Document
+- `render_document(doc, include_text)`: Renders crawler Document to markdown
+- Uses crawler types: DatabaseDocument, SearchResult, Document; token from metadata or constructor
 
 #### `tools/weather.py`
 Mock weather tool for demonstration purposes.

@@ -1,15 +1,23 @@
 """Main FastAPI application."""
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from openai.types import CreateEmbeddingResponse
 from openai.types.chat import ChatCompletion
+from pymilvus import MilvusClient  # type: ignore
 
 from src.auth import init_oauth
-from src.auth_utils import get_optional_token, verify_token
+from src.auth_utils import get_optional_token
 from src.config import settings
 from src.endpoints import agent, auth, chat, collections, documents, embeddings, models, search, tools
+from src.milvus_client import (
+    MilvusClientContext,
+    MilvusClientPool,
+    get_milvus_client,
+    get_milvus_context,
+    get_milvus_uri,
+)
 
 app = FastAPI(
     title="OpenAI-Compatible Backend",
@@ -28,6 +36,19 @@ app.add_middleware(
 
 # Initialize OAuth with the FastAPI app
 init_oauth(app)
+
+# Initialize the Milvus client pool for this app instance.
+@app.on_event("startup")
+async def _startup_milvus_pool() -> None:
+    app.state.milvus_pool = MilvusClientPool(uri=get_milvus_uri())
+
+
+@app.on_event("shutdown")
+async def _shutdown_milvus_pool() -> None:
+    pool = getattr(app.state, "milvus_pool", None)
+    if pool:
+        pool.close_all()
+
 
 # Include authentication routes
 app.include_router(auth.router)
@@ -71,51 +92,34 @@ async def list_models_endpoint(request: Request) -> models.ModelList:
 
 
 @app.get("/v1/collections")
-async def list_collections_endpoint(user: dict = Depends(verify_token)) -> collections.CollectionsResponse:
+async def list_collections_endpoint(
+    context: MilvusClientContext = Depends(get_milvus_context),
+) -> collections.CollectionsResponse:
     """List all Milvus collections with metadata.
 
     curl -X GET http://localhost:8000/v1/collections \
       -H "Authorization: Bearer $TOKEN"
     """
-    token: str = user.get("milvus_token", "")
-    if not token:
-        raise HTTPException(status_code=401, detail="Milvus token is required")
-    return await collections.list_collections(token)
+    return await collections.list_collections(context)
 
 
 @app.post("/v1/collections")
 async def create_collection_endpoint(
     request: collections.CreateCollectionRequest,
-    user: dict = Depends(verify_token),
+    context: MilvusClientContext = Depends(get_milvus_context),
 ) -> collections.CreateCollectionResponse:
-    """Create a new collection with pipeline configuration.
-
-    Using a template:
+    """Create a new collection from crawler_config.
 
     curl -X POST http://localhost:8000/v1/collections \
       -H "Authorization: Bearer $TOKEN" \
       -H "Content-Type: application/json" \
       -d '{
-        "collection_name": "my_collection",
-        "template_name": "standard",
-        "access_level": "public"
-      }'
-
-    Or with custom config:
-
-    curl -X POST http://localhost:8000/v1/collections \
-      -H "Authorization: Bearer $TOKEN" \
-      -H "Content-Type: application/json" \
-      -d '{
-        "collection_name": "my_collection",
-        "custom_config": {...},
-        "access_level": "public"
+        "access_level": "public",
+        "access_groups": [],
+        "crawler_config": {"name": "my_collection", "database": {"collection": "my_collection", ...}, ...}
       }'
     """
-    token: str = user.get("milvus_token", "")
-    if not token:
-        raise HTTPException(status_code=401, detail="Milvus token is required")
-    return await collections.create_collection(request, token)
+    return await collections.create_collection(request, context)
 
 
 @app.get("/v1/pipelines")
@@ -127,37 +131,44 @@ async def list_pipelines_endpoint() -> collections.PipelinesResponse:
     return await collections.list_pipelines()
 
 
+@app.get("/v1/pipelines/{name}")
+async def get_pipeline_config_endpoint(name: str) -> dict:
+    """Return full crawler-config JSON for the given pipeline.
+
+    curl -X GET http://localhost:8000/v1/pipelines/standard
+    """
+    return await collections.get_pipeline_config(name)
+
+
 @app.get("/v1/roles")
-async def list_roles_endpoint(user: dict = Depends(verify_token)) -> collections.RolesResponse:
+async def list_roles_endpoint(
+    client: MilvusClient = Depends(get_milvus_client),
+) -> collections.RolesResponse:
     """List all Milvus roles with their privileges.
 
     curl -X GET http://localhost:8000/v1/roles \
       -H "Authorization: Bearer $TOKEN"
     """
-    token: str = user.get("milvus_token", "")
-    if not token:
-        raise HTTPException(status_code=401, detail="Milvus token is required")
-    return await collections.list_roles(token)
+    return await collections.list_roles(client)
 
 
 @app.get("/v1/users")
-async def list_users_endpoint(user: dict = Depends(verify_token)) -> collections.UsersResponse:
+async def list_users_endpoint(
+    client: MilvusClient = Depends(get_milvus_client),
+) -> collections.UsersResponse:
     """List all Milvus users with their roles.
 
     curl -X GET http://localhost:8000/v1/users \
       -H "Authorization: Bearer $TOKEN"
     """
-    token: str = user.get("milvus_token", "")
-    if not token:
-        raise HTTPException(status_code=401, detail="Milvus token is required")
-    return await collections.list_users(token)
+    return await collections.list_users(client)
 
 
 @app.post("/v1/collections/{collection_name}/process")
 async def process_document_for_collection_endpoint(
     collection_name: str,
     file: UploadFile = File(...),
-    user: dict = Depends(verify_token),
+    context: MilvusClientContext = Depends(get_milvus_context),
 ) -> documents.ProcessedDocument:
     """Process a document to extract metadata without uploading (collection-specific).
 
@@ -168,7 +179,8 @@ async def process_document_for_collection_endpoint(
     return await documents.process_document(
         file=file,
         collection_name=collection_name,
-        user=user,
+        user=context.user,
+        milvus_client=context.client,
     )
 
 
@@ -179,7 +191,7 @@ async def upload_document_for_collection_endpoint(
     markdown_content: str | None = Form(None),
     metadata_override: str | None = Form(None),
     security_groups: str | None = Form(None),
-    user: dict = Depends(verify_token),
+    context: MilvusClientContext = Depends(get_milvus_context),
 ) -> documents.UploadResponse:
     """Upload and process a document to a collection (loads config from collection).
 
@@ -189,18 +201,19 @@ async def upload_document_for_collection_endpoint(
     """
     return await documents.upload_document(
         collection_name=collection_name,
-        user=user,
+        user=context.user,
         file=file,
         markdown_content=markdown_content,
         metadata_override=metadata_override,
         security_groups=security_groups,
+        milvus_client=context.client,
     )
 
 
 @app.post("/v1/search")
 async def search_endpoint(
     request: search.SearchRequest,
-    user: dict = Depends(verify_token),
+    context: MilvusClientContext = Depends(get_milvus_context),
 ) -> search.SearchResponse:
     """Search a Milvus collection with hybrid search.
 
@@ -214,7 +227,7 @@ async def search_endpoint(
         "limit": 100
       }'
     """
-    return await search.search(request, user)
+    return await search.search(request, context)
 
 
 @app.post("/v1/tools")
@@ -235,7 +248,7 @@ async def call_tool_endpoint(request: Request) -> tools.ToolCallResponse:
 @app.post("/v1/agent", response_model=None)
 async def agent_endpoint(
     request: Request,
-    user: dict = Depends(verify_token),
+    context: MilvusClientContext = Depends(get_milvus_context),
 ) -> StreamingResponse | ChatCompletion:
     """Agentic RAG endpoint connected to a specific Milvus collection.
 
@@ -252,7 +265,7 @@ async def agent_endpoint(
         "stream": false
       }'
     """
-    return await agent.create_agent_completion(request, user=user)
+    return await agent.create_agent_completion(request, user=context.user, milvus_client=context.client)
 
 
 if __name__ == "__main__":

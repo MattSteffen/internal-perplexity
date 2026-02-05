@@ -1,13 +1,14 @@
 """Collections endpoint handler."""
 
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-from src.auth_utils import extract_username_from_token
-from src.milvus_client import get_milvus_client
+from pymilvus import MilvusClient  # type: ignore
+
+from src.milvus_client import MilvusClientContext
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,8 @@ try:
     from crawler.vector_db import CollectionDescription
 except ImportError:
     raise ImportError("crawler package not available")
+
+ACCESS_LEVELS: tuple[str, ...] = ("public", "private", "group_only", "admin")
 
 
 class CollectionInfo(BaseModel):
@@ -27,7 +30,7 @@ class CollectionInfo(BaseModel):
     num_chunks: int
     num_partitions: int
     required_roles: list[str]
-    access_level: str = "public"  # One of: "public", "private", "admin"
+    access_level: str = "public"  # One of: "public", "private", "group_only", "admin"
 
 
 class CollectionsResponse(BaseModel):
@@ -58,16 +61,29 @@ class UsersResponse(BaseModel):
 
 
 class CreateCollectionRequest(BaseModel):
-    """Request model for creating a new collection."""
+    """Request model for creating a new collection.
 
-    collection_name: str = Field(..., min_length=1, description="Name of the collection to create")
-    template_name: str | None = Field(None, description="Name of predefined template to use (e.g., 'standard', 'academic')")
-    custom_config: dict[str, Any] | None = Field(None, description="Full CrawlerConfig dict for custom pipeline")
-    config_overrides: dict[str, Any] | None = Field(None, description="Configuration overrides for predefined pipeline")
-    description: str | None = Field(None, description="Human-readable description of the collection")
-    roles: list[str] = Field(default_factory=lambda: ["public"], description="List of roles to grant read access to the collection")
-    metadata_schema: dict[str, Any] | None = Field(None, description="Optional JSON schema override for metadata")
-    access_level: str = Field(default="public", description="Access level: public, private, or admin")
+    Collection name is taken from crawler_config.database.collection.
+    """
+
+    access_level: Literal["public", "private", "group_only", "admin"] = Field(
+        default="public",
+        description="Access level for the collection",
+    )
+    access_groups: list[str] = Field(
+        default_factory=list,
+        description="List of role/group names to grant read access; required when access_level is group_only",
+    )
+    crawler_config: dict[str, Any] = Field(
+        ...,
+        description="Full CrawlerConfig JSON (must include database.collection)",
+    )
+
+    @model_validator(mode="after")
+    def validate_access_groups_when_group_only(self) -> "CreateCollectionRequest":
+        if self.access_level == "group_only" and not self.access_groups:
+            raise ValueError("access_groups must be non-empty when access_level is group_only")
+        return self
 
 
 class PipelineInfo(BaseModel):
@@ -95,7 +111,7 @@ class CreateCollectionResponse(BaseModel):
     roles: list[str]
 
 
-async def list_collections(token: str | None = None) -> CollectionsResponse:
+async def list_collections(context: MilvusClientContext) -> CollectionsResponse:
     """Handle collections listing requests.
 
     Returns all collections from Milvus with their metadata.
@@ -103,7 +119,8 @@ async def list_collections(token: str | None = None) -> CollectionsResponse:
     curl -X GET http://localhost:8000/v1/collections
     """
     try:
-        client = get_milvus_client(token)
+        client = context.client
+        token = context.token
 
         # List all collections
         collections = client.list_collections()
@@ -124,13 +141,16 @@ async def list_collections(token: str | None = None) -> CollectionsResponse:
                 )
                 # Get collection description/statistics
                 # MilvusClient.describe_collection returns collection info dict
-                collection_info_dict = client.describe_collection(collection_name)
+                try:
+                    collection_info_dict = client.describe_collection(collection_name)
+                except Exception as e:
+                    logger.warning(f"Failed to describe collection '{collection_name}': {str(e)}")
+                    continue
                 # Get num_chunks from row_count
                 collection_info.num_chunks = client.get_collection_stats(collection_name).get("row_count", 0)
-                # Get num_partitions by listing partitions
+                # Get num_partitions by listing partitions  
                 try:
                     partitions = client.list_partitions(collection_name=collection_name)
-                    print("Partitions ->", partitions)
                     collection_info.num_partitions = len(partitions) if partitions else 0
                 except Exception as e:
                     logger.warning(f"Failed to get partitions for collection '{collection_name}': {str(e)}")
@@ -143,9 +163,8 @@ async def list_collections(token: str | None = None) -> CollectionsResponse:
                     collection_info.metadata_schema = collection_desc.metadata_schema
                     collection_info.description = collection_desc.description
                     # Get access_level from database config
-                    # Valid values: "public", "private", "admin"
                     access_level = collection_desc.collection_config.database.access_level
-                    if access_level in ["public", "private", "admin"]:
+                    if access_level in ACCESS_LEVELS:
                         collection_info.access_level = access_level
                     else:
                         logger.warning(f"Invalid access_level '{access_level}' for {collection_name}, defaulting to 'public'")
@@ -174,20 +193,6 @@ async def list_collections(token: str | None = None) -> CollectionsResponse:
                     from src.endpoints.search import SearchRequest
                     from src.endpoints.search import search as search_function
 
-                    # Extract username from token for user dict
-                    username = ""
-                    if token:
-                        try:
-                            username = extract_username_from_token(token)
-                        except ValueError:
-                            logger.warning(f"Failed to extract username from token for collection '{collection_name}'")
-                            username = ""
-
-                    user_dict = {
-                        "username": username,
-                        "milvus_token": token or "",
-                    }
-
                     # Create search request with empty text, no filters, limit 10000
                     search_request = SearchRequest(
                         collection=collection_name,
@@ -197,7 +202,10 @@ async def list_collections(token: str | None = None) -> CollectionsResponse:
                     )
 
                     # Call search function to get all documents
-                    search_response = await search_function(search_request, user_dict)
+                    search_response = await search_function(search_request, context)
+                    # Crawler's db.disconnect() invalidates process-wide gRPC state; refresh app client.
+                    context.pool.invalidate(context.cache_key)
+                    client = context.pool.get(context.cache_key, token)
                     collection_info.num_documents = search_response.total
 
                 except Exception as e:
@@ -223,7 +231,7 @@ async def list_collections(token: str | None = None) -> CollectionsResponse:
         ) from e
 
 
-async def list_roles(token: str | None = None) -> RolesResponse:
+async def list_roles(client: MilvusClient) -> RolesResponse:
     """Handle roles listing requests.
 
     Returns all roles from Milvus with their privileges.
@@ -232,8 +240,6 @@ async def list_roles(token: str | None = None) -> RolesResponse:
       -H "Authorization: Bearer $TOKEN"
     """
     try:
-        client = get_milvus_client(token)
-
         # List all roles
         role_names: list[str] = client.list_roles()
         return RolesResponse(roles=role_names)
@@ -245,7 +251,7 @@ async def list_roles(token: str | None = None) -> RolesResponse:
         ) from e
 
 
-async def list_users(token: str | None = None) -> UsersResponse:
+async def list_users(client: MilvusClient) -> UsersResponse:
     """Handle users listing requests.
 
     Returns all users from Milvus with their roles.
@@ -254,8 +260,6 @@ async def list_users(token: str | None = None) -> UsersResponse:
       -H "Authorization: Bearer $TOKEN"
     """
     try:
-        client = get_milvus_client(token)
-
         # List all users
         usernames = client.list_users()
 
@@ -316,51 +320,106 @@ async def list_pipelines() -> PipelinesResponse:
     return PipelinesResponse(pipelines=pipelines)
 
 
-async def create_collection(
-    request: CreateCollectionRequest,
-    token: str | None = None,
-) -> CreateCollectionResponse:
-    """Create a new collection with access level.
+async def get_pipeline_config(name: str) -> dict[str, Any]:
+    """Return full crawler-config JSON for the given pipeline.
 
-    Can use either a template_name or custom_config to define the collection pipeline.
-
-    curl -X POST http://localhost:8000/v1/collections \
-      -H "Authorization: Bearer $TOKEN" \
-      -H "Content-Type: application/json" \
-      -d '{
-        "collection_name": "my_collection",
-        "template_name": "standard",
-        "access_level": "public"
-      }'
-
-    Or with custom config:
-
-    curl -X POST http://localhost:8000/v1/collections \
-      -H "Authorization: Bearer $TOKEN" \
-      -H "Content-Type: application/json" \
-      -d '{
-        "collection_name": "my_collection",
-        "custom_config": {...full CrawlerConfig dict...},
-        "access_level": "public"
-      }'
-
-    Args:
-        request: Collection creation request with access level settings
-        token: Milvus authentication token
+    curl -X GET http://localhost:8000/v1/pipelines/standard
 
     Returns:
-        CreateCollectionResponse with collection details
+        Full crawler config dict for the pipeline. 404 if not found.
+    """
+    from src.endpoints.pipeline_registry import get_registry
 
-    Raises:
-        HTTPException: Various error codes based on failure type
+    registry = get_registry()
+    try:
+        return registry.get(name)
+    except KeyError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Pipeline '{name}' not found. Available: {list(registry.list_pipelines())}",
+        ) from None
+
+
+def _milvus_host_port_from_uri(uri: str) -> tuple[str, int]:
+    """Parse Milvus URI into host and port for DatabaseClientConfig."""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(uri)
+    host = parsed.hostname or "localhost"
+    port = parsed.port if parsed.port is not None else 19530
+    return host, port
+
+
+def _compute_security_groups(
+    access_level: str,
+    access_groups: list[str],
+    creator_role: str,
+    base_groups: list[str] | None = None,
+) -> list[str]:
+    """Compute security_groups for the stored crawler config so app-level RBAC passes.
+
+    Ensures creator_role is always included. Deduplicates while preserving order.
+    """
+    base = list(base_groups or [])
+    if access_level == "public":
+        return list(dict.fromkeys([*base, creator_role]))
+    if access_level == "private":
+        return [creator_role]
+    if access_level == "group_only":
+        return list(dict.fromkeys([*access_groups, creator_role]))
+    if access_level == "admin":
+        return list(dict.fromkeys(["admin", creator_role]))
+    return list(dict.fromkeys([*base, creator_role]))
+
+
+def _grant_collection_privilege(
+    client: Any,
+    role_name: str,
+    privilege: str,
+    collection_name: str,
+    db_name: str = "default",
+) -> None:
+    """Grant a Milvus RBAC privilege on a collection to a role. Raises on failure."""
+    client.grant_privilege_v2(
+        role_name=role_name,
+        privilege=privilege,
+        collection_name=collection_name,
+        db_name=db_name,
+    )
+
+
+async def create_collection(
+    request: CreateCollectionRequest,
+    context: MilvusClientContext,
+) -> CreateCollectionResponse:
+    """Create a new collection from crawler_config; set security_groups and grant Milvus RBAC.
+
+    curl -X POST http://localhost:8000/v1/collections \
+      -H "Authorization: Bearer $TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "access_level": "public",
+        "access_groups": [],
+        "crawler_config": {"name": "my_collection", "database": {"collection": "my_collection", ...}, ...}
+      }'
+
+    Collection name is taken from crawler_config.database.collection.
+
+    Permission semantics:
+    - security_groups on the stored config always include the creator (username from token);
+      for public: base groups + creator; private: creator only; group_only: access_groups + creator; admin: admin + creator.
+    - Milvus RBAC: the creator role (username) and, when access_level is group_only, each access_groups role
+      are granted CollectionReadWrite on the new collection. All listed roles must exist in Milvus (400 if missing);
+      on grant failure the collection is dropped (best-effort) and 500 is returned.
     """
     from crawler import CrawlerConfig
     from crawler.vector_db import DatabaseClientConfig
 
-    from src.endpoints.pipeline_registry import get_registry
+    from src.milvus_client import _milvus_settings
 
+    token = context.token
     # Get the user name and password from the token
-    if not token or ":" not in token:
+    if ":" not in token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token format",
@@ -373,128 +432,108 @@ async def create_collection(
         )
 
     try:
-        client = get_milvus_client(token)
-
-        # Validate collection name (basic Milvus naming rules)
-        if not request.collection_name or not request.collection_name.strip():
+        # Parse CrawlerConfig from request; validate database.collection
+        db_section = request.crawler_config.get("database") or {}
+        collection_name = (db_section.get("collection") or "").strip()
+        if not collection_name:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Collection name cannot be empty",
+                detail="crawler_config.database.collection must be present and non-empty",
             )
 
-        # Check if collection already exists
+        try:
+            config = CrawlerConfig.from_dict(request.crawler_config)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid crawler_config: {str(e)}",
+            ) from e
+
+        client = context.client
         existing_collections = client.list_collections()
-        if request.collection_name in existing_collections:
+        if collection_name in existing_collections:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"Collection '{request.collection_name}' already exists",
+                detail=f"Collection '{collection_name}' already exists",
             )
 
-        # Validate access_level
-        if request.access_level not in ["public", "private", "admin"]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid access_level: {request.access_level}. Must be one of: public, private, admin",
-            )
-
-        # Build CrawlerConfig from template or custom config
-        config: CrawlerConfig
-        if request.custom_config is not None:
-            # Use custom config
-            try:
-                config = CrawlerConfig.from_dict(request.custom_config)
-            except Exception as e:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid custom_config: {str(e)}",
-                ) from e
-        elif request.template_name is not None:
-            # Use template
-            registry = get_registry()
-            if not registry.has_pipeline(request.template_name):
-                available = registry.list_pipelines()
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Template '{request.template_name}' not found. Available: {available}",
-                )
-            config = registry.get_config(request.template_name)
-        else:
-            # Default to 'standard' template
-            registry = get_registry()
-            config = registry.get_config("standard")
-
-        # Override collection name in database config
-        config.name = request.collection_name
+        # Override config: collection name, access_level, security_groups, db connection from token and backend URI
+        config.name = collection_name
         original_db_config = config.database
+        host, port = _milvus_host_port_from_uri(_milvus_settings.uri)
         db_config = DatabaseClientConfig(
             provider=original_db_config.provider,
-            collection=request.collection_name,
-            host=original_db_config.host,
-            port=original_db_config.port,
+            collection=collection_name,
+            host=host,
+            port=port,
             username=user_name,
             password=password,
             partition=original_db_config.partition,
             access_level=request.access_level,
-            recreate=False,  # Don't recreate on API creation
-            collection_description=request.description or original_db_config.collection_description,
+            recreate=False,
+            collection_description=original_db_config.collection_description,
         )
         config.database = db_config
+        base_groups = getattr(config, "security_groups", None) or []
+        config.security_groups = _compute_security_groups(
+            request.access_level,
+            request.access_groups,
+            creator_role=user_name,
+            base_groups=base_groups if isinstance(base_groups, list) else list(base_groups),
+        )
 
-        # Override metadata schema if provided
-        if request.metadata_schema:
-            config.metadata_schema = request.metadata_schema
-
-        # Override security groups based on roles
-        if request.roles:
-            config.security_groups = request.roles
-
-        # Get embedding dimension
+        # Create collection via crawler path so description is set as the crawler does
         from crawler.llm.embeddings import get_embedder
+        from crawler.vector_db.database_utils import get_db
 
         embedder = get_embedder(config.embeddings)
         embedding_dimension = embedder.get_dimension()
+        db = get_db(config.database, embedding_dimension, config)
+        db.connect(create_if_missing=True)
+        # Crawler may have invalidated process-wide gRPC state; use fresh client for RBAC
+        context.pool.invalidate(context.cache_key)
+        client = context.pool.get(context.cache_key, token)
 
-        from crawler.vector_db.database_utils import get_db
+        # Grant CollectionReadWrite to creator and (when group_only) to access_groups; fail fast on missing roles
+        creator_role = user_name
+        roles_to_grant: list[str] = [creator_role]
+        if request.access_level == "group_only":
+            roles_to_grant = list(dict.fromkeys([creator_role, *request.access_groups]))
 
-        get_db(config.database, embedding_dimension, config)
-
-        # Grant privileges to the collection for specified roles
-        # Uses CollectionReadOnly privilege to allow reading from the collection
-        granted_roles: list[str] = []
-        failed_roles: list[str] = []
-
-        for role in request.roles:
+        existing_roles = client.list_roles()
+        missing_roles = [r for r in roles_to_grant if r not in existing_roles]
+        if missing_roles:
             try:
-                # Check if role exists first
-                existing_roles = client.list_roles()
-                if role not in existing_roles:
-                    logger.warning(f"Role '{role}' does not exist, skipping privilege grant")
-                    failed_roles.append(role)
-                    continue
+                client.drop_collection(collection_name)
+            except Exception as cleanup_err:
+                logger.warning("Best-effort cleanup after missing roles failed: %s", cleanup_err)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Roles do not exist in Milvus; cannot grant privileges: {missing_roles}. "
+                "Ensure the creator and access_groups roles exist (e.g. via Milvus admin).",
+            ) from None
 
-                # Grant CollectionReadOnly privilege to the role
-                client.grant_privilege_v2(
-                    role_name=role,
-                    privilege="CollectionReadOnly",
-                    collection_name=request.collection_name,
-                    db_name="default",
+        try:
+            for role in roles_to_grant:
+                _grant_collection_privilege(
+                    client, role, "CollectionReadWrite", collection_name, db_name="default"
                 )
-                granted_roles.append(role)
-                logger.info(f"Granted CollectionReadOnly to role '{role}' on '{request.collection_name}'")
-            except Exception as e:
-                # Log warning but continue - user may not have admin permissions
-                logger.warning(f"Failed to grant privileges to role '{role}': {str(e)}")
-                failed_roles.append(role)
-
-        # Build response message
-        message = "Collection created successfully"
-        if failed_roles:
-            message += f". Note: Failed to grant privileges to roles: {failed_roles}"
+                logger.info("Granted CollectionReadWrite to role '%s' on '%s'", role, collection_name)
+        except Exception as e:
+            try:
+                client.drop_collection(collection_name)
+            except Exception as cleanup_err:
+                logger.warning("Best-effort cleanup after grant failure failed: %s", cleanup_err)
+            logger.exception("Failed to grant privileges: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Collection was created but granting privileges failed: {str(e)}",
+            ) from e
 
         return CreateCollectionResponse(
-            collection_name=request.collection_name,
-            message=message,
-            roles=granted_roles if granted_roles else request.roles,
+            collection_name=collection_name,
+            message="Collection created successfully",
+            roles=roles_to_grant,
         )
 
     except HTTPException:

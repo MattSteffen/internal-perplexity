@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 import matplotlib.pyplot as plt
 from pydantic import BaseModel, Field
 
-from ..llm.embeddings import EmbedderConfig
+from ..llm.embeddings import Embedder, EmbedderConfig
 
 if TYPE_CHECKING:
     from ..config import CrawlerConfig
@@ -351,7 +351,7 @@ class DatabaseClientConfig(BaseModel):
     provider: str = Field(..., min_length=1, description="Database provider name (e.g., 'milvus')")
     collection: str = Field(..., min_length=1, description="Name of the database collection or table")
     partition: str | None = Field(default=None, description="Optional partition name for data organization within the collection")
-    access_level: str = Field(default="public", description="Access level of the collection: public, private, admin")
+    access_level: str = Field(default="public", description="Access level of the collection: public, private, group_only, admin")
     recreate: bool = Field(default=False, description="If True, drop and recreate the collection if it already exists")
     collection_description: str | None = Field(default=None, description="Optional human-readable description of the collection")
     host: str = Field(default="localhost", description="Database server hostname or IP address")
@@ -462,6 +462,7 @@ class DatabaseClient(ABC):
         config: DatabaseClientConfig,
         embedding_dimension: int,
         crawler_config: "CrawlerConfig",
+        embedder: "Embedder | None" = None,
     ):
         """
         Initialize the database client without connecting.
@@ -470,6 +471,7 @@ class DatabaseClient(ABC):
             config: Database-specific configuration parameters
             embedding_dimension: Vector embedding dimensionality
             crawler_config: CrawlerConfig containing collection configuration
+            embedder: Optional embedder for search operations (can be set later)
         """
         pass
 

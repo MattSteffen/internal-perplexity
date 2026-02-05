@@ -65,7 +65,7 @@
    - **Authentication module:** Handles Keycloak/GitLab integration and user identity.
    - **Chat engine module:** Routes chat completions to local models or external LLMs.
    - **Tool engine:** Handles both native tools and dynamic tool calls returned by the LLM.
-   - **Data module:** Manages file uploads, document ingestion, and metadata.
+   - **Data module:** Manages file uploads, document ingestion, and metadata. Document upload (file or pre-processed markdown) always goes through the crawler's `Crawler.crawl_document`; the crawler skips convert and extract when markdown/metadata are already set on the document.
    - **Streaming controller:** Manages server-sent events for chat streaming.
 *As much as possible, I want to avoid creating my own types and objects, but using packages like openai or litellm. As they should be able to handle things like streaming for me. All LLM calls will also be sent through them, so I am almost just a proxy*
 

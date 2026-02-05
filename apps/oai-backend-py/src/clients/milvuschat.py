@@ -16,12 +16,13 @@ from openai.types.chat import (
 from pymilvus import MilvusClient
 
 from src.config import radchat_config, settings
+from src.milvus_client import get_milvus_uri
+from src.tools import tool_registry
 from src.tools.milvus_search import (
     CollectionNotFoundError,
-    MilvusDocument,
-    connect_milvus,
     consolidate_documents,
-    perform_search,
+    render_document,
+    search,
 )
 
 logger = logging.getLogger(__name__)
@@ -141,7 +142,6 @@ def build_system_prompt(
 
 
 def get_metadata_summary(
-    client: MilvusClient,
     collection_name: str,
     token: str | None = None,
     limit: int = 50,
@@ -149,35 +149,34 @@ def get_metadata_summary(
     """Get a summary of documents in the collection.
 
     Args:
-        client: MilvusClient instance
         collection_name: Name of the collection
-        token: Authentication token
+        token: Authentication token (username:password)
         limit: Maximum number of documents to summarize
 
     Returns:
         List of formatted metadata strings
     """
-    from src.tools.milvus_search import perform_query
-
     try:
-        all_docs = consolidate_documents(perform_query([], client, collection_name, token))[:limit]
+        search_results = search(text=None, filters=[], token=token, collection_name=collection_name, limit=limit)
+        all_docs = consolidate_documents(search_results)[:limit]
     except Exception as e:
         logger.warning(f"Failed to get metadata summary: {e}")
         return ["Unable to retrieve document metadata"]
 
     summaries = []
     for doc in all_docs:
+        meta = doc.metadata or {}
         summary_parts = []
-        if doc.metadata.title:
-            summary_parts.append(f"Title: {doc.metadata.title}")
-        if doc.metadata.author:
-            authors = doc.metadata.author
+        if meta.get("title"):
+            summary_parts.append(f"Title: {meta['title']}")
+        if meta.get("author"):
+            authors = meta["author"]
             if isinstance(authors, list):
                 summary_parts.append(f"Authors: {', '.join(authors[:3])}")
             else:
                 summary_parts.append(f"Author: {authors}")
-        if doc.metadata.date:
-            summary_parts.append(f"Date: {doc.metadata.date}")
+        if meta.get("date"):
+            summary_parts.append(f"Date: {meta['date']}")
         if summary_parts:
             summaries.append("\n".join(summary_parts))
 
@@ -203,6 +202,7 @@ class MilvusChatClient:
         stream: bool = False,
         collection: str | None = None,
         token: str | None = None,
+        milvus_client: MilvusClient | None = None,
         **kwargs: Any,
     ) -> ChatCompletion | AsyncIterator[ChatCompletionChunk]:
         """Create a chat completion using MilvusChat agent.
@@ -221,12 +221,19 @@ class MilvusChatClient:
         if not collection:
             raise ValueError("collection parameter is required for MilvusChat")
 
+        # The chat endpoint may inject a global `tools` list into kwargs.
+        # MilvusChat intentionally restricts tools to only its `search` tool,
+        # and we pass that explicitly to the internal completion methods.
+        # Remove any incoming `tools` to avoid "multiple values for keyword" errors.
+        kwargs.pop("tools", None)
+
         # Connect to Milvus
         try:
-            milvus_client = connect_milvus(
-                token=token,
-                collection_name=collection,
-            )
+            if milvus_client is None:
+                milvus_client = MilvusClient(uri=get_milvus_uri(), token=token)
+            if not milvus_client.has_collection(collection_name=collection):
+                raise CollectionNotFoundError(collection)
+            milvus_client.load_collection(collection_name=collection)
         except CollectionNotFoundError as e:
             error_msg = f"Collection '{e.collection_name}' not found"
             if stream:
@@ -293,25 +300,25 @@ class MilvusChatClient:
                 break
 
         # Perform initial search
-        initial_results: list[MilvusDocument] = []
+        initial_results: list[Any] = []
         if user_query:
             try:
-                initial_results = perform_search(
-                    client=milvus_client,
+                search_results = search(
+                    text=user_query,
                     queries=[user_query],
                     filters=[],
                     collection_name=collection,
                     token=token,
                 )
-                initial_results = consolidate_documents(initial_results)
+                initial_results = consolidate_documents(search_results)
             except Exception as e:
                 logger.warning(f"Initial search failed: {e}")
 
         # Build preliminary context
-        preliminary_context = "\n\n".join([doc.render(include_text=True) for doc in initial_results[:5]]) if initial_results else "No preliminary results found."
+        preliminary_context = "\n\n".join([render_document(doc, include_text=True) for doc in initial_results[:5]]) if initial_results else "No preliminary results found."
 
         # Get database metadata summary
-        metadata_list = get_metadata_summary(milvus_client, collection, token)
+        metadata_list = get_metadata_summary(collection, token)
         database_metadata = "\n\n".join(metadata_list)
 
         # Build system prompt
@@ -330,30 +337,14 @@ class MilvusChatClient:
         else:
             all_messages = [{"role": "system", "content": system_prompt}] + messages
 
-        # Search tool schema
-        search_tool_schema = {
-            "type": "function",
-            "function": {
-                "name": "search",
-                "description": "Performs semantic search on the document collection.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "queries": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "List of queries for semantic search",
-                        },
-                        "filters": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "List of filter expressions",
-                            "default": [],
-                        },
-                    },
-                },
-            },
-        }
+        search_tool_definitions = [
+            tool_def
+            for tool_def in tool_registry.get_tool_definitions()
+            if tool_def.get("function", {}).get("name") == "search"
+        ]
+        if not search_tool_definitions:
+            raise RuntimeError("Search tool definition not found in tool registry")
+        search_tool_schema = search_tool_definitions[0]
 
         # Create completion with agentic loop
         if stream:
@@ -387,7 +378,7 @@ class MilvusChatClient:
         milvus_client: MilvusClient,
         collection: str,
         token: str | None,
-        initial_results: list[MilvusDocument],
+        initial_results: list[Any],
         **kwargs: Any,
     ) -> AsyncIterator[ChatCompletionChunk]:
         """Handle streaming completion with tool calling."""
@@ -467,21 +458,28 @@ class MilvusChatClient:
 
                 if function_name == "search":
                     try:
-                        results = perform_search(
-                            client=milvus_client,
-                            queries=function_args.get("queries", []),
-                            filters=function_args.get("filters", []),
-                            collection_name=collection,
+                        text = function_args.get("text")
+                        queries = function_args.get("queries", [])
+                        filters = function_args.get("filters", [])
+                        collection_name = function_args.get("collection_name") or collection
+                        partition_name = function_args.get("partition_name")
+                        results = search(
+                            text=text,
+                            queries=queries,
+                            filters=filters,
+                            collection_name=collection_name,
+                            partition_name=partition_name,
                             token=token,
                         )
                         consolidated = consolidate_documents(results)
                         all_sources.extend(consolidated)
 
-                        rendered = "\n\n".join([d.render(include_text=True) for d in consolidated]) if consolidated else "No documents found"
+                        rendered = "\n\n".join([render_document(d, include_text=True) for d in consolidated]) if consolidated else "No documents found"
 
                         current_messages.append(
                             {
                                 "role": "tool",
+                                "tool_call_id": tool.get("id") or "",
                                 "content": rendered,
                                 "name": function_name,
                             }
@@ -490,6 +488,7 @@ class MilvusChatClient:
                         current_messages.append(
                             {
                                 "role": "tool",
+                                "tool_call_id": tool.get("id") or "",
                                 "content": f"Search error: {str(e)}",
                                 "name": function_name,
                             }
@@ -498,6 +497,7 @@ class MilvusChatClient:
                     current_messages.append(
                         {
                             "role": "tool",
+                            "tool_call_id": tool.get("id") or "",
                             "content": f"Unknown tool: {function_name}",
                             "name": function_name,
                         }
@@ -526,7 +526,7 @@ class MilvusChatClient:
         milvus_client: MilvusClient,
         collection: str,
         token: str | None,
-        initial_results: list[MilvusDocument],
+        initial_results: list[Any],
         **kwargs: Any,
     ) -> ChatCompletion:
         """Handle non-streaming completion with tool calling."""
@@ -588,17 +588,23 @@ class MilvusChatClient:
 
                 if function_name == "search":
                     try:
-                        results = perform_search(
-                            client=milvus_client,
-                            queries=function_args.get("queries", []),
-                            filters=function_args.get("filters", []),
-                            collection_name=collection,
+                        text = function_args.get("text")
+                        queries = function_args.get("queries", [])
+                        filters = function_args.get("filters", [])
+                        collection_name = function_args.get("collection_name") or collection
+                        partition_name = function_args.get("partition_name")
+                        results = search(
+                            text=text,
+                            queries=queries,
+                            filters=filters,
+                            collection_name=collection_name,
+                            partition_name=partition_name,
                             token=token,
                         )
                         consolidated = consolidate_documents(results)
                         all_sources.extend(consolidated)
 
-                        rendered = "\n\n".join([d.render(include_text=True) for d in consolidated]) if consolidated else "No documents found"
+                        rendered = "\n\n".join([render_document(d, include_text=True) for d in consolidated]) if consolidated else "No documents found"
 
                         current_messages.append(
                             {

@@ -72,7 +72,7 @@ class MilvusDB(DatabaseClient):
         self,
         config: DatabaseClientConfig,
         embedding_dimension: int,
-        crawler_config: "CrawlerConfig",
+        crawler_config: "CrawlerConfig | None" = None,
         embedder: "Embedder | None" = None,
     ):
         """
@@ -81,7 +81,7 @@ class MilvusDB(DatabaseClient):
         Args:
             config: DatabaseClientConfig instance with connection parameters
             embedding_dimension: Vector embedding dimensionality
-            crawler_config: CrawlerConfig containing collection configuration
+            crawler_config: CrawlerConfig for collection configuration; required only for create_collection
             embedder: Optional embedder for search operations (can be set later)
         """
         self.config = config
@@ -253,6 +253,11 @@ class MilvusDB(DatabaseClient):
         """
         Internal method to create a new collection with the specified schema.
         """
+        if self.crawler_config is None:
+            raise RuntimeError(
+                "crawler_config is required to create a collection. "
+                "Pass CrawlerConfig when instantiating MilvusDB for create_collection."
+            )
         collection_schema = create_schema(
             self.embedding_dimension,
             self.crawler_config,
@@ -310,42 +315,57 @@ class MilvusDB(DatabaseClient):
         limit: int = 10,
     ) -> list[SearchResult]:
         """
-        Hybrid search combining dense and sparse vectors.
+        Hybrid search or filter-only query.
 
-        Performs a multi-vector search using:
-        - Dense embeddings (text_embedding) for semantic similarity
-        - Sparse embeddings (text_sparse_embedding) for keyword matching
-        - Sparse metadata embeddings for metadata-based search
-
-        Results are ranked using Reciprocal Rank Fusion (RRF).
+        When texts is non-empty: hybrid search combining dense and sparse vectors
+        (dense embeddings, BM25 text, BM25 metadata), ranked with RRF.
+        When texts is empty: filter-only query (no embedding); returns chunks
+        matching the filter and security group, with distance=1.0 / score=0.0.
 
         Args:
-            texts: Query texts to search for (will be embedded)
+            texts: Query texts to search for (will be embedded). Empty list => filter-only query.
             filters: Optional Milvus filter expressions
             limit: Maximum number of results to return
 
         Returns:
-            List of SearchResult objects sorted by relevance
+            List of SearchResult objects
 
         Raises:
-            RuntimeError: If not connected or embedder not set
+            RuntimeError: If not connected or (for hybrid search) embedder not set
         """
         self._require_connected()
 
-        if not texts:
-            return []
-
-        # Build filter string with security groups
+        # Build filter string with security groups (used for both hybrid and query-only)
         all_filters = list(filters or [])
-
-        # Add security group filter
         all_filters.insert(
             0, f"array_contains_any(security_group, {list[str](self._user_security_groups)})"
         )
-
         filter_str = " and ".join(all_filters) if all_filters else ""
 
-        # Build search requests
+        # Filter-only path: no query text => use Milvus query
+        if not texts:
+            try:
+                results = self._client.query(
+                    collection_name=self.config.collection,
+                    filter=filter_str,
+                    output_fields=DEFAULT_OUTPUT_FIELDS,
+                    limit=limit,
+                )
+            except MilvusException as e:
+                raise RuntimeError(f"Filter-only query failed: {e}") from e
+            search_results = []
+            for row in results or []:
+                row = dict(row)
+                row["distance"] = 1.0
+                try:
+                    search_results.append(
+                        SearchResult.from_milvus_hit(row, DEFAULT_OUTPUT_FIELDS)
+                    )
+                except Exception:
+                    continue
+            return search_results
+
+        # Build search requests for hybrid path
         search_requests = []
 
         for text in texts:

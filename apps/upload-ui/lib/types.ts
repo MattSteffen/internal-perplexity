@@ -56,6 +56,20 @@ export interface CollectionsResponse {
   collections: Record<string, CollectionInfo>;
 }
 
+/** Pipeline template from GET /v1/pipelines (backend PipelineInfo). */
+export interface PipelineInfo {
+  name: string;
+  description: string;
+  metadata_schema: Record<string, unknown>;
+  chunk_size: number;
+  embedding_model: string;
+  llm_model: string;
+}
+
+export interface PipelinesResponse {
+  pipelines: PipelineInfo[];
+}
+
 export interface Collection {
   name: string;
   description?: string;
@@ -98,7 +112,14 @@ export interface User {
   roles: string[];
 }
 
-export type AccessLevel = "public" | "private" | "admin";
+export type AccessLevel = "public" | "private" | "group_only" | "admin";
+
+/** Request body for POST /v1/collections. Collection name comes from crawler_config.database.collection. */
+export interface CreateCollectionRequest {
+  access_level: AccessLevel;
+  access_groups?: string[];
+  crawler_config: Record<string, unknown>;
+}
 
 export interface CollectionMetadataJson {
   description?: string; // Old format - kept for backward compatibility

@@ -203,6 +203,23 @@ async def create_chat_completion(
             "username": user.get("username"),
         }
 
+    model_name = str(model).lower()
+    if model_name == "milvuschat":
+        if not other_params.get("collection"):
+            raise HTTPException(
+                status_code=400,
+                detail="Missing required field for milvuschat: 'collection'",
+            )
+        if not other_params.get("token"):
+            inferred_token = user_metadata.get("milvus_token") if user_metadata else None
+            if inferred_token:
+                other_params["token"] = inferred_token
+            else:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Milvus token is required for milvuschat",
+                )
+
     # Add tools to the request if not explicitly provided
     # User can override by providing their own tools parameter
     if "tools" not in other_params:

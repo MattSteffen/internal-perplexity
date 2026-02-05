@@ -80,9 +80,11 @@ Concrete implementation of DatabaseClient for Milvus vector database:
 
 Implements the complete DatabaseClient interface for Milvus with:
 - Connection management with state tracking
-- Hybrid search (dense + sparse vectors)
+- Hybrid search (dense + sparse vectors) and filter-only query
 - Full CRUD operations
 - Security group filtering
+
+`crawler_config` is optional: required only for `create_collection()`. When connecting to an existing collection for search/query only, pass `crawler_config=None`. When `search(texts=[], ...)` is called with no query text, MilvusDB performs a filter-only Milvus query (no embedding); results use `distance=1.0` / `score=0.0`.
 
 **Connection Lifecycle:**
 ```python
@@ -107,7 +109,7 @@ db.disconnect()
 - `connect(create_if_missing=False)` - Establishes connection, optionally creates collection
 - `disconnect()` - Closes connection (safe to call multiple times)
 - `is_connected()` - Returns connection state
-- `search(texts, filters, limit)` - Hybrid search with RRF ranking
+- `search(texts, filters, limit)` - Hybrid search with RRF ranking; if `texts` is empty, runs filter-only query (no embedding)
 - `get_chunk(id)` - Get single chunk by database ID
 - `get_document(document_id)` - Get all chunks for a document
 - `upsert(documents)` - Insert or update documents (uses source+chunk_index as key)

@@ -326,23 +326,46 @@ curl -X GET http://localhost:8000/v1/roles \
 }
 ```
 
+#### `GET /v1/pipelines`
+
+List available pipeline templates (e.g. standard, academic). Each item includes name, description, metadata_schema, chunk_size, embedding_model, llm_model.
+
+**No authentication required**
+
+**Example:**
+```bash
+curl -X GET http://localhost:8000/v1/pipelines
+```
+
+#### `GET /v1/pipelines/{name}`
+
+Return the full crawler-config JSON for the given pipeline template. Used by the create-collection UI to populate the config when a template is selected. Returns 404 if the pipeline name is not found.
+
+**No authentication required**
+
+**Example:**
+```bash
+curl -X GET http://localhost:8000/v1/pipelines/standard
+```
+
+**Response:** JSON object (full crawler config: database, embeddings, llm, converter, extractor, chunking, etc.)
+
 #### `POST /v1/collections`
 
-Create a new collection with pipeline configuration and permissions.
+Create a new collection from a full CrawlerConfig JSON. Collection name is taken from `crawler_config.database.collection`. When `access_level` is `group_only`, `access_groups` must be non-empty and is used for security_groups and role grants.
 
 **Requires authentication** (JWT token with Milvus credentials)
 
 **Request Body:**
 ```json
 {
-  "collection_name": "my_collection",
-  "pipeline_name": "irads",
-  "config_overrides": {
-    "embedding_model": "nomic-embed-text"
-  },
-  "description": "My collection description",
   "access_level": "public",
-  "metadata_schema": {}
+  "access_groups": [],
+  "crawler_config": {
+    "name": "my_collection",
+    "database": { "collection": "my_collection", ... },
+    ...
+  }
 }
 ```
 
@@ -352,9 +375,9 @@ curl -X POST http://localhost:8000/v1/collections \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "collection_name": "my_collection",
-    "pipeline_name": "irads",
-    "access_level": "public"
+    "access_level": "public",
+    "access_groups": [],
+    "crawler_config": {"name": "my_collection", "database": {"collection": "my_collection", ...}, ...}
   }'
 ```
 
@@ -363,19 +386,14 @@ curl -X POST http://localhost:8000/v1/collections \
 {
   "collection_name": "my_collection",
   "message": "Collection created successfully",
-  "pipeline_name": "irads",
-  "access_level": "public"
+  "roles": []
 }
 ```
 
 **Request Fields:**
-- `collection_name` (string, required): Name of the collection to create
-- `pipeline_name` (string, optional): Name of predefined pipeline to use (required if `custom_config` not provided)
-- `custom_config` (object, optional): Full CrawlerConfig dict for custom pipeline (required if `pipeline_name` not provided)
-- `config_overrides` (object, optional): Configuration overrides for predefined pipeline
-- `description` (string, optional): Human-readable description of the collection
-- `access_level` (string, optional): Access level - `"public"`, `"private"`, or `"admin"` (default: `"public"`)
-- `metadata_schema` (object, optional): Optional JSON schema override for metadata
+- `access_level` (string, optional): `"public"`, `"private"`, `"group_only"`, or `"admin"` (default: `"public"`)
+- `access_groups` (array of string, optional): List of role/group names to grant read access; required when `access_level` is `group_only`
+- `crawler_config` (object, required): Full CrawlerConfig JSON; must include `database.collection`
 
 ### Document Processing
 
@@ -545,11 +563,13 @@ curl -X POST http://localhost:8000/v1/tools \
 
 **Tool: `search`**
 - **Arguments:**
-  - `query` (string, required): Search query
-  - `collection_name` (string, optional): Collection to search
+  - `text` (string, optional): Query text for semantic search
+  - `queries` (array of strings, optional): Alternative to text; first non-empty used
+  - `filters` (array of strings, optional): Milvus filter expressions
+  - `collection_name` (string, optional): Collection to search (default from env IRAD_COLLECTION_NAME)
   - `partition_name` (string, optional): Partition to search
-  - `limit` (integer, optional): Maximum number of results
-- **Returns:** JSON string with search results
+- **Behavior:** If no text or queries provided, runs filter-only query (returns documents matching filters).
+- **Returns:** JSON string with rendered document markdown
 
 ## Examples
 

@@ -1,18 +1,23 @@
 """Document pipeline upload endpoint handler."""
 
 import json
+import logging
+import time
 import uuid
 from pathlib import Path
 from typing import Any
 
-from crawler import Crawler
+from crawler import Crawler, CrawlerConfig
+from crawler.document import Document
 from crawler.vector_db import CollectionDescription
 from fastapi import Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel
+from pymilvus import MilvusClient  # type: ignore
 
 from src.auth_utils import verify_token
 from src.endpoints.pipeline_registry import get_registry
-from src.milvus_client import get_milvus_client
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigOverrides(BaseModel):
@@ -43,10 +48,51 @@ class UploadResponse(BaseModel):
     processing_time_sec: float = 0.0
 
 
+def _load_config_from_collection(
+    collection_name: str, milvus_client: MilvusClient
+) -> tuple[CrawlerConfig, CollectionDescription]:
+    """Load CrawlerConfig and CollectionDescription from a collection. Raises HTTPException on failure."""
+    if not milvus_client.has_collection(collection_name):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Collection '{collection_name}' not found",
+        )
+    description = milvus_client.describe_collection(collection_name).get("description", "")
+    if not description:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Collection '{collection_name}' does not have a description",
+        )
+    collection_desc = CollectionDescription.from_json(description)
+    if not collection_desc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to parse collection description for '{collection_name}'",
+        )
+    return collection_desc.collection_config, collection_desc
+
+
+def _parse_security_groups(
+    security_groups: str | None, default: list[str]
+) -> list[str]:
+    """Parse security_groups JSON string or return default. Raises HTTPException on invalid JSON."""
+    if not security_groups:
+        return default
+    try:
+        parsed = json.loads(security_groups)
+        return parsed if isinstance(parsed, list) else [parsed]
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid security_groups JSON format",
+        )
+
+
 async def process_document(
     file: UploadFile = File(...),
     collection_name: str | None = Form(None),
     user: dict[str, Any] = Depends(verify_token),
+    milvus_client: MilvusClient | None = None,
 ) -> ProcessedDocument:
     """Process a document to extract metadata and markdown without uploading.
 
@@ -67,11 +113,6 @@ async def process_document(
     Raises:
         HTTPException: Various error codes based on failure type
     """
-    import uuid
-    from pathlib import Path
-
-    from crawler.document import Document
-
     temp_file_path: Path | None = None
 
     try:
@@ -83,32 +124,20 @@ async def process_document(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Milvus token is required for database access",
                 )
-            db = get_milvus_client(milvus_token)
-            if db.has_collection(collection_name):
-                description = db.describe_collection(collection_name).get("description", "")
-                if description:
-                    collection_desc = CollectionDescription.from_json(description)
-                    config = collection_desc.collection_config
-                else:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Collection '{collection_name}' does not have a description",
-                    )
-            else:
+            if milvus_client is None:
                 raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Collection '{collection_name}' not found",
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Milvus client dependency is missing",
                 )
+            config, _ = _load_config_from_collection(collection_name, milvus_client)
         else:
-            # Use standard template config for processing
             registry = get_registry()
-            config = registry.get_config("standard")
+            config = CrawlerConfig.from_dict(registry.get("standard"))
 
         # Save uploaded file to temporary location
-        file_ext = Path(file.filename or "document").suffix
         temp_dir = Path(config.temp_dir)
         temp_dir.mkdir(parents=True, exist_ok=True)
-        temp_file_path = temp_dir / f"process_{uuid.uuid4()}{file_ext}"
+        temp_file_path = temp_dir / file.filename
 
         # Write file content
         with open(temp_file_path, "wb") as f:
@@ -163,18 +192,23 @@ async def upload_document(
     markdown_content: str | None = None,
     metadata_override: str | None = None,
     security_groups: str | None = None,
+    milvus_client: MilvusClient | None = None,
 ) -> UploadResponse:
     """Upload and process a document to a collection.
 
-    Supports two modes:
-    1. Upload a raw file for processing (converts and extracts metadata)
-    2. Upload pre-processed markdown with metadata (skips conversion/extraction)
+    Both modes use the crawler's crawl_document pipeline. The crawler skips
+    convert and extract when markdown/metadata are already set on the document.
+
+    Modes:
+    1. File: upload a raw file; crawler converts, extracts, chunks, embeds, upserts.
+    2. Pre-processed: provide markdown_content (and optional metadata_override);
+       crawler skips convert/extract and runs chunk, embed, upsert.
 
     curl -X POST http://localhost:8000/v1/collections/{collection_name}/upload \
       -H "Authorization: Bearer $TOKEN" \
       -F "file=@document.pdf"
 
-    Or with pre-processed content:
+    Pre-processed:
 
     curl -X POST http://localhost:8000/v1/collections/{collection_name}/upload \
       -H "Authorization: Bearer $TOKEN" \
@@ -196,10 +230,6 @@ async def upload_document(
     Raises:
         HTTPException: Various error codes based on failure type
     """
-    import logging
-    import time
-
-    logger = logging.getLogger(__name__)
     start_time = time.time()
     temp_file_path: Path | None = None
 
@@ -227,6 +257,7 @@ async def upload_document(
             )
 
         # Parse username from token for RBAC check
+        # TODO: There should be a function to parse the token into a username and password.
         if ":" not in milvus_token:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -234,29 +265,14 @@ async def upload_document(
             )
         username, password = milvus_token.split(":", 1)
 
-        # Load collection config
         logger.info(f"Loading config from collection '{collection_name}'...")
-        db = get_milvus_client(milvus_token)
-        if not db.has_collection(collection_name):
+        if milvus_client is None:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Collection '{collection_name}' not found",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Milvus client dependency is missing",
             )
-
-        description = db.describe_collection(collection_name).get("description", "")
-        if not description:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Collection '{collection_name}' does not have a description",
-            )
-
-        collection_desc = CollectionDescription.from_json(description)
-        if not collection_desc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to parse collection description for '{collection_name}'",
-            )
-        config = collection_desc.collection_config
+        config, collection_desc = _load_config_from_collection(collection_name, milvus_client)
+        db = milvus_client
 
         # RBAC check: verify user has write access to collection
         # Check if user's roles include any of the collection's security groups
@@ -277,18 +293,9 @@ async def upload_document(
             logger.warning(f"Failed to check user permissions for '{username}': {e}")
             # Continue if RBAC check fails (graceful degradation)
 
-        # Parse security groups override if provided
-        doc_security_groups = config.security_groups or ["public"]
-        if security_groups:
-            try:
-                doc_security_groups = json.loads(security_groups)
-                if not isinstance(doc_security_groups, list):
-                    doc_security_groups = [doc_security_groups]
-            except json.JSONDecodeError:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Invalid security_groups JSON format",
-                )
+        doc_security_groups = _parse_security_groups(
+            security_groups, config.security_groups or ["public"]
+        )
 
         # Override database config to use user's token
         config.database = config.database.copy_with_overrides(
@@ -307,14 +314,10 @@ async def upload_document(
                 detail=f"Failed to connect to vector database: {str(e)}",
             ) from e
 
-        # Handle pre-processed content vs file upload
-        from crawler.document import Document
-
+        # Build document and run crawler pipeline (both modes use crawl_document)
         if markdown_content is not None:
-            # Pre-processed mode: use provided markdown and metadata
+            # Pre-processed mode: markdown and metadata set; crawler skips convert/extract
             logger.info("Using pre-processed markdown content...")
-
-            # Parse metadata override if provided
             metadata = {}
             if metadata_override:
                 try:
@@ -324,77 +327,46 @@ async def upload_document(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail="Invalid metadata_override JSON format",
                     )
-
-            # Create document with pre-processed content
             document = Document.create(
                 source=f"api_upload_{uuid.uuid4()}",
                 security_group=doc_security_groups,
             )
             document.markdown = markdown_content
             document.metadata = metadata
-
-            # Skip conversion and extraction, directly chunk and embed
-            try:
-                crawler.chunker.chunk(document)
-                crawler.embedder.embed(document)
-                crawler.db.insert(document)
-            except Exception as e:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Failed to upload pre-processed document: {str(e)}",
-                ) from e
-
-            document_id = document.document_id
-            chunks_created = len(document.chunks) if document.chunks else 0
-
         else:
-            # File upload mode: full processing pipeline
+            # File upload mode: save to temp path, optional metadata override
             logger.info("Processing uploaded file...")
-
-            # Save uploaded file to temporary location
-            file_ext = Path(file.filename or "document").suffix
             temp_dir = Path(config.temp_dir)
             temp_dir.mkdir(parents=True, exist_ok=True)
-            temp_file_path = temp_dir / f"upload_{uuid.uuid4()}{file_ext}"
-
-            # Write file content
+            temp_file_path = temp_dir / file.filename
             with open(temp_file_path, "wb") as f:
                 content = await file.read()
                 f.write(content)
-
-            # Create document and process
             document = Document.create(
                 source=str(temp_file_path),
                 security_group=doc_security_groups,
             )
 
-            # Apply metadata override if provided (will be merged with extracted)
-            if metadata_override:
-                try:
-                    override_meta = json.loads(metadata_override)
-                    document.metadata = override_meta
-                except json.JSONDecodeError:
-                    pass  # Ignore invalid JSON, use extracted metadata
-
-            try:
-                logger.info("Crawling document...")
-                crawler.crawl_document(document)
-            except Exception as e:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Failed to process document: {str(e)}",
-                ) from e
-
-            document_id = document.document_id
-            chunks_created = len(document.chunks) if document.chunks else 0
+        try:
+            logger.info("Crawling document...")
+            success, num_chunks = crawler.crawl_document(document)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to process document: {str(e)}",
+            ) from e
 
         processing_time = time.time() - start_time
-
+        message = (
+            "Document already exists"
+            if not success
+            else "Document processed and uploaded successfully"
+        )
         return UploadResponse(
-            message="Document processed and uploaded successfully",
+            message=message,
             collection_name=collection_name,
-            document_id=document_id,
-            chunks_created=chunks_created,
+            document_id=document.document_id,
+            chunks_created=num_chunks if success else 0,
             processing_time_sec=processing_time,
         )
 

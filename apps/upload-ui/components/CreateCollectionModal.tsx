@@ -1,29 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { AccessLevel, CreateCollectionRequest, PipelineInfo } from "@/lib/types";
+import { fetchPipelines, fetchPipelineConfig } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 interface CreateCollectionModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreate: (data: CreateCollectionData) => Promise<void>;
+  onCreate: (data: CreateCollectionRequest) => Promise<void>;
 }
 
-export interface CreateCollectionData {
-  collection_name: string;
-  template_name?: string | null;
-  custom_config: Record<string, unknown> | null;
-  config_overrides: Record<string, unknown> | null;
-  description: string | null;
-  roles?: string[] | null;
-  access_level: "public" | "private" | "admin";
-  metadata_schema: Record<string, unknown> | null;
-}
-
-const getDefaultConfig = () => {
+const getDefaultConfig = (collectionName: string) => {
   const ollamaBaseUrl = process.env.NEXT_PUBLIC_OLLAMA_BASE_URL || "http://localhost:11434";
   return {
+    name: collectionName,
     embeddings: {
       type: "ollama",
       model: "all-minilm:v2",
@@ -42,7 +34,7 @@ const getDefaultConfig = () => {
     },
     database: {
       provider: "milvus",
-      collection: "",
+      collection: collectionName,
       host: "localhost",
       port: 19530,
       username: "root",
@@ -72,7 +64,12 @@ const getDefaultConfig = () => {
   };
 };
 
-const DEFAULT_CONFIG = getDefaultConfig();
+const ACCESS_LEVELS: { value: AccessLevel; label: string }[] = [
+  { value: "public", label: "Public" },
+  { value: "private", label: "Private" },
+  { value: "group_only", label: "Group only" },
+  { value: "admin", label: "Admin" },
+];
 
 export function CreateCollectionModal({
   isOpen,
@@ -80,14 +77,42 @@ export function CreateCollectionModal({
   onCreate,
 }: CreateCollectionModalProps) {
   const [collectionName, setCollectionName] = useState("");
-  const [description, setDescription] = useState("");
-  const [pipelineType, setPipelineType] = useState<"predefined" | "custom">("predefined");
-  const [configOverrides, setConfigOverrides] = useState("{}");
-  const [customConfig, setCustomConfig] = useState(JSON.stringify(DEFAULT_CONFIG, null, 2));
-  const [accessLevel, setAccessLevel] = useState<"public" | "private" | "admin">("public");
-  const [metadataSchema, setMetadataSchema] = useState("{}");
+  const [accessLevel, setAccessLevel] = useState<AccessLevel>("public");
+  const [accessGroupsStr, setAccessGroupsStr] = useState("");
+  const [crawlerConfigStr, setCrawlerConfigStr] = useState("");
+  const [pipelines, setPipelines] = useState<PipelineInfo[]>([]);
+  const [selectedPipelineName, setSelectedPipelineName] = useState("");
+  const [loadingPipelines, setLoadingPipelines] = useState(false);
+  const [loadingConfig, setLoadingConfig] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // When modal opens, fetch pipeline list and reset pipeline/config state
+  useEffect(() => {
+    if (!isOpen) return;
+    setSelectedPipelineName("");
+    setCrawlerConfigStr("");
+    setError(null);
+    setLoadingPipelines(true);
+    fetchPipelines()
+      .then((list) => setPipelines(list))
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load pipelines"))
+      .finally(() => setLoadingPipelines(false));
+  }, [isOpen]);
+
+  const handlePipelineChange = (name: string) => {
+    setSelectedPipelineName(name);
+    if (!name) {
+      setCrawlerConfigStr("");
+      return;
+    }
+    setLoadingConfig(true);
+    setError(null);
+    fetchPipelineConfig(name)
+      .then((config) => setCrawlerConfigStr(JSON.stringify(config, null, 2)))
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load pipeline config"))
+      .finally(() => setLoadingConfig(false));
+  };
 
   if (!isOpen) return null;
 
@@ -100,46 +125,58 @@ export function CreateCollectionModal({
       return;
     }
 
+    if (accessLevel === "group_only") {
+      const groups = accessGroupsStr
+        .split(/[\s,]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (groups.length === 0) {
+        setError("At least one access group is required when access level is Group only");
+        return;
+      }
+    }
+
     try {
       setIsCreating(true);
 
-      let parsedConfigOverrides: Record<string, unknown> | null = null;
-      let parsedCustomConfig: Record<string, unknown> | null = null;
-      let parsedMetadataSchema: Record<string, unknown> | null = null;
-
-      if (pipelineType === "predefined") {
-        if (configOverrides.trim()) {
-          parsedConfigOverrides = JSON.parse(configOverrides);
+      let crawlerConfig: Record<string, unknown>;
+      if (crawlerConfigStr.trim()) {
+        try {
+          crawlerConfig = JSON.parse(crawlerConfigStr) as Record<string, unknown>;
+        } catch {
+          setError("Crawler config must be valid JSON");
+          return;
         }
       } else {
-        if (customConfig.trim()) {
-          parsedCustomConfig = JSON.parse(customConfig);
-        }
+        crawlerConfig = getDefaultConfig(collectionName.trim()) as Record<string, unknown>;
       }
 
-      if (metadataSchema.trim()) {
-        parsedMetadataSchema = JSON.parse(metadataSchema);
-      }
+      // Ensure database.collection matches collection name
+      const db = (crawlerConfig.database as Record<string, unknown>) ?? {};
+      crawlerConfig.database = { ...db, collection: collectionName.trim() };
+      if (!crawlerConfig.name) crawlerConfig.name = collectionName.trim();
 
-      const data: CreateCollectionData = {
-        collection_name: collectionName.trim(),
-        custom_config: parsedCustomConfig,
-        config_overrides: parsedConfigOverrides,
-        description: description.trim() || null,
+      const access_groups =
+        accessLevel === "group_only"
+          ? accessGroupsStr
+              .split(/[\s,]+/)
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : [];
+
+      const data: CreateCollectionRequest = {
         access_level: accessLevel,
-        metadata_schema: parsedMetadataSchema,
+        access_groups,
+        crawler_config: crawlerConfig,
       };
 
       await onCreate(data);
 
-      // Reset form
       setCollectionName("");
-      setDescription("");
-      setPipelineType("predefined");
-      setConfigOverrides("{}");
-      setCustomConfig(JSON.stringify(DEFAULT_CONFIG, null, 2));
       setAccessLevel("public");
-      setMetadataSchema("{}");
+      setAccessGroupsStr("");
+      setCrawlerConfigStr("");
+      setSelectedPipelineName("");
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create collection");
@@ -147,6 +184,11 @@ export function CreateCollectionModal({
       setIsCreating(false);
     }
   };
+
+  const accessGroupsPlaceholder =
+    accessLevel === "group_only"
+      ? "Comma- or space-separated role names (e.g. engineers, research)"
+      : "Not used unless access level is Group only";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -198,101 +240,72 @@ export function CreateCollectionModal({
 
           <div>
             <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              Description
+              Access Level
             </label>
-            <Input
-              type="text"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Optional description of the collection"
-              className="w-full"
-            />
+            <select
+              value={accessLevel}
+              onChange={(e) => setAccessLevel(e.target.value as AccessLevel)}
+              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+            >
+              {ACCESS_LEVELS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
           </div>
 
-          <div>
-            <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              Pipeline Type
-            </label>
-            <div className="flex gap-4">
-              <label className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="radio"
-                  name="pipelineType"
-                  value="predefined"
-                  checked={pipelineType === "predefined"}
-                  onChange={(e) => setPipelineType(e.target.value as "predefined" | "custom")}
-                  className="h-4 w-4 text-blue-600 focus:ring-2 focus:ring-blue-500/20"
-                />
-                <span className="text-sm text-zinc-700 dark:text-zinc-300">Predefined Pipeline</span>
-              </label>
-              <label className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="radio"
-                  name="pipelineType"
-                  value="custom"
-                  checked={pipelineType === "custom"}
-                  onChange={(e) => setPipelineType(e.target.value as "predefined" | "custom")}
-                  className="h-4 w-4 text-blue-600 focus:ring-2 focus:ring-blue-500/20"
-                />
-                <span className="text-sm text-zinc-700 dark:text-zinc-300">Custom Config</span>
-              </label>
-            </div>
-          </div>
-
-          {pipelineType === "predefined" ? (
-            <>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                  Config Overrides (JSON, optional)
-                </label>
-                <textarea
-                  value={configOverrides}
-                  onChange={(e) => setConfigOverrides(e.target.value)}
-                  placeholder='{"embedding_model": "nomic-embed-text"}'
-                  rows={4}
-                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                />
-              </div>
-            </>
-          ) : (
+          {accessLevel === "group_only" && (
             <div>
               <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                Custom Config (JSON)
+                Access Groups <span className="text-red-500">*</span>
               </label>
-              <textarea
-                value={customConfig}
-                onChange={(e) => setCustomConfig(e.target.value)}
-                rows={12}
-                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+              <Input
+                type="text"
+                value={accessGroupsStr}
+                onChange={(e) => setAccessGroupsStr(e.target.value)}
+                placeholder={accessGroupsPlaceholder}
+                className="w-full"
               />
             </div>
           )}
 
           <div>
             <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              Access Level
+              Pipeline template
             </label>
             <select
-              value={accessLevel}
-              onChange={(e) => setAccessLevel(e.target.value as "public" | "private" | "admin")}
+              value={selectedPipelineName}
+              onChange={(e) => handlePipelineChange(e.target.value)}
+              disabled={loadingPipelines}
               className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
             >
-              <option value="public">Public</option>
-              <option value="private">Private</option>
-              <option value="admin">Admin</option>
+              <option value="">
+                {loadingPipelines ? "Loading templates…" : "No template"}
+              </option>
+              {pipelines.map((p) => (
+                <option key={p.name} value={p.name} title={p.description || undefined}>
+                  {p.name}
+                </option>
+              ))}
             </select>
           </div>
 
           <div>
             <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              Metadata Schema (JSON, optional)
+              Crawler Config (JSON)
             </label>
             <textarea
-              value={metadataSchema}
-              onChange={(e) => setMetadataSchema(e.target.value)}
-              placeholder='{"type": "object", "properties": {...}}'
-              rows={6}
-              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+              value={crawlerConfigStr}
+              onChange={(e) => setCrawlerConfigStr(e.target.value)}
+              placeholder={
+                loadingConfig
+                  ? "Loading config…"
+                  : "Leave empty to use defaults, or select a pipeline template above. database.collection is set from collection name on submit."
+              }
+              rows={12}
+              disabled={loadingConfig}
+              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 disabled:opacity-70"
             />
           </div>
 
@@ -314,4 +327,3 @@ export function CreateCollectionModal({
     </div>
   );
 }
-

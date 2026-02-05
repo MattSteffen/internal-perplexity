@@ -27,13 +27,14 @@ This package contains the Next.js upload UI for managing collections, uploading 
 - `CollectionInfoModal.tsx`: Modal for viewing collection details.
 - `CollectionSchemaDisplay.tsx`: Displays collection metadata schema.
 - `CollectionsList.tsx`: Collection list and selection UI.
-- `CreateCollectionModal.tsx`: Modal for creating a collection.
+- `CreateCollectionModal.tsx`: Modal for creating a collection. Includes a pipeline template dropdown (from `GET /v1/pipelines`); selecting a template fetches full config via `GET /v1/pipelines/{name}` and populates the crawler config JSON textarea—changing the selection overwrites the textarea with the new template’s config. Also collects collection name, access level (public/private/group_only/admin), access groups (when group_only), and optional crawler config JSON. Sends `access_level`, `access_groups`, and `crawler_config` to `POST /v1/collections`; collection name is set in `crawler_config.database.collection`. Backend validation errors (invalid crawler_config) are shown in the modal on submit.
 - `FileMetadataEditor.tsx`: Metadata editor for uploads.
 - `FileUpload.tsx`: File selection and upload UI.
 - `Header.tsx`: Top navigation/header.
 - `LoginModal.tsx`: Login/auth modal.
 - `MetadataPreview.tsx`: Preview of parsed metadata.
-- `SearchPanel.tsx`: Search UI for collections.
+- `SearchDocumentModal.tsx`: Modal opened when a search result is clicked. Shows document metadata (title, authors, optional date/source) and markdown content.
+- `SearchPanel.tsx`: Search UI for collections. Displays results with title (from metadata or first line of markdown) and authors; each result is clickable and opens `SearchDocumentModal`.
 - `SecurityUserForm.tsx`: Security group/user selection UI.
 - `SubmitSection.tsx`: Upload submit actions.
 
@@ -45,9 +46,9 @@ This package contains the Next.js upload UI for managing collections, uploading 
 - `index.tsx`: Dropzone UI component.
 
 ## `lib/`
-- `api.ts`: API client for backend endpoints.
-- `types.ts`: Shared TypeScript types for API payloads and UI state.
-- `utils.ts`: Shared utility helpers.
+- `api.ts`: API client for backend endpoints. Includes `fetchPipelines()` (GET /v1/pipelines, no auth) and `fetchPipelineConfig(name)` (GET /v1/pipelines/{name}) for the create-collection pipeline template dropdown and config population.
+- `types.ts`: Shared TypeScript types for API payloads and UI state. Includes `PipelineInfo` and `PipelinesResponse` for pipeline listing.
+- `utils.ts`: Shared utility helpers. Includes `getDocumentDisplayInfo(doc)` for search result display: returns `displayTitle` (metadata.title or first line of markdown or source or "Untitled") and `displayAuthors` (metadata.author normalized to string, including array form).
 
 ### `lib/hooks/`
 - `index.ts`: Hook exports.

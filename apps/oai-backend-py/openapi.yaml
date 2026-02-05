@@ -32,6 +32,8 @@ tags:
     description: Milvus vector database collection management
   - name: Documents
     description: Document upload and processing pipelines
+  - name: Search
+    description: Milvus collection search
   - name: Tools
     description: Direct tool calling endpoints
 
@@ -53,7 +55,8 @@ paths:
                 properties:
                   status:
                     type: string
-                    example: healthy
+                    examples:
+                      - healthy
 
   /login:
     get:
@@ -183,7 +186,6 @@ paths:
             text/event-stream:
               schema:
                 type: string
-              description: Server-sent events stream for streaming responses
         '400':
           description: Bad request
           content:
@@ -285,6 +287,103 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+    post:
+      tags:
+        - Collections
+      summary: Create collection
+      description: |
+        Creates a new Milvus collection from a full CrawlerConfig JSON.
+        Collection name is taken from crawler_config.database.collection.
+        When access_level is group_only, access_groups must be non-empty and is used for security_groups and role grants.
+        Requires authentication with a valid JWT token containing Milvus credentials.
+      operationId: createCollection
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCollectionRequest'
+      responses:
+        '200':
+          description: Collection created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateCollectionResponse'
+        '400':
+          description: Bad request - invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized - Milvus token required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Collection already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Failed to create collection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/pipelines:
+    get:
+      tags:
+        - Collections
+      summary: List pipeline templates
+      description: |
+        Returns available pipeline templates (e.g., standard, academic).
+        No authentication required.
+      operationId: listPipelines
+      responses:
+        '200':
+          description: List of pipeline templates
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PipelinesResponse'
+
+  /v1/pipelines/{name}:
+    get:
+      tags:
+        - Collections
+      summary: Get pipeline config by name
+      description: |
+        Returns the full crawler-config JSON for the given pipeline template.
+        No authentication required.
+      operationId: getPipelineConfig
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Pipeline template name (e.g. standard, academic)
+      responses:
+        '200':
+          description: Full crawler config object
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Crawler config JSON (database, embeddings, llm, etc.)
+        '404':
+          description: Pipeline not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /v1/users:
     get:
@@ -348,224 +447,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
-  /v1/collections:
-    post:
-      tags:
-        - Collections
-      summary: Create collection
-      description: |
-        Creates a new Milvus collection with pipeline configuration and permissions.
-        Requires authentication with a valid JWT token containing Milvus credentials.
-        
-        Either `pipeline_name` or `custom_config` must be provided (not both).
-      operationId: createCollection
-      security:
-        - BearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateCollectionRequest'
-      responses:
-        '200':
-          description: Collection created successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CreateCollectionResponse'
-        '400':
-          description: Bad request - invalid input
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '401':
-          description: Unauthorized - Milvus token required
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '409':
-          description: Collection already exists
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '404':
-          description: Pipeline not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '500':
-          description: Failed to create collection
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-
-  /v1/documents/upload/{pipeline_name}:
-    post:
-      tags:
-        - Documents
-      summary: Upload and process document via pipeline
-      description: |
-        Uploads a document and processes it through a predefined pipeline.
-        The document is converted, chunked, embedded, and stored in the Milvus vector database.
-        
-        Available pipelines:
-        - `irads`: IRADS document processing pipeline
-        - `arxiv_math`: ArXiv mathematics paper processing pipeline
-        
-        Configuration overrides can be provided to customize:
-        - Embedding model
-        - LLM model
-        - Vision model
-        - Security groups
-      operationId: uploadDocumentViaPipeline
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: pipeline_name
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Name of the pipeline to use
-          example: irads
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              required:
-                - file
-              properties:
-                file:
-                  type: string
-                  format: binary
-                  description: Document file to upload (PDF, etc.)
-                config_overrides:
-                  type: string
-                  description: |
-                    JSON string with configuration overrides.
-                    Example: {"embedding_model": "nomic-embed-text", "security_groups": ["group1"]}
-                  example: '{"embedding_model": "nomic-embed-text", "security_groups": ["group1"]}'
-      responses:
-        '200':
-          description: Document processed successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UploadResponse'
-        '400':
-          description: Bad request - invalid config_overrides JSON
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '401':
-          description: Unauthorized - Milvus token required
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '404':
-          description: Pipeline not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '500':
-          description: Failed to process document
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '503':
-          description: Service unavailable - failed to connect to vector database
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-
-  /v1/documents/upload:
-    post:
-      tags:
-        - Documents
-      summary: Upload and process document to collection
-      description: |
-        Uploads a document and processes it using configuration loaded from a collection.
-        The collection's pipeline configuration is used, with optional overrides.
-      operationId: uploadDocumentToCollection
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: collection_name
-          in: query
-          required: true
-          schema:
-            type: string
-          description: Name of the collection to upload to (loads config from collection)
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              required:
-                - file
-              properties:
-                file:
-                  type: string
-                  format: binary
-                  description: Document file to upload (PDF, etc.)
-                config_overrides:
-                  type: string
-                  description: |
-                    JSON string with configuration overrides.
-                    Example: {"security_groups": ["group1"]}
-                  example: '{"security_groups": ["group1"]}'
-      responses:
-        '200':
-          description: Document processed successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UploadResponse'
-        '400':
-          description: Bad request - invalid config_overrides JSON or missing collection_name
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '401':
-          description: Unauthorized - Milvus token required
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '404':
-          description: Collection not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '500':
-          description: Failed to process document
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '503':
-          description: Service unavailable - failed to connect to vector database
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-
   /v1/collections/{collection_name}/process:
     post:
       tags:
@@ -584,7 +465,8 @@ paths:
           schema:
             type: string
           description: Name of the collection (used to load config)
-          example: my_collection
+          examples:
+            - my_collection
       requestBody:
         required: true
         content:
@@ -628,11 +510,11 @@ paths:
     post:
       tags:
         - Documents
-      summary: Upload document to collection with metadata
+      summary: Upload document to collection
       description: |
-        Uploads a document to a collection with provided metadata.
-        Uses the collection's pipeline configuration.
-      operationId: uploadDocumentToCollectionWithMetadata
+        Uploads and processes a document to a collection using the collection's
+        pipeline configuration. Either file or markdown_content must be provided.
+      operationId: uploadDocumentToCollection
       security:
         - BearerAuth: []
       parameters:
@@ -642,27 +524,32 @@ paths:
           schema:
             type: string
           description: Name of the collection to upload to
-          example: my_collection
+          examples:
+            - my_collection
       requestBody:
         required: true
         content:
           multipart/form-data:
             schema:
               type: object
-              required:
-                - file
-                - metadata
               properties:
                 file:
                   type: string
                   format: binary
-                  description: Document file to upload (PDF, etc.)
-                metadata:
+                  description: Document file to upload (PDF, etc.). Optional if markdown_content is provided.
+                markdown_content:
+                  type: string
+                  description: Pre-converted markdown (skips conversion). Optional if file is provided.
+                metadata_override:
                   type: string
                   description: |
-                    JSON string with document metadata.
-                    Example: {"title":"Example","author":"John Doe"}
-                  example: '{"title":"Example","author":"John Doe"}'
+                    JSON string with pre-extracted metadata (skips extraction).
+                    Example: {"title":"My Doc","author":["John"]}
+                security_groups:
+                  type: string
+                  description: |
+                    JSON string with security groups for the document.
+                    Example: ["public","team_a"]
       responses:
         '200':
           description: Document uploaded successfully
@@ -671,7 +558,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/UploadResponse'
         '400':
-          description: Bad request - invalid metadata JSON
+          description: Bad request - invalid metadata_override/security_groups JSON or missing both file and markdown_content
           content:
             application/json:
               schema:
@@ -696,6 +583,96 @@ paths:
                 $ref: '#/components/schemas/Error'
         '503':
           description: Service unavailable - failed to connect to vector database
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/search:
+    post:
+      tags:
+        - Search
+      summary: Search collection
+      description: |
+        Hybrid search over a Milvus collection. Requires authentication with
+        a valid JWT token containing Milvus credentials.
+      operationId: search
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequest'
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized - Milvus token required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Search failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/agent:
+    post:
+      tags:
+        - OpenAI Compatible
+      summary: Agentic RAG completion
+      description: |
+        Agentic RAG endpoint bound to a Milvus collection. Uses the collection's
+        llm_prompt for system prompt generation and performs semantic search as needed.
+        Requires authentication.
+      operationId: createAgentCompletion
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentRequest'
+      responses:
+        '200':
+          description: Chat completion (non-streaming) or server-sent events (streaming)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatCompletion'
+            text/event-stream:
+              schema:
+                type: string
+        '400':
+          description: Bad request - missing collection or messages
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:
@@ -775,7 +752,8 @@ components:
         model:
           type: string
           description: Model identifier (e.g., "llama3.2:1b", "radchat")
-          example: llama3.2:1b
+          examples:
+            - llama3.2:1b
         messages:
           type: array
           description: List of messages in the conversation
@@ -838,7 +816,8 @@ components:
           type: string
         object:
           type: string
-          example: chat.completion
+          examples:
+            - chat.completion
         created:
           type: integer
         model:
@@ -859,7 +838,8 @@ components:
         model:
           type: string
           description: Embedding model identifier
-          example: all-minilm:v2
+          examples:
+            - all-minilm:v2
         input:
           oneOf:
             - type: string
@@ -873,7 +853,8 @@ components:
       properties:
         object:
           type: string
-          example: list
+          examples:
+            - list
         data:
           type: array
           items:
@@ -881,7 +862,8 @@ components:
             properties:
               object:
                 type: string
-                example: embedding
+                examples:
+                  - embedding
               embedding:
                 type: array
                 items:
@@ -903,7 +885,8 @@ components:
       properties:
         object:
           type: string
-          example: list
+          examples:
+            - list
         data:
           type: array
           items:
@@ -913,26 +896,59 @@ components:
                 type: string
               object:
                 type: string
-                example: model
+                examples:
+                  - model
               created:
                 type: integer
               owned_by:
                 type: string
 
+    CollectionInfo:
+      type: object
+      properties:
+        description:
+          type: string
+          description: Human-readable description of the collection
+        metadata_schema:
+          type: object
+          description: JSON schema for document metadata
+          additionalProperties: true
+        num_documents:
+          type: integer
+          description: Number of documents in the collection
+        num_chunks:
+          type: integer
+          description: Number of chunks in the collection
+        num_partitions:
+          type: integer
+          description: Number of partitions
+        required_roles:
+          type: array
+          items:
+            type: string
+          description: Roles required for read access
+        access_level:
+          type: string
+          enum:
+            - public
+            - private
+            - admin
+          default: public
+          description: Access level for the collection
+
     CollectionsResponse:
       type: object
       properties:
-        collections:
+        collection_names:
           type: array
           items:
             type: string
           description: List of collection names
-        collection_metadata:
+        collections:
           type: object
           additionalProperties:
-            type: object
-            description: Collection metadata (varies by collection)
-          description: Metadata for each collection
+            $ref: '#/components/schemas/CollectionInfo'
+          description: Metadata for each collection by name
 
     UsersResponse:
       type: object
@@ -965,58 +981,32 @@ components:
         roles:
           type: array
           items:
-            type: object
-            properties:
-              role:
-                type: string
-                description: Role name
-              privileges:
-                type: array
-                items:
-                  type: string
-                description: List of privileges for this role
-            required:
-              - role
-              - privileges
-          description: List of roles with their privileges
+            type: string
+          description: List of role names
 
     CreateCollectionRequest:
       type: object
       required:
-        - collection_name
+        - crawler_config
       properties:
-        collection_name:
-          type: string
-          minLength: 1
-          description: Name of the collection to create
-        pipeline_name:
-          type: string
-          nullable: true
-          description: Name of predefined pipeline to use (required if custom_config not provided)
-        custom_config:
-          type: object
-          nullable: true
-          description: Full CrawlerConfig dict for custom pipeline (required if pipeline_name not provided)
-        config_overrides:
-          type: object
-          nullable: true
-          description: Configuration overrides for predefined pipeline
-        description:
-          type: string
-          nullable: true
-          description: Human-readable description of the collection
         access_level:
           type: string
           enum:
             - public
             - private
+            - group_only
             - admin
           default: public
           description: Access level for the collection
-        metadata_schema:
+        access_groups:
+          type: array
+          items:
+            type: string
+          default: []
+          description: List of role/group names to grant read access; required when access_level is group_only
+        crawler_config:
           type: object
-          nullable: true
-          description: Optional JSON schema override for metadata
+          description: Full CrawlerConfig JSON; must include database.collection
 
     CreateCollectionResponse:
       type: object
@@ -1026,18 +1016,13 @@ components:
           description: Name of the created collection
         message:
           type: string
-          example: Collection created successfully
-        pipeline_name:
-          type: string
-          nullable: true
-          description: Name of the pipeline used (if any)
-        access_level:
-          type: string
-          enum:
-            - public
-            - private
-            - admin
-          description: Access level for the collection
+          examples:
+            - Collection created successfully
+        roles:
+          type: array
+          items:
+            type: string
+          description: Roles granted read access to the collection
 
     ProcessedDocument:
       type: object
@@ -1046,12 +1031,14 @@ components:
           type: object
           description: Extracted document metadata
           additionalProperties: true
+        markdown_content:
+          type: string
+          description: Converted markdown content
         file_name:
           type: string
           description: Name of the processed file
         file_size:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
           description: Size of the file in bytes
 
     UploadResponse:
@@ -1059,17 +1046,17 @@ components:
       properties:
         message:
           type: string
-          example: Document processed and uploaded successfully
-        pipeline_name:
+          examples:
+            - Document processed and uploaded successfully
+        collection_name:
           type: string
-          example: irads
+          description: Name of the collection the document was uploaded to
         document_id:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Identifier for the processed document
         chunks_created:
           type: integer
-          description: Number of chunks created (currently always 0)
+          description: Number of chunks created
           default: 0
         processing_time_sec:
           type: number
@@ -1084,19 +1071,20 @@ components:
         name:
           type: string
           description: Name of the tool to execute
-          example: get_weather
+          examples:
+            - get_weather
         arguments:
           type: object
           description: Arguments for the tool
           additionalProperties: true
-          example:
-            location: San Francisco, CA
+          examples:
+            - location: San Francisco, CA
         metadata:
           type: object
           description: Optional metadata for user-specific tool initialization
           additionalProperties: true
-          example:
-            user_id: user123
+          examples:
+            - user_id: user123
 
     ToolCallResponse:
       type: object
@@ -1104,4 +1092,143 @@ components:
         result:
           type: string
           description: Tool execution result as JSON string
+
+    PipelineInfo:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Pipeline template name
+        description:
+          type: string
+          description: Human-readable description
+        metadata_schema:
+          type: object
+          description: JSON schema for document metadata
+          additionalProperties: true
+        chunk_size:
+          type: integer
+          description: Chunk size in characters
+        embedding_model:
+          type: string
+          description: Embedding model identifier
+        llm_model:
+          type: string
+          description: LLM model identifier
+
+    PipelinesResponse:
+      type: object
+      properties:
+        pipelines:
+          type: array
+          items:
+            $ref: '#/components/schemas/PipelineInfo'
+          description: List of available pipeline templates
+
+    SearchRequest:
+      type: object
+      required:
+        - collection
+      properties:
+        collection:
+          type: string
+          minLength: 1
+          description: Name of the Milvus collection to search
+        text:
+          type: string
+          default: ""
+          description: Query text to search for
+        filters:
+          type: array
+          items:
+            type: string
+          default: []
+          description: List of filter expressions (e.g., title == \"example\")
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 10000
+          default: 100
+          description: Maximum number of results to return
+
+    SearchResult:
+      type: object
+      description: A single search hit (document-like)
+      properties:
+        document_id:
+          type: string
+          description: Unique identifier for the document
+        source:
+          type: string
+          description: Source identifier (file path, URL, etc.)
+        chunk_index:
+          type: integer
+          description: Index of the chunk within the document
+        text:
+          type: string
+          description: Chunk text content
+        str_metadata:
+          type: string
+          description: JSON string of metadata
+        security_group:
+          type: array
+          items:
+            type: string
+          description: Access control groups
+        title:
+          type: string
+        author:
+          type: string
+        date:
+          type: string
+        keywords:
+          type: string
+        unique_words:
+          type: string
+        benchmark_questions:
+          type: array
+          items:
+            type: string
+        metadata:
+          type: object
+          additionalProperties: true
+
+    SearchResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchResult'
+          description: List of search hits
+        total:
+          type: integer
+          description: Total number of results
+
+    AgentRequest:
+      type: object
+      required:
+        - collection
+        - messages
+      properties:
+        model:
+          type: string
+          default: milvuschat
+          description: Agent model to use
+        collection:
+          type: string
+          minLength: 1
+          description: Name of the Milvus collection to connect to
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+          description: Conversation messages
+        stream:
+          type: boolean
+          default: false
+          description: Whether to stream the response
+        llm_model:
+          type: [string, "null"]
+          description: Underlying LLM model (defaults to config)
 

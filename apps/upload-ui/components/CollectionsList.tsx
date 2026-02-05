@@ -13,7 +13,7 @@ interface CollectionsListProps {
   onCreateCollection?: () => void;
 }
 
-type FilterType = "all" | "public" | "private" | "admin";
+type FilterType = "all" | "public" | "private" | "group_only" | "admin";
 
 export function CollectionsList({
   collections,
@@ -169,6 +169,15 @@ export function CollectionsList({
             Private
           </button>
           <button
+            onClick={() => setFilterType("group_only")}
+            className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${filterType === "group_only"
+              ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/30 dark:text-blue-300"
+              : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+              }`}
+          >
+            Group only
+          </button>
+          <button
             onClick={() => setFilterType("admin")}
             className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${filterType === "admin"
               ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/30 dark:text-blue-300"
@@ -238,6 +247,8 @@ export function CollectionsList({
                             ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"
                             : collection.access_level === "private"
                             ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300"
+                            : collection.access_level === "group_only"
+                            ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
                             : "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300"
                         }`}
                       >
@@ -245,6 +256,8 @@ export function CollectionsList({
                           ? "Public"
                           : collection.access_level === "private"
                           ? "Private"
+                          : collection.access_level === "group_only"
+                          ? "Group only"
                           : "Admin"}
                       </span>
                     )}

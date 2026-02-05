@@ -4,6 +4,9 @@ import type {
   Collection,
   CollectionsResponse,
   CollectionInfo,
+  CreateCollectionRequest,
+  PipelineInfo,
+  PipelinesResponse,
   ProcessedDocument,
   User,
   SearchRequest,
@@ -110,6 +113,65 @@ export async function fetchCollections(): Promise<Collection[]> {
       updated_at: undefined,
     };
   });
+}
+
+/**
+ * Fetch available pipeline templates from the backend (for create-collection dropdown).
+ * curl -X GET http://localhost:8000/v1/pipelines
+ * No authentication required.
+ */
+export async function fetchPipelines(): Promise<PipelineInfo[]> {
+  const response = await fetch(`${API_BASE_URL}/v1/pipelines`, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  });
+
+  if (!response.ok) {
+    let errorMessage = `Failed to fetch pipelines: ${response.statusText}`;
+    try {
+      const errorData = await response.json();
+      if (errorData.detail || errorData.message) {
+        errorMessage = errorData.detail || errorData.message;
+      }
+    } catch {
+      // Ignore JSON parse errors, use default message
+    }
+    throw new Error(errorMessage);
+  }
+
+  const data: PipelinesResponse = await response.json();
+  if (!data.pipelines || !Array.isArray(data.pipelines)) {
+    return [];
+  }
+  return data.pipelines;
+}
+
+/**
+ * Fetch full crawler-config JSON for a pipeline template.
+ * curl -X GET http://localhost:8000/v1/pipelines/standard
+ */
+export async function fetchPipelineConfig(
+  name: string,
+): Promise<Record<string, unknown>> {
+  const response = await fetch(`${API_BASE_URL}/v1/pipelines/${encodeURIComponent(name)}`, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  });
+
+  if (!response.ok) {
+    let errorMessage = `Failed to fetch pipeline config: ${response.statusText}`;
+    try {
+      const errorData = await response.json();
+      if (errorData.detail || errorData.message) {
+        errorMessage = errorData.detail || errorData.message;
+      }
+    } catch {
+      // Ignore JSON parse errors
+    }
+    throw new Error(errorMessage);
+  }
+
+  return response.json() as Promise<Record<string, unknown>>;
 }
 
 /**
@@ -272,27 +334,14 @@ export async function fetchUsers(): Promise<User[]> {
 }
 
 /**
- * Create a new collection with access level
+ * Create a new collection from crawler_config.
  * curl -X POST http://localhost:8000/v1/collections \
- *   -H "Authorization: Bearer matt:steffen" \
+ *   -H "Authorization: Bearer $TOKEN" \
  *   -H "Content-Type: application/json" \
- *   -d '{
- *     "collection_name": "my_collection",
- *     "config_overrides": {"embedding_model": "nomic-embed-text"},
- *     "access_level": "public"
- *   }'
+ *   -d '{"access_level": "public", "access_groups": [], "crawler_config": {...}}'
  */
 export async function createCollection(
-  data: {
-    collection_name: string;
-    template_name?: string | null;
-    custom_config?: Record<string, unknown> | null;
-    config_overrides?: Record<string, unknown> | null;
-    description?: string | null;
-    roles?: string[] | null;
-    access_level?: "public" | "private" | "admin";
-    metadata_schema?: Record<string, unknown> | null;
-  },
+  data: CreateCollectionRequest,
 ): Promise<{ collection_name: string; message: string; roles: string[] }> {
   const response = await fetch(`${API_BASE_URL}/v1/collections`, {
     method: "POST",

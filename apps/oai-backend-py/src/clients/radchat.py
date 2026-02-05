@@ -14,17 +14,15 @@ from openai.types.chat import (
     ChatCompletionChunk,
     ChatCompletionMessage,
 )
-from pymilvus import MilvusClient
-
+from pymilvus import MilvusClient  # type: ignore
 from src.config import UserValves, radchat_config, settings
+from src.milvus_client import get_milvus_uri
 from src.tools.milvus_search import (
     CollectionNotFoundError,
-    MilvusDocument,
     build_citations,
-    connect_milvus,
     consolidate_documents,
-    perform_query,
-    perform_search,
+    render_document,
+    search,
 )
 
 # System prompt for the Radchat agent
@@ -185,22 +183,22 @@ Your value lies in accurate retrieval and synthesis from this specific document 
 """
 
 
-def get_metadata(client: MilvusClient, username: str | None = None) -> list[str]:
-    """Get all entries in the database (first 1000) with their title, authors, and date.
+def get_metadata(token: str, collection_name: str) -> list[str]:
+    """Get document metadata sample (filter-only query) for UI.
 
     Args:
-        client: MilvusClient instance.
-        username: Username for role-based access control.
+        token: Milvus token (username:password).
+        collection_name: Collection to query.
 
     Returns:
-        List of formatted metadata strings.
+        List of formatted metadata strings (title, authors, date).
 
     Raises:
         RuntimeError: If metadata retrieval fails.
     """
-    username = username or radchat_config.milvus.username
     try:
-        all_docs = consolidate_documents(perform_query([], client, username=username))
+        search_results = search(text=None, filters=[], token=token, collection_name=collection_name, limit=1000)
+        all_docs = consolidate_documents(search_results)
     except Exception as e:
         error_msg = f"Failed to query documents for metadata retrieval: {str(e)}"
         logging.error(error_msg)
@@ -209,7 +207,12 @@ def get_metadata(client: MilvusClient, username: str | None = None) -> list[str]
     data = []
     try:
         for doc in all_docs:
-            data.append(f"Title: {doc.metadata.title}\n" f"Authors: {doc.metadata.author}\n" f"Date: {doc.metadata.date}")
+            meta = doc.metadata or {}
+            data.append(
+                f"Title: {meta.get('title', '')}\n"
+                f"Authors: {meta.get('author', '')}\n"
+                f"Date: {meta.get('date', '')}"
+            )
     except Exception as e:
         error_msg = f"Failed to format document metadata: {str(e)}"
         logging.error(error_msg)
@@ -273,7 +276,7 @@ async def generate_response(
 
 def build_response(
     content: str,
-    documents: list[MilvusDocument],
+    documents: list[Any],
     model: str | None = None,
 ) -> dict[str, Any]:
     """Build the final response object with content and citations.
@@ -316,6 +319,7 @@ class Pipe:
         body: dict[str, Any],
         __event_emitter__: Any | None = None,
         __user__: dict[str, Any] | None = None,
+        milvus_client: MilvusClient | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """Orchestrate a streaming agentic loop with real-time citations.
 
@@ -328,13 +332,13 @@ class Pipe:
             Streaming response chunks and final response.
         """
         messages = body.get("messages", [])
-        # TODO: Replace with __user__ data from ldap
+        token = f"{self.user_valves.MILVUS_USERNAME}:{self.user_valves.MILVUS_PASSWORD}"
         try:
-            milvus_client = connect_milvus(
-                username=self.user_valves.MILVUS_USERNAME,
-                password=self.user_valves.MILVUS_PASSWORD,
-                collection_name=self.user_valves.COLLECTION_NAME,
-            )
+            if milvus_client is None:
+                milvus_client = MilvusClient(uri=get_milvus_uri(), token=token)
+            if not milvus_client.has_collection(collection_name=self.user_valves.COLLECTION_NAME):
+                raise CollectionNotFoundError(self.user_valves.COLLECTION_NAME)
+            milvus_client.load_collection(collection_name=self.user_valves.COLLECTION_NAME)
         except CollectionNotFoundError as e:
             error_msg = f"Unable to connect to Milvus: Collection '{e.collection_name}' does not exist."
             logging.error(error_msg)
@@ -363,10 +367,12 @@ class Pipe:
 
         # Initial document retrieval
         try:
-            initial_search_results = perform_search(
-                client=milvus_client,
-                queries=[messages[-1].get("content", "")],
-                username=username,
+            initial_search_results = search(
+                text=messages[-1].get("content", "") if messages else None,
+                queries=[messages[-1].get("content", "")] if messages else [],
+                filters=[],
+                collection_name=collection_name,
+                token=token,
             )
         except Exception as e:
             error_msg = f"Failed to perform initial search: {str(e)}"
@@ -385,7 +391,9 @@ class Pipe:
 
         # Render preliminary context documents
         try:
-            preliminary_context = "\n\n".join([d.render(include_text=True) for d in consolidated_initial_results])
+            preliminary_context = "\n\n".join(
+                [render_document(d, include_text=True) for d in consolidated_initial_results]
+            )
         except Exception as e:
             error_msg = f"Failed to render preliminary context documents: {str(e)}"
             logging.error(error_msg)
@@ -399,15 +407,15 @@ class Pipe:
                 if doc.document_id not in seen_doc_ids:
                     seen_doc_ids.add(doc.document_id)
                     try:
-                        rendered_doc = doc.render(include_text=False)
+                        rendered_doc = render_document(doc, include_text=False)
                         await __event_emitter__(
                             {
                                 "type": "citation",
                                 "data": {
                                     "source": {"name": doc.source, "url": ""},
                                     "document": [rendered_doc],
-                                    "metadata": doc.model_dump(exclude={"text", "distance"}),
-                                    "distance": doc.distance,
+                                    "metadata": doc.model_dump(exclude={"markdown", "chunks", "content"}),
+                                    "distance": None,
                                 },
                             }
                         )
@@ -424,7 +432,7 @@ class Pipe:
             schema_info = f"{{'error': 'Unable to retrieve schema: {str(e)}'}}"
 
         try:
-            metadata_list = get_metadata(milvus_client, username)
+            metadata_list = get_metadata(token, collection_name)
         except Exception as e:
             error_msg = f"Warning: Failed to retrieve document metadata: {str(e)}. Continuing without metadata list."
             logging.warning(error_msg)
@@ -438,7 +446,26 @@ class Pipe:
         else:
             all_messages = [{"role": "system", "content": system_prompt}] + messages
 
-        available_tools = {"search": perform_search}
+        def _search_tool(
+            client: Any = None,
+            queries: list[str] | None = None,
+            filters: list[str] | None = None,
+            collection_name: str | None = None,
+            partition_name: str | None = None,
+            username: str | None = None,
+            **kwargs: Any,
+        ) -> list[Any]:
+            tok = f"{username}:{self.user_valves.MILVUS_PASSWORD}" if username else token
+            return search(
+                text=queries[0] if queries else None,
+                queries=queries or [],
+                filters=filters or [],
+                collection_name=collection_name or self.user_valves.COLLECTION_NAME,
+                partition_name=partition_name,
+                token=tok,
+            )
+
+        available_tools = {"search": _search_tool}
         all_sources = consolidated_initial_results
         final_content = ""
 
@@ -654,7 +681,7 @@ class Pipe:
                                 if doc.document_id not in seen_doc_ids:
                                     seen_doc_ids.add(doc.document_id)
                                     try:
-                                        rendered_doc = doc.render(include_text=False)
+                                        rendered_doc = render_document(doc, include_text=False)
                                         await __event_emitter__(
                                             {
                                                 "type": "citation",
@@ -664,8 +691,8 @@ class Pipe:
                                                         "url": "",
                                                     },
                                                     "document": [rendered_doc],
-                                                    "metadata": doc.model_dump(exclude={"text", "distance"}),
-                                                    "distance": doc.distance,
+                                                    "metadata": doc.model_dump(exclude={"markdown", "chunks", "content"}),
+                                                    "distance": None,
                                                 },
                                             }
                                         )
@@ -675,7 +702,7 @@ class Pipe:
                                         # Continue with other documents rather than failing completely
 
                         try:
-                            rendered_docs = "\n\n".join([d.render(include_text=True) for d in consolidated_tool_output]) if len(consolidated_tool_output) > 0 else "No documents found"
+                            rendered_docs = "\n\n".join([render_document(d, include_text=True) for d in consolidated_tool_output]) if len(consolidated_tool_output) > 0 else "No documents found"
                             all_messages.append(
                                 {
                                     "role": "tool",
@@ -755,6 +782,7 @@ class RadChatClient:
         # Extract optional parameters
         event_emitter = kwargs.get("event_emitter")
         user = kwargs.get("user")
+        milvus_client = kwargs.get("milvus_client")
 
         # Create body dict for pipe
         body = {"messages": messages}
@@ -762,7 +790,12 @@ class RadChatClient:
         if stream:
             # Return async iterator that yields chunks
             async def _generate_chunks() -> AsyncIterator[ChatCompletionChunk]:
-                async for chunk in self.pipe.pipe(body=body, __event_emitter__=event_emitter, __user__=user):
+                async for chunk in self.pipe.pipe(
+                    body=body,
+                    __event_emitter__=event_emitter,
+                    __user__=user,
+                    milvus_client=milvus_client,
+                ):
                     # Convert dict chunks to ChatCompletionChunk
                     if "error" in chunk:
                         # Handle error case
@@ -803,7 +836,12 @@ class RadChatClient:
         else:
             # For non-streaming, collect all chunks and return final completion
             chunks: list[dict[str, Any]] = []
-            async for chunk in self.pipe.pipe(body=body, __event_emitter__=event_emitter, __user__=user):
+            async for chunk in self.pipe.pipe(
+                body=body,
+                __event_emitter__=event_emitter,
+                __user__=user,
+                milvus_client=milvus_client,
+            ):
                 chunks.append(chunk)
 
             # Find the final chunk with the complete response

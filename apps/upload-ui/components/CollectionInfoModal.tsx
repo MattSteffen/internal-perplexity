@@ -201,6 +201,8 @@ export function CollectionInfoModal({
                       ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"
                       : collection.access_level === "private"
                       ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300"
+                      : collection.access_level === "group_only"
+                      ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
                       : "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300"
                   }`}
                 >
@@ -208,6 +210,8 @@ export function CollectionInfoModal({
                     ? "Public"
                     : collection.access_level === "private"
                     ? "Private"
+                    : collection.access_level === "group_only"
+                    ? "Group only"
                     : "Admin"}
                 </span>
               </div>

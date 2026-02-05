@@ -7,6 +7,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
 from openai.types.chat import ChatCompletion
 from pydantic import BaseModel, Field
+from pymilvus import MilvusClient  # type: ignore
 
 from src.clients.milvuschat import milvuschat_client
 
@@ -26,6 +27,7 @@ class AgentRequest(BaseModel):
 async def create_agent_completion(
     request: Request,
     user: dict[str, Any] | None = None,
+    milvus_client: MilvusClient | None = None,
 ) -> StreamingResponse | ChatCompletion:
     """Handle agent completion requests.
 
@@ -91,6 +93,11 @@ async def create_agent_completion(
             status_code=401,
             detail="Milvus token is required. Please authenticate.",
         )
+    if milvus_client is None:
+        raise HTTPException(
+            status_code=500,
+            detail="Milvus client dependency is missing",
+        )
 
     try:
         # Create completion using MilvusChat client
@@ -104,6 +111,7 @@ async def create_agent_completion(
             stream=stream,
             collection=collection,
             token=token,
+            milvus_client=milvus_client,
             **kwargs,
         )
 
