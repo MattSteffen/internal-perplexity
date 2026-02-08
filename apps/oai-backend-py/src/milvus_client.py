@@ -9,28 +9,10 @@ from typing import Any
 from urllib.parse import urlparse
 
 from fastapi import Depends, HTTPException, Request, status
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from pymilvus import MilvusClient  # type: ignore
 
+from src.config import radchat_config
 from src.endpoints.auth import get_current_user
-
-
-class MilvusSettings(BaseSettings):
-    """Milvus connection settings."""
-
-    model_config = SettingsConfigDict(
-        env_prefix="MILVUS_",
-        case_sensitive=False,
-    )
-
-    uri: str = Field(
-        default="http://localhost:19530",
-        description="Milvus connection URI",
-    )
-
-
-_milvus_settings = MilvusSettings()
 
 _DEFAULT_TTL_SECONDS = 15 * 60
 _DEFAULT_MAX_SIZE = 250
@@ -38,7 +20,7 @@ _DEFAULT_MAX_SIZE = 250
 
 def get_milvus_uri() -> str:
     """Return the configured Milvus URI (e.g. for building crawler DatabaseClientConfig)."""
-    return _milvus_settings.uri
+    return radchat_config.milvus.resolved_uri
 
 
 def _fingerprint_token(token: str | None) -> str | None:
@@ -71,7 +53,7 @@ class MilvusClientPool:
         self._ttl_seconds = ttl_seconds
         self._max_size = max_size
         self._lock = RLock()
-        self._entries: "OrderedDict[str, _PoolEntry]" = OrderedDict()
+        self._entries: OrderedDict[str, _PoolEntry] = OrderedDict()
 
     def get(self, key: str, token: str | None) -> MilvusClient:
         now = time.monotonic()

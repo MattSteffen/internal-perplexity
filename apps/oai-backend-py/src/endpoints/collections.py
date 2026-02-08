@@ -5,7 +5,6 @@ from typing import Any, Literal
 
 from fastapi import HTTPException, status
 from pydantic import BaseModel, Field, model_validator
-
 from pymilvus import MilvusClient  # type: ignore
 
 from src.milvus_client import MilvusClientContext
@@ -80,7 +79,7 @@ class CreateCollectionRequest(BaseModel):
     )
 
     @model_validator(mode="after")
-    def validate_access_groups_when_group_only(self) -> "CreateCollectionRequest":
+    def validate_access_groups_when_group_only(self) -> CreateCollectionRequest:
         if self.access_level == "group_only" and not self.access_groups:
             raise ValueError("access_groups must be non-empty when access_level is group_only")
         return self
@@ -148,7 +147,7 @@ async def list_collections(context: MilvusClientContext) -> CollectionsResponse:
                     continue
                 # Get num_chunks from row_count
                 collection_info.num_chunks = client.get_collection_stats(collection_name).get("row_count", 0)
-                # Get num_partitions by listing partitions  
+                # Get num_partitions by listing partitions
                 try:
                     partitions = client.list_partitions(collection_name=collection_name)
                     collection_info.num_partitions = len(partitions) if partitions else 0
@@ -509,15 +508,12 @@ async def create_collection(
                 logger.warning("Best-effort cleanup after missing roles failed: %s", cleanup_err)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Roles do not exist in Milvus; cannot grant privileges: {missing_roles}. "
-                "Ensure the creator and access_groups roles exist (e.g. via Milvus admin).",
+                detail=f"Roles do not exist in Milvus; cannot grant privileges: {missing_roles}. " "Ensure the creator and access_groups roles exist (e.g. via Milvus admin).",
             ) from None
 
         try:
             for role in roles_to_grant:
-                _grant_collection_privilege(
-                    client, role, "CollectionReadWrite", collection_name, db_name="default"
-                )
+                _grant_collection_privilege(client, role, "CollectionReadWrite", collection_name, db_name="default")
                 logger.info("Granted CollectionReadWrite to role '%s' on '%s'", role, collection_name)
         except Exception as e:
             try:

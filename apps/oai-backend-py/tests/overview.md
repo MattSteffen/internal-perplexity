@@ -13,7 +13,10 @@ Package marker for tests.
 Smoke test for the `/health` endpoint using FastAPI's TestClient.
 
 ### `test_chat.py`
-Chat completions endpoint coverage for milvuschat parameter validation and token inference.
+Chat completions endpoint coverage for rejecting agent names as models.
+
+### `test_agents.py`
+Agent endpoint coverage for routing and basic request validation.
 
 ### `test_search.py`
 Regression coverage for the search handler when a collection description is missing.

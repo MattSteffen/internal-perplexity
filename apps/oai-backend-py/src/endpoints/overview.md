@@ -8,7 +8,7 @@ This package contains FastAPI endpoint handlers for the OpenAI-compatible API.
 Package marker for endpoint modules.
 
 ### `agent.py`
-Agent endpoint handler for collection-aware, tool-calling RAG conversations.
+Agent endpoint handler for `/v1/agents/{agent}`.
 
 ### `auth.py`
 OAuth2 login, callback, logout, and user info endpoints for Keycloak.

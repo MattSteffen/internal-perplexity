@@ -8,6 +8,7 @@ from fastapi import HTTPException, Request
 from openai.types import Model
 from pydantic import BaseModel
 
+from src.agents import agent_registry
 from src.config import settings
 
 
@@ -56,21 +57,14 @@ async def list_models(request: Request) -> ModelList:
         models.append(Model(**model_data))
 
     # Add custom agent models
-    radchat_model = Model(
-        id="radchat",
-        object="model",
-        created=current_time,
-        owned_by="custom",
-    )
-    models.append(radchat_model)
-
-    # MilvusChat - collection-bound agentic RAG
-    milvuschat_model = Model(
-        id="milvuschat",
-        object="model",
-        created=current_time,
-        owned_by="custom",
-    )
-    models.append(milvuschat_model)
+    for agent_name in agent_registry.list_agents():
+        models.append(
+            Model(
+                id=agent_name,
+                object="model",
+                created=current_time,
+                owned_by="custom",
+            )
+        )
 
     return ModelList(data=models, object="list")

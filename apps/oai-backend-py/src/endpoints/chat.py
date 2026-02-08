@@ -18,6 +18,7 @@ from openai.types.chat.chat_completion_message_function_tool_call import (
     Function,
 )
 
+from src.agents import agent_registry
 from src.clients.router import client_router
 from src.tools import tool_registry
 from src.utils import map_openai_error_to_http
@@ -103,11 +104,7 @@ async def _handle_non_streaming_completion(
             **kwargs,
         )
         tool_calls_count = 0
-        if (
-            isinstance(completion, ChatCompletion)
-            and completion.choices
-            and completion.choices[0].message.tool_calls
-        ):
+        if isinstance(completion, ChatCompletion) and completion.choices and completion.choices[0].message.tool_calls:
             tool_calls_count = len(completion.choices[0].message.tool_calls)
         logging.info(
             "chat_tool_loop iteration=%s model=%s tool_calls=%s",
@@ -217,16 +214,11 @@ async def create_chat_completion(
         }
 
     model_name = str(model).lower()
-    if model_name == "milvuschat":
-        if not other_params.get("token"):
-            inferred_token = user_metadata.get("milvus_token") if user_metadata else None
-            if inferred_token:
-                other_params["token"] = inferred_token
-            else:
-                raise HTTPException(
-                    status_code=401,
-                    detail="Milvus token is required for milvuschat",
-                )
+    if model_name in agent_registry.list_agents():
+        raise HTTPException(
+            status_code=400,
+            detail=f"'{model_name}' is an agent. Use /v1/agents/{model_name} instead of /v1/chat/completions.",
+        )
 
     # Add tools to the request if not explicitly provided
     # User can override by providing their own tools parameter
@@ -349,14 +341,6 @@ async def create_chat_completion(
                 },
             )
         else:
-            # Non-streaming: handle tool calls by executing and re-querying
-            if model_name == "milvuschat":
-                return await client_router.create_completion(
-                    model=model,
-                    messages=messages,
-                    stream=False,
-                    **other_params,
-                )
             return await _handle_non_streaming_completion(
                 model=model,
                 messages=messages,

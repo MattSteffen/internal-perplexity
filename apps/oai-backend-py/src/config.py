@@ -1,7 +1,5 @@
 """Configuration settings for the application."""
 
-import os
-
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -41,42 +39,58 @@ class Settings(BaseSettings):
     )
 
 
-settings = Settings()
-
-
 # -------------------------------
 # --- Radchat Config Models ---
 # -------------------------------
 
 
-class OllamaConfig(BaseModel):
+class OllamaConfig(BaseSettings):
     """Ollama client configuration."""
 
-    base_url: str = Field(default=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"))
-    embedding_model: str = Field(default=os.getenv("OLLAMA_EMBEDDING_MODEL", "all-minilm:v2"))
-    llm_model: str = Field(default=os.getenv("OLLAMA_LLM_MODEL", "gpt-oss:20b"))
-    request_timeout: int = Field(default=int(os.getenv("OLLAMA_REQUEST_TIMEOUT", "300")))
-    context_length: int = Field(default=int(os.getenv("OLLAMA_CONTEXT_LENGTH", "32000")))
+    model_config = SettingsConfigDict(
+        case_sensitive=False,
+    )
+
+    base_url: str = Field(default="http://localhost:11434", validation_alias="OLLAMA_BASE_URL")
+    embedding_model: str = Field(default="all-minilm:v2", validation_alias="OLLAMA_EMBEDDING_MODEL")
+    llm_model: str = Field(default="gpt-oss:20b", validation_alias="OLLAMA_LLM_MODEL")
+    request_timeout: int = Field(default=300, validation_alias="OLLAMA_REQUEST_TIMEOUT")
+    context_length: int = Field(default=32000, validation_alias="OLLAMA_CONTEXT_LENGTH")
 
 
-class MilvusConfig(BaseModel):
+class MilvusConfig(BaseSettings):
     """Milvus connection configuration."""
 
-    host: str = Field(default=os.getenv("MILVUS_HOST", "localhost"))
-    port: str = Field(default=os.getenv("MILVUS_PORT", "19530"))
-    username: str = Field(default=os.getenv("MILVUS_USERNAME", "matt"))
-    password: str = Field(default=os.getenv("MILVUS_PASSWORD", "steffen"))
-    collection_name: str = Field(default=os.getenv("IRAD_COLLECTION_NAME", "arxiv3"))
+    model_config = SettingsConfigDict(
+        case_sensitive=False,
+    )
+
+    uri: str | None = Field(default=None, validation_alias="MILVUS_URI")
+    host: str = Field(default="localhost", validation_alias="MILVUS_HOST")
+    port: str = Field(default="19530", validation_alias="MILVUS_PORT")
+    username: str = Field(default="matt", validation_alias="MILVUS_USERNAME")
+    password: str = Field(default="steffen", validation_alias="MILVUS_PASSWORD")
+    collection_name: str = Field(default="arxiv3", validation_alias="IRAD_COLLECTION_NAME")
+
+    @property
+    def resolved_uri(self) -> str:
+        if self.uri:
+            return self.uri
+        return f"http://{self.host}:{self.port}"
 
 
-class SearchConfig(BaseModel):
+class SearchConfig(BaseSettings):
     """Milvus search configuration."""
 
-    nprobe: int = Field(default=int(os.getenv("MILVUS_NPROBE", "10")))
-    search_limit: int = Field(default=int(os.getenv("MILVUS_SEARCH_LIMIT", "5")))
-    hybrid_limit: int = Field(default=int(os.getenv("MILVUS_HYBRID_SEARCH_LIMIT", "10")))
-    rrf_k: int = Field(default=int(os.getenv("MILVUS_RRF_K", "100")))
-    drop_ratio: float = Field(default=float(os.getenv("MILVUS_DROP_RATIO", "0.2")))
+    model_config = SettingsConfigDict(
+        case_sensitive=False,
+    )
+
+    nprobe: int = Field(default=10, validation_alias="MILVUS_NPROBE")
+    search_limit: int = Field(default=5, validation_alias="MILVUS_SEARCH_LIMIT")
+    hybrid_limit: int = Field(default=10, validation_alias="MILVUS_HYBRID_SEARCH_LIMIT")
+    rrf_k: int = Field(default=100, validation_alias="MILVUS_RRF_K")
+    drop_ratio: float = Field(default=0.2, validation_alias="MILVUS_DROP_RATIO")
     output_fields: list[str] = Field(
         default=[
             "metadata",
@@ -88,12 +102,52 @@ class SearchConfig(BaseModel):
     )
 
 
-class AgentConfig(BaseModel):
+class AgentConfig(BaseSettings):
     """Agent configuration."""
 
-    max_tool_calls: int = Field(default=int(os.getenv("AGENT_MAX_TOOL_CALLS", "5")))
-    default_role: str = Field(default=os.getenv("AGENT_DEFAULT_ROLE", "system"))
-    logging_level: str = Field(default=os.getenv("AGENT_LOGGING_LEVEL", "INFO"))
+    model_config = SettingsConfigDict(
+        case_sensitive=False,
+    )
+
+    max_tool_calls: int = Field(default=5, validation_alias="AGENT_MAX_TOOL_CALLS")
+    default_role: str = Field(default="system", validation_alias="AGENT_DEFAULT_ROLE")
+    logging_level: str = Field(default="INFO", validation_alias="AGENT_LOGGING_LEVEL")
+
+
+class MilvusPoolConfig(BaseSettings):
+    """Milvus client pool configuration."""
+
+    model_config = SettingsConfigDict(
+        case_sensitive=False,
+    )
+
+    ttl_seconds: int = Field(default=15 * 60, validation_alias="MILVUS_POOL_TTL_SECONDS")
+    max_size: int = Field(default=250, validation_alias="MILVUS_POOL_MAX_SIZE")
+
+
+class CorsConfig(BaseSettings):
+    """CORS configuration."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="OAI_",
+        case_sensitive=False,
+        env_parse_delimiter=",",
+    )
+
+    allow_origins: list[str] = Field(default_factory=lambda: ["*"], validation_alias="CORS_ALLOW_ORIGINS")
+    allow_credentials: bool = Field(default=True, validation_alias="CORS_ALLOW_CREDENTIALS")
+    allow_methods: list[str] = Field(default_factory=lambda: ["*"], validation_alias="CORS_ALLOW_METHODS")
+    allow_headers: list[str] = Field(default_factory=lambda: ["*"], validation_alias="CORS_ALLOW_HEADERS")
+
+
+class ToolingConfig(BaseSettings):
+    """Configuration for internal tooling behavior."""
+
+    model_config = SettingsConfigDict(
+        case_sensitive=False,
+    )
+
+    milvus_search_max_workers: int = Field(default=4, validation_alias="MILVUS_SEARCH_MAX_WORKERS")
 
 
 class UserValves(BaseModel):
@@ -126,5 +180,17 @@ class RadchatConfig(BaseModel):
             self.milvus.collection_name = valves.COLLECTION_NAME
 
 
+class AppConfig(BaseModel):
+    """Centralized application configuration."""
+
+    settings: Settings = Field(default_factory=Settings)
+    radchat: RadchatConfig = Field(default_factory=RadchatConfig)
+    milvus_pool: MilvusPoolConfig = Field(default_factory=MilvusPoolConfig)
+    cors: CorsConfig = Field(default_factory=CorsConfig)
+    tooling: ToolingConfig = Field(default_factory=ToolingConfig)
+
+
 # Instantiate a global, immutable base config
-radchat_config: RadchatConfig = RadchatConfig()
+app_config: AppConfig = AppConfig()
+radchat_config: RadchatConfig = app_config.radchat
+settings: Settings = app_config.settings

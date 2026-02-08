@@ -11,7 +11,6 @@ SearchResult, and Document for consolidation and citations.
 import asyncio
 import json
 import logging
-import os
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -19,6 +18,7 @@ from typing import Any
 
 from openai.types.chat import ChatCompletionToolParam
 
+from src.config import app_config, radchat_config
 from src.milvus_client import (
     get_milvus_uri,
     parse_milvus_token,
@@ -38,7 +38,7 @@ except ImportError as e:
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-DEFAULT_COLLECTION_NAME = os.environ.get("IRAD_COLLECTION_NAME", "arxiv3")
+DEFAULT_COLLECTION_NAME = radchat_config.milvus.collection_name
 
 _search_executor: ThreadPoolExecutor | None = None
 
@@ -46,7 +46,10 @@ _search_executor: ThreadPoolExecutor | None = None
 def _get_search_executor() -> ThreadPoolExecutor:
     global _search_executor
     if _search_executor is None:
-        _search_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="search")
+        _search_executor = ThreadPoolExecutor(
+            max_workers=app_config.tooling.milvus_search_max_workers,
+            thread_name_prefix="search",
+        )
     return _search_executor
 
 
@@ -154,9 +157,7 @@ def search(
 
         collection_desc = db.get_collection()
         if not collection_desc:
-            raise RuntimeError(
-                f"Collection '{coll}' has no description; cannot run semantic search without pipeline config"
-            )
+            raise RuntimeError(f"Collection '{coll}' has no description; cannot run semantic search without pipeline config")
         embedder = _ServerEmbedder(model=collection_desc.collection_config.embeddings.model)
         db.set_embedder(embedder)
         return db.search(texts=[query_text], filters=flist, limit=limit)
@@ -306,10 +307,12 @@ class MilvusSearchTool:
         metadata = arguments.get("_metadata") or {}
         token = metadata.get("milvus_token") or self._token
         if not token:
-            return json.dumps({
-                "error": "Milvus token is required. Provide via metadata.milvus_token or tool init.",
-                "error_type": "MissingToken",
-            })
+            return json.dumps(
+                {
+                    "error": "Milvus token is required. Provide via metadata.milvus_token or tool init.",
+                    "error_type": "MissingToken",
+                }
+            )
 
         text = arguments.get("text")
         queries = arguments.get("queries", [])

@@ -73,14 +73,14 @@ Defines `ChatCompletionClient` and `EmbeddingClient` protocols for unified inter
 #### `clients/ollama.py`
 Ollama client implementation. Wraps AsyncOpenAI client to proxy requests to Ollama.
 
-#### `clients/radchat.py`
-RadChat agent with hardcoded collection. Full agentic RAG implementation with:
-- Milvus vector search tool
-- System prompt with database schema and preliminary context
-- Citation building for source attribution
-- Streaming response support
+#### `clients/router.py`
+Client router that selects clients based on model name:
+- All other models -> OllamaClient
 
-#### `clients/milvuschat.py`
+### `agents/`
+Contains agent implementations for agent-specific endpoints.
+
+#### `agents/milvuschat.py`
 MilvusChat agent that dynamically connects to any collection. Features:
 - Uses collection's `llm_prompt` from CollectionDescription for system prompt
 - Performs initial search for preliminary context
@@ -89,12 +89,6 @@ MilvusChat agent that dynamically connects to any collection. Features:
 - Collection-specific metadata summaries
 - Pulls the canonical `search` tool schema from the shared tool registry
 
-#### `clients/router.py`
-Client router that selects clients based on model name:
-- `radchat` -> RadChatClient
-- `milvuschat` -> MilvusChatClient
-- All other models -> OllamaClient
-
 ### `endpoints/`
 Contains endpoint handler functions for API routes.
 
@@ -102,11 +96,9 @@ Contains endpoint handler functions for API routes.
 Package exports for all endpoint modules.
 
 #### `endpoints/agent.py`
-Agent endpoint handler. Implements `POST /v1/agent` for agentic RAG conversations:
-- Connects to specified Milvus collection
-- Uses collection's llm_prompt for system prompt
-- Supports streaming and non-streaming responses
-- Requires authentication with Milvus token
+Agent endpoint handler. Implements `POST /v1/agents/{agent}` for agentic conversations:
+- Agent selected from URL path
+- Uses agent-specific logic for Milvus token and collection handling
 
 #### `endpoints/chat.py`
 Chat completions endpoint handler. Implements `POST /v1/chat/completions` with:
@@ -114,7 +106,6 @@ Chat completions endpoint handler. Implements `POST /v1/chat/completions` with:
 - Tool/function calling with multi-turn support (up to 5 iterations)
 - Automatic tool injection from registry
 - Error handling for streaming responses
-- `milvuschat` requests require `collection` and default `token` from authenticated user context when omitted
 
 #### `endpoints/collections.py`
 Collections management. Implements:
@@ -148,7 +139,7 @@ Embeddings endpoint. Implements `POST /v1/embeddings` for generating embeddings.
 #### `endpoints/models.py`
 Models listing. Implements `GET /v1/models` listing:
 - All Ollama models from `/api/tags`
-- Custom agents: `radchat`, `milvuschat`
+- Custom agents: `milvuschat`
 
 #### `endpoints/pipeline_registry.py`
 Name-to-JSON pipeline registry. Pipelines are crawler-config-shaped dicts only; no CrawlerConfig creation or schema validation in this module.
@@ -200,4 +191,3 @@ Tool registry managing available tools:
 - `get_tool_definitions()`: Returns all tool definitions
 - `execute_tool(name, arguments, metadata)`: Executes tool with optional user metadata
 - Default tools: `get_weather`, `search`
-

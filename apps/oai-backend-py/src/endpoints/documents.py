@@ -48,9 +48,7 @@ class UploadResponse(BaseModel):
     processing_time_sec: float = 0.0
 
 
-def _load_config_from_collection(
-    collection_name: str, milvus_client: MilvusClient
-) -> tuple[CrawlerConfig, CollectionDescription]:
+def _load_config_from_collection(collection_name: str, milvus_client: MilvusClient) -> tuple[CrawlerConfig, CollectionDescription]:
     """Load CrawlerConfig and CollectionDescription from a collection. Raises HTTPException on failure."""
     if not milvus_client.has_collection(collection_name):
         raise HTTPException(
@@ -72,9 +70,7 @@ def _load_config_from_collection(
     return collection_desc.collection_config, collection_desc
 
 
-def _parse_security_groups(
-    security_groups: str | None, default: list[str]
-) -> list[str]:
+def _parse_security_groups(security_groups: str | None, default: list[str]) -> list[str]:
     """Parse security_groups JSON string or return default. Raises HTTPException on invalid JSON."""
     if not security_groups:
         return default
@@ -293,9 +289,7 @@ async def upload_document(
             logger.warning(f"Failed to check user permissions for '{username}': {e}")
             # Continue if RBAC check fails (graceful degradation)
 
-        doc_security_groups = _parse_security_groups(
-            security_groups, config.security_groups or ["public"]
-        )
+        doc_security_groups = _parse_security_groups(security_groups, config.security_groups or ["public"])
 
         # Override database config to use user's token
         config.database = config.database.copy_with_overrides(
@@ -357,11 +351,7 @@ async def upload_document(
             ) from e
 
         processing_time = time.time() - start_time
-        message = (
-            "Document already exists"
-            if not success
-            else "Document processed and uploaded successfully"
-        )
+        message = "Document already exists" if not success else "Document processed and uploaded successfully"
         return UploadResponse(
             message=message,
             collection_name=collection_name,

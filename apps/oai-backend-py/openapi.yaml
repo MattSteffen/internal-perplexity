@@ -631,18 +631,23 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
-  /v1/agent:
+  /v1/agents/{agent}:
     post:
       tags:
         - OpenAI Compatible
       summary: Agentic RAG completion
       description: |
-        Agentic RAG endpoint bound to a Milvus collection. Uses the collection's
-        llm_prompt for system prompt generation and performs semantic search as needed.
-        Requires authentication.
+        Agentic endpoint invoked by agent name. Requires authentication.
       operationId: createAgentCompletion
       security:
         - BearerAuth: []
+      parameters:
+        - name: agent
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Agent name
       requestBody:
         required: true
         content:
@@ -660,7 +665,7 @@ paths:
               schema:
                 type: string
         '400':
-          description: Bad request - missing collection or messages
+          description: Bad request - missing messages or invalid payload
           content:
             application/json:
               schema:
@@ -828,6 +833,11 @@ components:
             type: object
         usage:
           type: object
+        history:
+          type: array
+          description: Full call history including internal agent steps and tool calls
+          items:
+            $ref: '#/components/schemas/Message'
 
     EmbeddingRequest:
       type: object
@@ -1208,13 +1218,14 @@ components:
     AgentRequest:
       type: object
       required:
-        - collection
         - messages
       properties:
         model:
           type: string
-          default: milvuschat
-          description: Agent model to use
+          description: Underlying LLM model (defaults to config)
+        token:
+          type: string
+          description: Milvus token (optional when authenticated)
         collection:
           type: string
           minLength: 1
@@ -1228,7 +1239,3 @@ components:
           type: boolean
           default: false
           description: Whether to stream the response
-        llm_model:
-          type: [string, "null"]
-          description: Underlying LLM model (defaults to config)
-

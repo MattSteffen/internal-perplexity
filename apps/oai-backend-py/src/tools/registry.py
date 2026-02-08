@@ -52,7 +52,7 @@ class ToolRegistry:
                         }
                     )
         return definitions
-    
+
     def get_tool_definition(self, tool_name: str) -> dict[str, Any]:
         """Get the OpenAI tool definition for a specific tool.
 

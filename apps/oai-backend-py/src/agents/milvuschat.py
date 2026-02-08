@@ -1,4 +1,4 @@
-"""MilvusChat agent client - connects to a specified collection with dynamic system prompts."""
+"""MilvusChat agent - connects to a specified collection with dynamic system prompts."""
 
 import json
 import logging
@@ -7,7 +7,7 @@ import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
-from openai import AsyncOpenAI
+from fastapi.responses import StreamingResponse
 from openai.types.chat import (
     ChatCompletion,
     ChatCompletionChunk,
@@ -15,7 +15,8 @@ from openai.types.chat import (
 )
 from pymilvus import MilvusClient
 
-from src.config import radchat_config, settings
+from src.clients.router import client_router
+from src.config import radchat_config
 from src.milvus_client import get_milvus_uri
 from src.tools import tool_registry
 from src.tools.milvus_search import (
@@ -169,6 +170,34 @@ MAX_COLLECTION_DESCRIPTION_CHARS = 240
 MAX_COLLECTION_PROMPT_CHARS = 240
 
 
+def _serialize_completion(completion: ChatCompletion) -> dict[str, Any]:
+    """Serialize a ChatCompletion to a plain dict."""
+    if hasattr(completion, "model_dump"):
+        return completion.model_dump()  # type: ignore[return-value]
+    if hasattr(completion, "dict"):
+        return completion.dict()  # type: ignore[return-value]
+    return dict(completion)  # type: ignore[arg-type]
+
+
+def _build_history(
+    history_prefix: list[dict[str, Any]],
+    current_messages: list[dict[str, Any]],
+    assistant_content: str | None,
+) -> list[dict[str, Any]]:
+    """Build history list from prefix, messages, and final assistant response."""
+    history: list[dict[str, Any]] = []
+    if history_prefix:
+        history.extend(history_prefix)
+    history.extend(current_messages)
+    history.append(
+        {
+            "role": "assistant",
+            "content": assistant_content or "",
+        }
+    )
+    return history
+
+
 def build_single_collection_prompt(
     collection_name: str,
     collection_info: str,
@@ -264,7 +293,7 @@ def _format_catalog_entry(
     return entry
 
 
-class MilvusChatClient:
+class MilvusChatAgent:
     """MilvusChat agent that connects to a specified collection.
 
     Unlike the hardcoded RadChat, MilvusChat dynamically connects to any
@@ -272,7 +301,7 @@ class MilvusChatClient:
     """
 
     def __init__(self) -> None:
-        """Initialize the MilvusChat client."""
+        """Initialize the MilvusChat agent."""
         self._client: MilvusClient | None = None
         self._collection_name: str | None = None
 
@@ -335,13 +364,12 @@ class MilvusChatClient:
 
     async def _select_collection(
         self,
-        client: AsyncOpenAI,
         llm_model: str,
         messages: list[dict[str, Any]],
         available_collections_block: str,
         collection_names: list[str],
         invocation_id: str,
-    ) -> tuple[str | None, list[str], list[str]]:
+    ) -> tuple[str | None, list[str], list[str], list[dict[str, Any]]]:
         user_question = _extract_last_user_message(messages)
         selection_prompt = MILVUSCHAT_COLLECTION_SELECTOR_PROMPT_TEMPLATE.format(
             available_collections=available_collections_block,
@@ -356,20 +384,23 @@ class MilvusChatClient:
             invocation_id,
             len(selection_messages),
         )
-        response = await client.chat.completions.create(
+        response = await client_router.create_completion(
             model=llm_model,
             messages=selection_messages,
             stream=False,
             extra_body=_build_extra_body(),
         )
+        if not isinstance(response, ChatCompletion):
+            raise ValueError("Selector response was not a ChatCompletion")
         content = response.choices[0].message.content or ""
+        selection_history = selection_messages + [{"role": "assistant", "content": content}]
         parsed = _extract_json(content)
         if not parsed:
             logger.warning(
                 "milvuschat_collection_selected invocation_id=%s selected=none fallbacks=none reason=invalid_json",
                 invocation_id,
             )
-            return (collection_names[0] if collection_names else None), [], []
+            return (collection_names[0] if collection_names else None), [], [], selection_history
 
         selected = str(parsed.get("collection_name") or "").strip()
         if selected not in collection_names:
@@ -395,33 +426,52 @@ class MilvusChatClient:
             selected or "none",
             ",".join(fallbacks) if fallbacks else "none",
         )
-        return selected or None, fallbacks, first_queries
+        return selected or None, fallbacks, first_queries, selection_history
 
     async def create_completion(
         self,
-        model: str,
-        messages: list[dict[str, Any]],
-        stream: bool = False,
-        collection: str | None = None,
-        token: str | None = None,
+        agent_name: str,
+        body: dict[str, Any],
+        user: dict[str, Any] | None = None,
         milvus_client: MilvusClient | None = None,
-        **kwargs: Any,
-    ) -> ChatCompletion | AsyncIterator[ChatCompletionChunk]:
+    ) -> StreamingResponse | ChatCompletion:
         """Create a chat completion using MilvusChat agent.
 
         Args:
-            model: The model identifier (milvuschat or underlying LLM)
-            messages: List of message dictionaries
-            stream: Whether to stream the response
-            collection: Name of the Milvus collection to connect to
-            token: Milvus authentication token (username:password)
-            **kwargs: Additional parameters
+            agent_name: The agent name being invoked.
+            body: Request body.
+            user: Optional authenticated user context.
+            milvus_client: Optional Milvus client.
 
         Returns:
-            ChatCompletion or AsyncIterator[ChatCompletionChunk]
+            StreamingResponse for streaming or ChatCompletion for non-streaming.
         """
+        if "messages" not in body:
+            raise ValueError("Missing required field: 'messages'")
+
+        messages = body["messages"]
+        stream = body.get("stream", False)
+        collection = body.get("collection")
+        llm_model = body.get("model") or radchat_config.ollama.llm_model
+        token = body.get("token")
+
+        other_params = {k: v for k, v in body.items() if k not in ("messages", "stream", "collection", "model", "token")}
+
+        if user and not token:
+            token = user.get("milvus_token")
+
         if not token:
-            raise ValueError("token parameter is required for MilvusChat")
+            raise ValueError("Milvus token is required for MilvusChat")
+
+        extra_body = _build_extra_body()
+        if extra_body:
+            existing_extra = other_params.get("extra_body")
+            if isinstance(existing_extra, dict):
+                merged = extra_body.copy()
+                merged.update(existing_extra)
+                other_params["extra_body"] = merged
+            else:
+                other_params["extra_body"] = extra_body
 
         invocation_id = str(uuid.uuid4())
         logger.info(
@@ -432,17 +482,18 @@ class MilvusChatClient:
             len(messages),
         )
 
-        # The chat endpoint may inject a global `tools` list into kwargs.
+        # The agent endpoint may inject a global `tools` list into kwargs.
         # MilvusChat intentionally restricts tools to only its `milvus_search` tool,
         # and we pass that explicitly to the internal completion methods.
         # Remove any incoming `tools` to avoid "multiple values for keyword" errors.
-        kwargs.pop("tools", None)
+        other_params.pop("tools", None)
 
         if milvus_client is None:
             milvus_client = MilvusClient(uri=get_milvus_uri(), token=token)
 
         fallback_collections: list[str] = []
         first_queries: list[str] = []
+        history_prefix: list[dict[str, Any]] = []
         if not collection:
             entries, collection_names = self._build_collection_catalog(milvus_client)
             available_collections_block = _format_collection_catalog(entries)
@@ -455,17 +506,7 @@ class MilvusChatClient:
                 len(available_collections_block),
             )
 
-            base_url = radchat_config.ollama.base_url
-            if not base_url.endswith("/v1"):
-                base_url = base_url.rstrip("/") + "/v1"
-            selector_client = AsyncOpenAI(
-                base_url=base_url,
-                api_key=settings.api_key,
-                timeout=radchat_config.ollama.request_timeout,
-            )
-            llm_model = kwargs.get("llm_model", radchat_config.ollama.llm_model)
-            collection, fallback_collections, first_queries = await self._select_collection(
-                client=selector_client,
+            collection, fallback_collections, first_queries, history_prefix = await self._select_collection(
                 llm_model=llm_model,
                 messages=messages,
                 available_collections_block=available_collections_block,
@@ -489,7 +530,7 @@ class MilvusChatClient:
                         id=str(uuid.uuid4()),
                         object="chat.completion.chunk",
                         created=int(time.time()),
-                        model=model,
+                        model=agent_name,
                         choices=[
                             {  # type: ignore
                                 "index": 0,
@@ -504,7 +545,7 @@ class MilvusChatClient:
                 id=str(uuid.uuid4()),
                 object="chat.completion",
                 created=int(time.time()),
-                model=model,
+                model=agent_name,
                 choices=[
                     {  # type: ignore
                         "index": 0,
@@ -528,7 +569,7 @@ class MilvusChatClient:
                         id=str(uuid.uuid4()),
                         object="chat.completion.chunk",
                         created=int(time.time()),
-                        model=model,
+                        model=agent_name,
                         choices=[
                             {  # type: ignore
                                 "index": 0,
@@ -543,7 +584,7 @@ class MilvusChatClient:
                 id=str(uuid.uuid4()),
                 object="chat.completion",
                 created=int(time.time()),
-                model=model,
+                model=agent_name,
                 choices=[
                     {  # type: ignore
                         "index": 0,
@@ -631,8 +672,8 @@ class MilvusChatClient:
 
         # Create completion with agentic loop
         if stream:
-            return self._stream_completion(
-                model=model,
+            stream_iter = self._stream_completion(
+                model=agent_name,
                 messages=all_messages,
                 tools=[search_tool_schema],
                 milvus_client=milvus_client,
@@ -641,11 +682,42 @@ class MilvusChatClient:
                 initial_results=initial_results,
                 fallback_collections=fallback_collections,
                 invocation_id=invocation_id,
-                **kwargs,
+                history_prefix=history_prefix,
+                llm_model=llm_model,
+                **other_params,
+            )
+
+            async def generate() -> AsyncIterator[str]:
+                try:
+                    async for chunk in stream_iter:
+                        if isinstance(chunk, dict):
+                            yield f"data: {json.dumps(chunk)}\n\n"
+                        else:
+                            chunk_json = chunk.model_dump_json()
+                            yield f"data: {chunk_json}\n\n"
+                    yield "data: [DONE]\n\n"
+                except Exception as e:
+                    error_msg = str(e) if str(e) else "Stream error occurred"
+                    error_obj = {
+                        "error": {
+                            "message": error_msg,
+                            "type": "stream_error",
+                        }
+                    }
+                    yield f"data: {json.dumps(error_obj)}\n\n"
+                    yield "data: [DONE]\n\n"
+
+            return StreamingResponse(
+                generate(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                },
             )
         else:
             return await self._non_streaming_completion(
-                model=model,
+                model=agent_name,
                 messages=all_messages,
                 tools=[search_tool_schema],
                 milvus_client=milvus_client,
@@ -654,7 +726,9 @@ class MilvusChatClient:
                 initial_results=initial_results,
                 fallback_collections=fallback_collections,
                 invocation_id=invocation_id,
-                **kwargs,
+                history_prefix=history_prefix,
+                llm_model=llm_model,
+                **other_params,
             )
 
     async def _stream_completion(
@@ -668,28 +742,22 @@ class MilvusChatClient:
         initial_results: list[Any],
         fallback_collections: list[str] | None,
         invocation_id: str,
+        history_prefix: list[dict[str, Any]] | None = None,
         **kwargs: Any,
-    ) -> AsyncIterator[ChatCompletionChunk]:
+    ) -> AsyncIterator[Any]:
         """Handle streaming completion with tool calling."""
-        # Use underlying LLM model
         llm_model = kwargs.pop("llm_model", radchat_config.ollama.llm_model)
-
-        base_url = radchat_config.ollama.base_url
-        if not base_url.endswith("/v1"):
-            base_url = base_url.rstrip("/") + "/v1"
-
-        client = AsyncOpenAI(
-            base_url=base_url,
-            api_key=settings.api_key,
-            timeout=radchat_config.ollama.request_timeout,
-        )
+        extra_body = kwargs.pop("extra_body", None)
+        if extra_body is None:
+            extra_body = _build_extra_body()
 
         all_sources = initial_results.copy()
         current_messages = messages.copy()
         active_collection = collection
         fallback_queue = list((fallback_collections or [])[:1])
-        extra_body = _build_extra_body()
         had_tool_calls_last_iteration = False
+        assistant_content_buffer = ""
+        last_stop_chunk: ChatCompletionChunk | None = None
 
         for iteration in range(radchat_config.agent.max_tool_calls):
             logger.info(
@@ -698,16 +766,19 @@ class MilvusChatClient:
                 iteration + 1,
                 len(current_messages),
             )
-            response = await client.chat.completions.create(
+            response = await client_router.create_completion(
                 model=llm_model,
                 messages=current_messages,
                 tools=tools,
                 stream=True,
                 extra_body=extra_body,
+                **kwargs,
             )
+            if not hasattr(response, "__aiter__"):
+                raise ValueError("Streaming response was not an AsyncIterator")
 
             tool_calls_dict: dict[int, dict[str, Any]] = {}
-            async for chunk in response:
+            async for chunk in response:  # type: ignore[union-attr]
                 choice = chunk.choices[0] if chunk.choices else None
 
                 if choice and choice.delta.tool_calls:
@@ -724,6 +795,11 @@ class MilvusChatClient:
                         if tc_delta.function.arguments:
                             tool_calls_dict[idx]["function"]["arguments"] += tc_delta.function.arguments
                 else:
+                    if choice and choice.delta.content:
+                        assistant_content_buffer += choice.delta.content
+                    if choice and choice.finish_reason == "stop":
+                        last_stop_chunk = chunk
+                        continue
                     yield chunk
 
                 if choice and choice.finish_reason == "tool_calls":
@@ -737,6 +813,7 @@ class MilvusChatClient:
                 break
 
             had_tool_calls_last_iteration = True
+            assistant_content_buffer = ""
 
             # Add assistant message with tool calls
             current_messages.append(
@@ -788,9 +865,7 @@ class MilvusChatClient:
                             )
                             active_collection = fallback
                             try:
-                                collection_info, llm_prompt = self._load_collection_context(
-                                    milvus_client, active_collection
-                                )
+                                collection_info, llm_prompt = self._load_collection_context(milvus_client, active_collection)
                                 current_messages[0] = {
                                     "role": "system",
                                     "content": build_single_collection_prompt(
@@ -859,29 +934,43 @@ class MilvusChatClient:
                 radchat_config.agent.max_tool_calls + 1,
                 len(current_messages),
             )
-            final_response = await client.chat.completions.create(
+            final_response = await client_router.create_completion(
                 model=llm_model,
                 messages=current_messages,
                 stream=True,
                 extra_body=extra_body,
+                **kwargs,
             )
-            async for chunk in final_response:
+            async for chunk in final_response:  # type: ignore[union-attr]
+                choice = chunk.choices[0] if chunk.choices else None
+                if choice and choice.delta and choice.delta.content:
+                    assistant_content_buffer += choice.delta.content
+                if choice and choice.finish_reason == "stop":
+                    last_stop_chunk = chunk
+                    continue
                 yield chunk
 
-        # Yield final chunk with done signal
-        yield ChatCompletionChunk(
-            id=str(uuid.uuid4()),
-            object="chat.completion.chunk",
-            created=int(time.time()),
-            model=model,
-            choices=[
-                {  # type: ignore
-                    "index": 0,
-                    "delta": {},
-                    "finish_reason": "stop",
-                }
-            ],
+        # Yield final chunk with history before end of stream
+        history = _build_history(history_prefix or [], current_messages, assistant_content_buffer)
+        final_payload = (
+            last_stop_chunk.model_dump()
+            if last_stop_chunk is not None
+            else ChatCompletionChunk(
+                id=str(uuid.uuid4()),
+                object="chat.completion.chunk",
+                created=int(time.time()),
+                model=model,
+                choices=[
+                    {  # type: ignore
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": "stop",
+                    }
+                ],
+            ).model_dump()
         )
+        final_payload["history"] = history
+        yield final_payload
 
     async def _non_streaming_completion(
         self,
@@ -894,26 +983,19 @@ class MilvusChatClient:
         initial_results: list[Any],
         fallback_collections: list[str] | None,
         invocation_id: str,
+        history_prefix: list[dict[str, Any]] | None = None,
         **kwargs: Any,
-    ) -> ChatCompletion:
+    ) -> ChatCompletion | dict[str, Any]:
         """Handle non-streaming completion with tool calling."""
         llm_model = kwargs.pop("llm_model", radchat_config.ollama.llm_model)
-
-        base_url = radchat_config.ollama.base_url
-        if not base_url.endswith("/v1"):
-            base_url = base_url.rstrip("/") + "/v1"
-
-        client = AsyncOpenAI(
-            base_url=base_url,
-            api_key=settings.api_key,
-            timeout=radchat_config.ollama.request_timeout,
-        )
+        extra_body = kwargs.pop("extra_body", None)
+        if extra_body is None:
+            extra_body = _build_extra_body()
 
         all_sources = initial_results.copy()
         current_messages = messages.copy()
         active_collection = collection
         fallback_queue = list((fallback_collections or [])[:1])
-        extra_body = _build_extra_body()
 
         for iteration in range(radchat_config.agent.max_tool_calls):
             logger.info(
@@ -922,19 +1004,24 @@ class MilvusChatClient:
                 iteration + 1,
                 len(current_messages),
             )
-            response = await client.chat.completions.create(
+            response = await client_router.create_completion(
                 model=llm_model,
                 messages=current_messages,
                 tools=tools,
                 stream=False,
                 extra_body=extra_body,
+                **kwargs,
             )
+            if not isinstance(response, ChatCompletion):
+                raise ValueError("Non-streaming response was not a ChatCompletion")
 
             assistant_message = response.choices[0].message
             tool_calls = assistant_message.tool_calls
 
             if not tool_calls:
-                return response
+                completion_payload = _serialize_completion(response)
+                completion_payload["history"] = _build_history(history_prefix or [], current_messages, assistant_message.content)
+                return completion_payload
 
             # Add assistant message with tool calls
             current_messages.append(
@@ -996,9 +1083,7 @@ class MilvusChatClient:
                             )
                             active_collection = fallback
                             try:
-                                collection_info, llm_prompt = self._load_collection_context(
-                                    milvus_client, active_collection
-                                )
+                                collection_info, llm_prompt = self._load_collection_context(milvus_client, active_collection)
                                 current_messages[0] = {
                                     "role": "system",
                                     "content": build_single_collection_prompt(
@@ -1061,13 +1146,24 @@ class MilvusChatClient:
                     )
 
         # Final response after max iterations
-        return await client.chat.completions.create(
+        final_response = await client_router.create_completion(
             model=llm_model,
             messages=current_messages,
             stream=False,
             extra_body=extra_body,
+            **kwargs,
         )
+        if not isinstance(final_response, ChatCompletion):
+            raise ValueError("Final response was not a ChatCompletion")
+        completion_payload = _serialize_completion(final_response)
+        assistant_message = final_response.choices[0].message if final_response.choices else None
+        completion_payload["history"] = _build_history(
+            history_prefix or [],
+            current_messages,
+            assistant_message.content if assistant_message else "",
+        )
+        return completion_payload
 
 
 # Singleton instance
-milvuschat_client = MilvusChatClient()
+milvuschat_agent = MilvusChatAgent()

@@ -187,7 +187,11 @@ _ACADEMIC_JSON = """
         "year": {"type": "integer", "description": "Publication year.", "minimum": 1900, "maximum": 2100},
         "publication_date": {"type": "string", "format": "date", "description": "Full publication date if available (ISO 8601)."},
         "doi": {"type": "string", "pattern": "^10\\\\.[0-9]{4,}/.+$", "description": "Digital Object Identifier."},
-        "document_type": {"type": "string", "enum": ["journal_article", "conference_paper", "preprint", "thesis", "book_chapter", "technical_report", "review"], "description": "Academic document type for filtering."},
+        "document_type": {
+          "type": "string",
+          "enum": ["journal_article", "conference_paper", "preprint", "thesis", "book_chapter", "technical_report", "review"],
+          "description": "Academic document type for filtering."
+        },
         "venue": {"type": "string", "maxLength": 500, "description": "Journal name, conference name, or publisher."},
         "language": {"type": "string", "pattern": "^[a-z]{2}$", "description": "ISO 639-1 language code."},
         "subject_areas": {"type": "array", "description": "Academic disciplines.", "items": {"type": "string", "maxLength": 100}},
@@ -219,7 +223,11 @@ _ACADEMIC_JSON = """
       "authors": {"type": "array", "description": "List of authors.", "items": {"type": "string", "maxLength": 255}, "minItems": 1},
       "year": {"type": "integer", "description": "Publication year.", "minimum": 1900, "maximum": 2100},
       "publication_date": {"type": "string", "format": "date", "description": "Full publication date if available (ISO 8601)."},
-      "document_type": {"type": "string", "enum": ["journal_article", "conference_paper", "preprint", "thesis", "book_chapter", "technical_report", "review"], "description": "Academic document type for filtering."},
+      "document_type": {
+        "type": "string",
+        "enum": ["journal_article", "conference_paper", "preprint", "thesis", "book_chapter", "technical_report", "review"],
+        "description": "Academic document type for filtering."
+      },
       "venue": {"type": "string", "maxLength": 500, "description": "Journal name, conference name, or publisher."},
       "language": {"type": "string", "pattern": "^[a-z]{2}$", "description": "ISO 639-1 language code."},
       "subject_areas": {"type": "array", "description": "Academic disciplines.", "items": {"type": "string", "maxLength": 100}},
