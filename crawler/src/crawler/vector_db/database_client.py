@@ -352,7 +352,7 @@ class DatabaseClientConfig(BaseModel):
     collection: str = Field(..., min_length=1, description="Name of the database collection or table")
     partition: str | None = Field(default=None, description="Optional partition name for data organization within the collection")
     access_level: str = Field(default="public", description="Access level of the collection: public, private, group_only, admin")
-    recreate: bool = Field(default=False, description="If True, drop and recreate the collection if it already exists")
+    recreate: bool = Field(default=False, description="If True, drop and recreate the collection if it already exists") # TODO: Move this to the crawler config not the database client config.
     collection_description: str | None = Field(default=None, description="Optional human-readable description of the collection")
     host: str = Field(default="localhost", description="Database server hostname or IP address")
     port: int = Field(default=19530, ge=1, le=65535, description="Database server port number (must be between 1 and 65535)")

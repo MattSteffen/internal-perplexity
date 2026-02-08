@@ -19,10 +19,23 @@ from src.milvus_client import (
     get_milvus_uri,
 )
 
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.milvus_pool = MilvusClientPool(uri=get_milvus_uri())
+    yield
+    # Clean up the Milvus client pool and release the resources
+    app.state.milvus_pool.close_all()
+
+
+
 app = FastAPI(
     title="OpenAI-Compatible Backend",
     description="OpenAI-compatible API proxy for Ollama",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # Configure CORS to allow frontend requests
@@ -37,17 +50,6 @@ app.add_middleware(
 # Initialize OAuth with the FastAPI app
 init_oauth(app)
 
-# Initialize the Milvus client pool for this app instance.
-@app.on_event("startup")
-async def _startup_milvus_pool() -> None:
-    app.state.milvus_pool = MilvusClientPool(uri=get_milvus_uri())
-
-
-@app.on_event("shutdown")
-async def _shutdown_milvus_pool() -> None:
-    pool = getattr(app.state, "milvus_pool", None)
-    if pool:
-        pool.close_all()
 
 
 # Include authentication routes

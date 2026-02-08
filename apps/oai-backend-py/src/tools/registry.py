@@ -9,7 +9,7 @@ from src.tools.weather import WeatherTool
 # Registry of all available tools
 _AVAILABLE_TOOLS: dict[str, Tool] = {
     "get_weather": WeatherTool(),
-    "search": MilvusSearchTool(),
+    "milvus_search": MilvusSearchTool(),
 }
 
 
@@ -52,6 +52,19 @@ class ToolRegistry:
                         }
                     )
         return definitions
+    
+    def get_tool_definition(self, tool_name: str) -> dict[str, Any]:
+        """Get the OpenAI tool definition for a specific tool.
+
+        Args:
+            tool_name: The name of the tool to get the definition for.
+
+        Returns:
+            The tool definition in OpenAI format.
+        """
+        if tool_name not in self._tools:
+            raise KeyError(f"Tool '{tool_name}' is not registered")
+        return self._tools[tool_name].get_definition()
 
     async def execute_tool(self, tool_name: str, arguments: dict[str, Any], metadata: dict[str, Any] | None = None) -> str:
         """Execute a tool by name with the given arguments.

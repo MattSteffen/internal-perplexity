@@ -1,6 +1,7 @@
 """Chat completions endpoint handler."""
 
 import json
+import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -101,7 +102,19 @@ async def _handle_non_streaming_completion(
             stream=False,
             **kwargs,
         )
-        print(f"Completion-{iteration}", completion)
+        tool_calls_count = 0
+        if (
+            isinstance(completion, ChatCompletion)
+            and completion.choices
+            and completion.choices[0].message.tool_calls
+        ):
+            tool_calls_count = len(completion.choices[0].message.tool_calls)
+        logging.info(
+            "chat_tool_loop iteration=%s model=%s tool_calls=%s",
+            iteration,
+            model,
+            tool_calls_count,
+        )
 
         # Check if response is a ChatCompletion
         if not isinstance(completion, ChatCompletion):
@@ -205,11 +218,6 @@ async def create_chat_completion(
 
     model_name = str(model).lower()
     if model_name == "milvuschat":
-        if not other_params.get("collection"):
-            raise HTTPException(
-                status_code=400,
-                detail="Missing required field for milvuschat: 'collection'",
-            )
         if not other_params.get("token"):
             inferred_token = user_metadata.get("milvus_token") if user_metadata else None
             if inferred_token:
@@ -342,6 +350,13 @@ async def create_chat_completion(
             )
         else:
             # Non-streaming: handle tool calls by executing and re-querying
+            if model_name == "milvuschat":
+                return await client_router.create_completion(
+                    model=model,
+                    messages=messages,
+                    stream=False,
+                    **other_params,
+                )
             return await _handle_non_streaming_completion(
                 model=model,
                 messages=messages,

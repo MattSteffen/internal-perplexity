@@ -4,15 +4,14 @@
 
 - Search tool:
   - Make new version that has all the types in a single file for open-webui.
+  - Be able to use with open-webui
+    - Create the openapi.json file for OI.
 - Radchat:
-  - Use the milvus search tool with correct collection name and user token.
-    - Should get the token from the user auth header, not body.
-    - Should be able to choose collection name from the prompt, not be from the body.
-  - Good system prompt.
-  - Can answer database metadata questions and semantic questions.
-  - Be able to use curl
-  - Be able to use in chat with open-webui
   - Make new version that has all the types in a single file for open-webui.
+  - Add chat history to the oi call response
+- Deployment
+  - Be able to deploy to a server
+  - k8s deployment with helm
 
 Authorization:
 
@@ -24,18 +23,7 @@ Authorization:
 
 **Other**:
 
-- Test the creation of a new collection via curl.
-  - Modify the api so that a it doesn't take a template, but a whole config. The UI can use the template dropdown to select a template and fill in the details.
-- Make good templates
-  - in ui, let the users select a template from a dropdown.
-- Fix the types in search results make sure things are rendered correctly.
-- ensure that the upload and search from the ui use rbac.
-- The source has the filename as the base name, this should be used to help determine the title if not provided.
-  - in the database, the source should be the basename.
 - remove `recreate` from the database config.
-- Uploading:
-  - Make the metadata extraction more robust in crawler
-  - test with new collection, upload, search, chat, permissions
 - Authentication:
   - Reintegrate oauth again
   - make proper syncing scrupt for milvus users and groups.
@@ -123,13 +111,3 @@ builtin_privilege_groups:
 
 
 ```
-
-```bash
-TOKEN="matt:steffen"
-CRAWLER_CONFIG='{"name":"standard","embeddings":{"model":"qwen3-embedding:0.6b","base_url":"http://localhost:11434","api_key":"","provider":"ollama","dimension":null},"llm":{"model_name":"gpt-oss:20b","base_url":"http://localhost:11434","system_prompt":null,"ctx_length":32000,"default_timeout":300.0,"provider":"ollama","api_key":"","structured_output":"tools"},"vision_llm":{"model_name":"qwen3-vl:2b","base_url":"http://localhost:11434","system_prompt":null,"ctx_length":32000,"default_timeout":300.0,"provider":"ollama","api_key":"","structured_output":"response_format"},"database":{"provider":"milvus","collection":"athirdtest","partition":null,"access_level":"public","recreate":false,"collection_description":"Standard document collection","host":"localhost","port":19530,"username":"placeholder","password":"placeholder"},"converter":{"type":"pymupdf4llm","vlm_config":{"model_name":"qwen3-vl:2b","base_url":"http://localhost:11434","system_prompt":null,"ctx_length":32000,"default_timeout":300.0,"provider":"ollama","api_key":"","structured_output":"response_format"},"image_prompt":"Describe this image in detail. Focus on the main content, objects, text, and any relevant information useful in a document context.","max_workers":2,"to_markdown_kwargs":{}},"extractor":{"json_schema":{"type":"object","required":["title","authors","year","keywords"],"properties":{"title":{"type":"string","maxLength":500,"description":"Document title."},"authors":{"type":"array","description":"List of authors or contributors.","items":{"type":"string","maxLength":255},"minItems":1},"year":{"type":"integer","description":"Publication year for filtering and sorting.","minimum":1900,"maximum":2100},"document_type":{"type":"string","enum":["report","article","book","whitepaper","manual","presentation","other"],"description":"Broad document category for filtering."},"categories":{"type":"array","description":"High-level subject categories.","items":{"type":"string","maxLength":100}},"keywords":{"type":"array","description":"Searchable keywords describing content.","items":{"type":"string","maxLength":100}},"description":{"type":"string","maxLength":5000,"description":"Brief summary or abstract."}}},"context":"General document collection","structured_output":"json_schema","include_benchmark_questions":false,"num_benchmark_questions":3,"truncate_document_chars":4000,"strict":true},"chunking":{"chunk_size":2000,"overlap":200,"strategy":"naive","preserve_paragraphs":true,"min_chunk_size":100},"metadata_schema":{"type":"object","required":["title","authors","year","keywords"],"properties":{"title":{"type":"string","maxLength":500,"description":"Document title."},"authors":{"type":"array","description":"List of authors or contributors.","items":{"type":"string","maxLength":255},"minItems":1},"year":{"type":"integer","description":"Publication year for filtering and sorting.","minimum":1900,"maximum":2100},"document_type":{"type":"string","enum":["report","article","book","whitepaper","manual","presentation","other"],"description":"Broad document category for filtering."},"categories":{"type":"array","description":"High-level subject categories.","items":{"type":"string","maxLength":100}},"keywords":{"type":"array","description":"Searchable keywords describing content.","items":{"type":"string","maxLength":100}},"description":{"type":"string","maxLength":5000,"description":"Brief summary or abstract."}}},"temp_dir":"tmp/","use_cache":true,"benchmark":false,"generate_benchmark_questions":false,"num_benchmark_questions":3,"security_groups":["public"]}'
-curl -X POST http://localhost:8000/v1/collections \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "{\"access_level\": \"public\", \"access_groups\": [], \"crawler_config\": $CRAWLER_CONFIG}"
-```
-

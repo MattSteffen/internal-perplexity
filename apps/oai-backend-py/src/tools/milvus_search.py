@@ -257,7 +257,7 @@ class MilvusSearchTool:
         return ChatCompletionToolParam(
             type="function",
             function={
-                "name": "search",
+                "name": "milvus_search",
                 "description": "Performs a semantic search. If no text or queries are provided, returns documents matching the filters (query by filter).",
                 "parameters": {
                     "type": "object",
@@ -278,6 +278,11 @@ class MilvusSearchTool:
                             "description": "Filter expressions to apply",
                             "default": [],
                         },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of results to return.",
+                            "default": 100,
+                        },
                         "collection_name": {
                             "type": "string",
                             "description": "Milvus collection name. Default from env IRAD_COLLECTION_NAME.",
@@ -292,6 +297,12 @@ class MilvusSearchTool:
         )
 
     async def execute(self, arguments: dict[str, Any]) -> str:
+        logging.info(
+            "milvus_search_execute collection_name=%s limit=%s token_present=%s",
+            arguments.get("collection_name"),
+            arguments.get("limit"),
+            bool((arguments.get("_metadata") or {}).get("milvus_token") or self._token),
+        )
         metadata = arguments.get("_metadata") or {}
         token = metadata.get("milvus_token") or self._token
         if not token:
@@ -303,6 +314,7 @@ class MilvusSearchTool:
         text = arguments.get("text")
         queries = arguments.get("queries", [])
         filters = arguments.get("filters", [])
+        limit = arguments.get("limit")
         collection_name = arguments.get("collection_name")
         partition_name = arguments.get("partition_name")
 
@@ -313,6 +325,7 @@ class MilvusSearchTool:
                 filters=filters,
                 collection_name=collection_name,
                 partition_name=partition_name,
+                limit=limit,
                 token=token,
             )
         except CollectionNotFoundError as e:
@@ -340,6 +353,7 @@ async def search_async(
     filters: list[str],
     collection_name: str | None,
     partition_name: str | None,
+    limit: int | None,
     token: str,
 ) -> list[SearchResult]:
     """Run sync search in executor (db.search is sync and may call embedder)."""
@@ -352,6 +366,7 @@ async def search_async(
             filters=filters,
             collection_name=collection_name,
             partition_name=partition_name,
+            limit=limit if isinstance(limit, int) and limit > 0 else 100,
             token=token,
         ),
     )

@@ -11,7 +11,7 @@ Package marker for client modules.
 Protocol definitions for `ChatCompletionClient` and `EmbeddingClient` interfaces.
 
 ### `milvuschat.py`
-MilvusChat agent client for collection-specific RAG workflows with tool-calling support.
+MilvusChat agent client for collection-aware RAG workflows with LLM-driven collection selection, selector-guided pre-search, single-collection prompts, tool calling, and fallback collection retries when no documents are found.
 
 ### `ollama.py`
 Ollama client implementation that proxies OpenAI-compatible requests to Ollama.

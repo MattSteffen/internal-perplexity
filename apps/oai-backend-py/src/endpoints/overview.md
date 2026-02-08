@@ -14,7 +14,7 @@ Agent endpoint handler for collection-aware, tool-calling RAG conversations.
 OAuth2 login, callback, logout, and user info endpoints for Keycloak.
 
 ### `chat.py`
-Chat completions handler with streaming and tool-calling support.
+Chat completions handler with streaming support, tool-calling, and direct MilvusChat routing to avoid double tool execution when a collection is omitted.
 
 ### `collections.py`
 Collection management endpoints for listing, creating, and role/user access queries.

@@ -11,7 +11,7 @@ Exports the `tool_registry` singleton.
 Tool protocol definition with `get_definition()` and async `execute()` contract.
 
 ### `milvus_search.py`
-Milvus search tool implementation with schema definition, execution, and helpers.
+Milvus search tool implementation with schema definition, execution, helpers, rendering utilities for agent pre-search/tool calls, optional result limiting, and request logging for observability.
 
 ### `registry.py`
 Tool registry that stores available tools, returns their definitions, and executes tools by name.
